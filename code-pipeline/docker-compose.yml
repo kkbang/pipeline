@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  airflow:
+    build:
+      context: .
+      dockerfile: airflow/Dockerfile
+    container_name: code-pipeline-airflow
+    restart: unless-stopped
+    env_file:
+      - .env
+      - airflow/config/airflow.env
+    environment:
+      PYTHONPATH: /opt/airflow
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow/logs:/opt/airflow/logs
+      - ./local_data:/opt/airflow/local_data
+    command: >
+      bash -c "
+      airflow db migrate &&
+      (
+        airflow users create --username admin --firstname admin --lastname admin --role Admin --email admin@example.com --password admin ||
+        airflow users reset-password --username admin --password admin
+      ) &&
+      airflow scheduler & exec airflow webserver
+      "

@@ -1,0 +1,7 @@
+*_data/
+.env
+.DS_Store
+__pycache__/
+*.py[cod]
+airflow/logs/
+airflow/.env
