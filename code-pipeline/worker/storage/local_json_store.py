@@ -51,6 +51,10 @@ class LocalJsonStore:
         path = self._resolve_path(relative_path)
         return self._read_json(path)
 
+    def get_document(self, collection_name: str, doc_id: str) -> dict:
+        path = self._document_path(collection_name, doc_id)
+        return self._read_json(path)
+
     def upsert_document(self, collection_name: str, doc_id: str, body: dict) -> None:
         path = self._document_path(collection_name, doc_id)
         existing = self._read_json(path, default={"_id": doc_id, "_source": {}})
