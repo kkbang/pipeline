@@ -1,11 +1,11 @@
 import requests
-
+import logging
 from worker.seed.resolvers.github_repo_resolver import GitHubRepoResolver
 from worker.seed.qualifiers.repo_qualifier import qualify_repo
 from worker.storage.local_json_store import LocalJsonStore
 # from worker.storage.opensearch_store import OpenSearchStore
 
-
+logger = logging.getLogger(__name__)
 def _build_discovery_source(source: dict) -> dict:
     return {
         "source_type": source.get("source_type"),
@@ -40,6 +40,21 @@ def _merge_discovery_sources(existing_sources: list[dict], current_source: dict)
 
     return merged_sources
 
+def _group_by_repo(seed_docs: list[dict]) -> dict[tuple[str, str], list[dict]]:
+    grouped = {}
+    
+    for hit in seed_docs:
+        source = hit["_source"]
+        owner = source["owner"].lower()
+        repo = source["repo"].lower()
+        repo_key = (owner, repo)
+
+        if repo_key not in grouped:
+            grouped[repo_key] = []
+
+        grouped[repo_key].append(hit)
+
+    return grouped
 
 def run_seed_qualification() -> None:
     store = LocalJsonStore()
@@ -47,62 +62,82 @@ def run_seed_qualification() -> None:
     resolver = GitHubRepoResolver()
 
     seed_docs = store.find_documents_by_status(collection_name="seed_item_index", status="normalized")
+    grouped_seed_docs = _group_by_repo(seed_docs)
 
-    for hit in seed_docs:
-        doc_id = hit["_id"]
-        source = hit["_source"]
-
-        owner = source["owner"]
-        repo = source["repo"]
-        
+    for (owner,repo), hits in grouped_seed_docs.items(): 
+        source = hits[0]["_source"]
         try:
             repo_metadata = resolver.fetch_repo_metadata(owner, repo)
         except requests.HTTPError as exc:
+            logger.warning(
+                    "GitHub qualification failed for %s/%s: reason=%s status_code=%s group_size=%s error=%s",
+                    owner,
+                    repo,
+                    reason,
+                    status_code,
+                    len(hits),
+                    str(exc),
+                )
+
             status_code = exc.response.status_code if exc.response is not None else None
             reason = "github_rate_limited" if status_code == 403 else "github_api_error"
-            store.update_document(
-                collection_name="seed_item_index",
-                doc_id=doc_id,
-                body={
-                    "status": "qualification_failed",
-                    "reason": reason,
-                    "error_status_code": status_code,
-                    "error_message": str(exc),
-                },
-            )
+            for group_hit in hits:
+                store.update_document(
+                    collection_name="seed_item_index",
+                    doc_id=group_hit["_id"],
+                    body={
+                        "status": "qualification_failed",
+                        "reason": reason,
+                        "error_status_code": status_code,
+                        "error_message": str(exc),
+                    },
+                )
             continue
         except requests.RequestException as exc:
-            store.update_document(
-                collection_name="seed_item_index",
-                doc_id=doc_id,
-                body={
-                    "status": "qualification_failed",
-                    "reason": "github_request_failed",
-                    "error_message": str(exc),
-                },
+            logger.warning(
+                "GitHub request failed for %s/%s: group_size=%s error=%s",
+                owner,
+                repo,
+                len(hits),
+                str(exc),
             )
+            for group_hit in hits:
+                store.update_document(
+                    collection_name="seed_item_index",
+                    doc_id=group_hit["_id"],
+                    body={
+                        "status": "qualification_failed",
+                        "reason": "github_request_failed",
+                        "error_message": str(exc),
+                    },
+                )
             continue
 
         is_eligible, reason, score = qualify_repo(repo_metadata)
 
         if not is_eligible:
-            store.update_document(
-                collection_name="seed_item_index",
-                doc_id=doc_id,
-                body={
-                    "status": "rejected",
-                    "reason": reason,
-                },
-            )
+            for group_hit in hits:
+                store.update_document(
+                    collection_name="seed_item_index",
+                    doc_id=group_hit["_id"],
+                    body={
+                        "status": "rejected",
+                        "reason": reason,
+                    },
+                )
             continue
 
         repo_doc_id = f"github:{owner}/{repo}"
         existing_repo_doc = store.get_document(collection_name="repo_registry_index", doc_id=repo_doc_id)
         existing_repo_source = existing_repo_doc.get("_source", {})
-        discovery_sources = _merge_discovery_sources(
-            existing_repo_source.get("discovery_sources", []),
-            _build_discovery_source(source),
-        )
+        discovery_sources = existing_repo_source.get("discovery_sources", [])
+
+        for group_hit in hits:
+            group_source = group_hit["_source"]
+            discovery_sources = _merge_discovery_sources(
+                discovery_sources,
+                _build_discovery_source(group_source),
+            )
         repo_body = {
             "canonical_repo_url": source["canonical_repo_url"],
             "owner": owner,
@@ -118,6 +153,7 @@ def run_seed_qualification() -> None:
             "is_fork": repo_metadata.get("fork", False),
             "priority_score": score,
             "crawl_status": "scheduled",
+            # 단일 출처만 저장,discovery_sources에 보임
             "discovery_source_type": source.get("source_type"),
             "discovery_source_name": source.get("source_name"),
             "discovery_source_item_id": source.get("source_item_id"),
@@ -142,11 +178,11 @@ def run_seed_qualification() -> None:
             doc_id=repo_doc_id,
             body=repo_body,
         )
-
-        store.update_document(
-            collection_name="seed_item_index",
-            doc_id=doc_id,
-            body={
-                "status": "registered",
-            },
-        )
+        for group_hit in hits:
+            store.update_document(
+                collection_name="seed_item_index",
+                doc_id=group_hit["_id"],
+                body={
+                    "status": "registered",
+                },
+            )

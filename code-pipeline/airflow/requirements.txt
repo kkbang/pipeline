@@ -4,3 +4,4 @@ requests==2.32.3
 pydantic==2.9.2
 python-dotenv==1.0.1
 pyarrow==17.0.0
+requests[socks]==2.32.3

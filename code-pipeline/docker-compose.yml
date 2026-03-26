@@ -20,6 +20,12 @@ services:
       - ./benchmark_data:/opt/airflow/benchmark_data
     command: >
       bash -c "
+      echo 'Waiting for Tor-Proxy (9050)...' &&
+      until (echo > /dev/tcp/tor-proxy/9050) >/dev/null 2>&1; do
+        echo 'Tor is not ready yet... sleeping'
+        sleep 3
+      done &&
+      echo 'Tor-Proxy is UP! Starting Airflow...' &&
       airflow db migrate &&
       (
         airflow users create --username admin --firstname admin --lastname admin --role Admin --email admin@example.com --password admin ||
@@ -27,3 +33,14 @@ services:
       ) &&
       airflow scheduler & exec airflow webserver
       "
+    depends_on:
+      - tor-proxy
+  tor-proxy:
+    image: dockurr/tor
+    container_name: tor-proxy
+    environment:
+      - TOR_CONTROL_PORT=9051
+    ports:
+      - "9050:9050"
+      - "9051:9051"
+    restart: always
