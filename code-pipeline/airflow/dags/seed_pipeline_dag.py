@@ -5,7 +5,12 @@ from datetime import datetime
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-from worker.seed.services.seed_ingest_service import run_curated_repo_ingestion, run_seed_ingestion
+from worker.seed.services.benchmark_artifact_fetch_service import run_benchmark_artifact_fetch
+from worker.seed.services.seed_ingest_service import (
+    run_benchmark_dataset_ingestion,
+    run_curated_repo_ingestion,
+    run_seed_ingestion,
+)
 from worker.seed.services.seed_normalize_service import run_seed_normalization
 from worker.seed.services.seed_qualify_service import run_seed_qualification
 
@@ -19,6 +24,7 @@ default_args = {
 
 SEED_CONFIG_PATH = Path("/opt/airflow/config/seed_packages.json")
 CURATED_REPO_LIST_CONFIG_PATH = Path("/opt/airflow/config/curated_repo_lists.json")
+BENCHMARK_DATASET_CONFIG_PATH = Path("/opt/airflow/config/benchmark_datasets.json")
 
 
 def load_seed_packages(registry: str) -> list[str]:
@@ -42,6 +48,22 @@ def load_curated_repo_lists() -> dict[str, list[str | dict]]:
     return curated_lists
 
 
+def load_benchmark_datasets() -> dict[str, dict]:
+    payload = json.loads(BENCHMARK_DATASET_CONFIG_PATH.read_text(encoding="utf-8"))
+    benchmark_datasets = {}
+
+    for dataset_name, dataset_config in payload.items():
+        if not isinstance(dataset_name, str) or not isinstance(dataset_config, dict):
+            continue
+
+        if dataset_config.get("enabled") is not True:
+            continue
+
+        benchmark_datasets[dataset_name] = dataset_config
+
+    return benchmark_datasets
+
+
 def slugify_task_suffix(value: str) -> str:
     return re.sub(r"[^a-z0-9_]+", "_", value.lower()).strip("_")
 
@@ -56,23 +78,18 @@ with DAG(
     tags=["seed", "package-registry"],
 ) as dag:
 
-    ingest_pypi_task = PythonOperator(
-        task_id="seed_ingestion_pypi",
-        python_callable=run_seed_ingestion,
-        op_kwargs={
-            "registry": "pypi",
-            "package_names": load_seed_packages("pypi"),
-        },
-    )
-
-    ingest_npm_task = PythonOperator(
-        task_id="seed_ingestion_npm",
-        python_callable=run_seed_ingestion,
-        op_kwargs={
-            "registry": "npm",
-            "package_names": load_seed_packages("npm"),
-        },
-    )
+    package_registry_ingest_tasks = []
+    for registry in ["pypi", "npm"]:
+        package_registry_ingest_tasks.append(
+            PythonOperator(
+                task_id=f"seed_ingestion_{registry}",
+                python_callable=run_seed_ingestion,
+                op_kwargs={
+                    "registry": registry,
+                    "package_names": load_seed_packages(registry),
+                },
+            )
+        )
 
     curated_ingest_tasks = []
     for list_name, repo_entries in load_curated_repo_lists().items():
@@ -87,6 +104,30 @@ with DAG(
             )
         )
 
+    benchmark_ingest_tasks = []
+    for dataset_name, dataset_config in load_benchmark_datasets().items():
+        ingest_task = PythonOperator(
+            task_id=f"seed_ingestion_benchmark_{slugify_task_suffix(dataset_name)}",
+            python_callable=run_benchmark_dataset_ingestion,
+            op_kwargs={
+                "dataset_name": dataset_name,
+                "dataset_config": dataset_config,
+            },
+        )
+        benchmark_ingest_tasks.append(ingest_task)
+
+        artifact_fetch = dataset_config.get("artifact_fetch") or {}
+        if artifact_fetch.get("enabled") is True:
+            fetch_task = PythonOperator(
+                task_id=f"benchmark_artifact_fetch_{slugify_task_suffix(dataset_name)}",
+                python_callable=run_benchmark_artifact_fetch,
+                op_kwargs={
+                    "dataset_name": dataset_name,
+                    "dataset_config": dataset_config,
+                },
+            )
+            fetch_task >> ingest_task
+
     normalize_task = PythonOperator(
         task_id="seed_normalization",
         python_callable=run_seed_normalization,
@@ -97,4 +138,4 @@ with DAG(
         python_callable=run_seed_qualification,
     )
 
-    [ingest_pypi_task, ingest_npm_task, *curated_ingest_tasks] >> normalize_task >> qualify_task
+    [*package_registry_ingest_tasks, *curated_ingest_tasks, *benchmark_ingest_tasks] >> normalize_task >> qualify_task

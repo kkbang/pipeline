@@ -1,18 +1,10 @@
 {
   "llm_license_focus_v1": [
     "https://github.com/microsoft/vscode",
-    "https://github.com/hashicorp/terraform",
-    "https://github.com/apache/airflow",
-    "https://github.com/vercel/next.js",
-    "https://github.com/kubernetes/kubernetes",
     "https://github.com/git/git",
-    "https://github.com/apache/spark",
     "https://github.com/ansible/ansible",
     "https://github.com/elastic/elasticsearch",
     "https://github.com/prometheus/prometheus",
-    "https://github.com/grafana/grafana",
-    "https://github.com/apache/kafka",
-    "https://github.com/apache/flink",
     "https://github.com/python/cpython",
     "https://github.com/torvalds/linux",
     "https://github.com/llvm/llvm-project",
@@ -28,7 +20,15 @@
     "https://github.com/supabase/supabase",
     "https://github.com/home-assistant/core",
     "https://github.com/jenkinsci/jenkins",
-    "https://github.com/apache/hadoop",
-    "https://github.com/cockroachdb/cockroach"
+    "https://github.com/cockroachdb/cockroach",
+    "https://github.com/redis/redis",
+    "https://github.com/mysql/mysql-server",
+    "https://github.com/duckdb/duckdb",
+    "https://github.com/ClickHouse/ClickHouse",
+    "https://github.com/envoyproxy/envoy",
+    "https://github.com/istio/istio",
+    "https://github.com/getsentry/sentry",
+    "https://github.com/tauri-apps/tauri",
+    "https://github.com/curl/curl"
   ]
 }

@@ -13,6 +13,7 @@
 - 현재 seed source:
   - package registry repo: `PyPI`, `npm`
   - curated repo list: 정적 GitHub repo URL 목록
+  - benchmark dataset source: benchmark dataset artifact에서 추출한 공개 repo
 - 현재 기본 저장소: 로컬 JSON 파일
 - 장기 설계 저장소: `OpenSearch`, `S3`
 - 실행 환경: `Airflow + Docker Compose`
@@ -78,21 +79,28 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 | Curated Repo List              | 사람이 직접 고른 공개 repo 목록                              | 구현됨 |
 | Direct Repo Seed               | 사용자가 repo URL을 직접 지정                                | 예정   |
 | Org / User Seed                | GitHub org/user 아래 repo 일괄 수집                          | 예정   |
-| Benchmark Repo Source          | benchmark에 등장하는 공개 repo 기반 수집                     | 예정   |
+| Benchmark Dataset Source       | benchmark dataset artifact에서 repo를 추출해 seed로 등록    | 구현됨 |
 | GitHub Search                  | query 기반 repo 수집                                         | 예정   |
 | Topic 기반 Seed                | GitHub topic/tag 기반 repo 수집                              | 예정   |
 | Dependency Expansion           | package dependency/lockfile 기반 확장                        | 예정   |
 | Fork Network Seed              | fork graph 기반 확장                                         | 예정   |
 | README External Link Expansion | README, docs 외부 링크 기반 repo 확장                        | 예정   |
 
-현재는 `PyPI`, `npm`, curated repo list 세 가지 경로만 실제 DAG에 연결되어 있습니다.
+현재는 `PyPI`, `npm`, curated repo list가 기본 DAG에 연결되어 있고, benchmark dataset source는 dataset config를 활성화했을 때 동적으로 추가됩니다.
+
+현재 운영 원칙은 다음과 같습니다.
+
+- `curated repo list`: 사람이 명시적으로 넣는 고정밀 단일 repo seed
+- `benchmark dataset source`: benchmark record에서 repo provenance를 함께 가져오는 고신뢰 seed
+
+즉, 같은 repo를 여러 source에 무작정 중복으로 넣기보다, curated는 "꼭 포함해야 하는 대표 repo", benchmark dataset은 "평가/연구 문맥이 명확한 dataset provenance를 가진 repo"로 분리해서 관리하는 것을 원칙으로 합니다.
 
 ## 현재 아키텍처
 
 현재 구현 범위만 놓고 보면 흐름은 아래와 같습니다.
 
 ```text
-[PyPI / npm / Curated Repo List]
+[PyPI / npm / Curated Repo List / Benchmark Dataset Source]
   -> [Seed Ingestion]
   -> [Local JSON Raw Store]
   -> [seed_item_index]
@@ -117,7 +125,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 - `catchup=False`
 - Airflow 태그: `seed`, `package-registry`
 
-현재 구성된 태스크는 아래와 같습니다.
+현재 기본 구성 태스크는 아래와 같습니다.
 
 1. `seed_ingestion_pypi`
 2. `seed_ingestion_npm`
@@ -125,7 +133,11 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 4. `seed_normalization`
 5. `seed_qualification`
 
-실행 순서는 다음과 같습니다.
+benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/benchmark_datasets.json) 에서 `enabled=true` 인 항목이 있을 때만 `seed_ingestion_benchmark_*` 태스크가 동적으로 생성됩니다.
+
+또한 `artifact_fetch.enabled=true` 인 경우, `benchmark_artifact_fetch_*` 태스크가 먼저 실행되어 dataset artifact를 `benchmark_data/` 아래에 가져온 뒤 ingestion 단계로 넘깁니다.
+
+기본 실행 순서는 다음과 같습니다.
 
 ```text
 [seed_ingestion_pypi]
@@ -142,13 +154,14 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 파일:
 
 - [seed_ingest_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/services/seed_ingest_service.py)
+- [benchmark_dataset.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/benchmark_dataset.py)
 - [pypi.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/pypi.py)
 - [npm.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/npm.py)
 - [curated_repo.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/curated_repo.py)
 
 역할:
 
-- package registry 또는 curated list에서 입력을 가져옵니다.
+- package registry, curated list, benchmark dataset source에서 입력을 가져옵니다.
 - raw metadata를 로컬 JSON으로 저장합니다.
 - `candidate_repo_urls`를 미리 계산해 `seed_item_index`에 함께 저장합니다.
 - 문서 상태를 `ingested`로 기록합니다.
@@ -158,6 +171,8 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 - `PyPI`, `npm`은 compact raw만 기본 저장합니다.
 - full raw 전체 응답은 `KEEP_FULL_PACKAGE_REGISTRY_RAW=true` 일 때만 별도 저장합니다.
 - curated repo list는 repo URL 문자열만으로도 ingest 가능합니다.
+- benchmark dataset source는 local artifact를 읽고, record에서 repo를 추출한 뒤 dataset provenance와 함께 기록합니다.
+- benchmark dataset source는 필요할 경우 `artifact fetch -> dataset ingest` 2단계로 동작합니다.
 
 ### 2. Seed Normalization
 
@@ -207,6 +222,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 - `local_data/raw/package_registry/pypi/*.json`
 - `local_data/raw/package_registry/npm/*.json`
 - `local_data/raw/curated_repo_list/<list_name>/*.json`
+- `local_data/raw/benchmark_dataset/<dataset_name>/*.json`
 
 특징:
 
@@ -299,10 +315,17 @@ ingested -> normalized -> registered
   - `pypi`, `npm` seed 패키지 목록
 - [curated_repo_lists.json](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/curated_repo_lists.json)
   - curated repo URL 목록
+- [benchmark_datasets.json](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/benchmark_datasets.json)
+  - benchmark dataset artifact 입력 설정
 - [airflow.env](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/airflow.env)
   - Airflow executor, timezone, metadata DB 설정
 - [.env](/Users/xxuchan/Desktop/kkbang/code-pipeline/.env)
   - 앱 환경변수, local data 위치, timeout 등
+
+benchmark dataset 파일은 기본적으로 아래 경로에 마운트해서 읽습니다.
+
+- `/opt/airflow/benchmark_data`
+- 호스트 기준으로는 [benchmark_data](/Users/xxuchan/Desktop/kkbang/code-pipeline/benchmark_data) 디렉토리입니다.
 
 ## 실행 방법
 
@@ -361,6 +384,7 @@ docker compose exec airflow airflow tasks test seed_pipeline_dag seed_qualificat
 
 - [local_data/raw/package_registry](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/raw/package_registry)
 - [local_data/raw/curated_repo_list](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/raw/curated_repo_list)
+- [local_data/raw/benchmark_dataset](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/raw/benchmark_dataset)
 - [local_data/seed_item_index](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/seed_item_index)
 - [local_data/repo_registry_index](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/repo_registry_index)
 
@@ -371,6 +395,7 @@ code-pipeline/
 ├── airflow/
 │   ├── config/
 │   │   ├── airflow.env
+│   │   ├── benchmark_datasets.json
 │   │   ├── curated_repo_lists.json
 │   │   └── seed_packages.json
 │   ├── dags/
@@ -407,8 +432,8 @@ code-pipeline/
 현재 다음과 같은 확장을 염두에 두고 있습니다.
 
 1. direct repo seed 추가
-2. org / user 기반 수집 추가
-3. benchmark / curated list source 확대
+2. GitHub search / topic 기반 자동 확장 추가
+3. README / dependency link expansion 추가
 4. snapshot download 계층 구현
 5. file extraction / validation 추가
 6. function-level chunking 추가
@@ -419,4 +444,4 @@ code-pipeline/
 
 이 저장소는 라이선스 파생 코드 탐지용 전체 시스템의 첫 단계를 구현합니다.
 
-현재는 `PyPI`, `npm`, curated repo list 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만드는 데 초점을 맞추고 있으며, 이 registry는 이후 snapshot 수집, 코드 청크 생성, 유사도 검색, 라이선스 판단 단계의 기반 데이터가 됩니다.
+현재는 `PyPI`, `npm`, curated repo list, benchmark dataset source 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만드는 데 초점을 맞추고 있으며, 이 registry는 이후 snapshot 수집, 코드 청크 생성, 유사도 검색, 라이선스 판단 단계의 기반 데이터가 됩니다.

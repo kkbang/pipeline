@@ -1,7 +1,9 @@
 import re
 
 from worker.common.config import settings
+from worker.seed.adapters.benchmark_dataset import BenchmarkDatasetAdapter
 from worker.seed.adapters.curated_repo import CuratedRepoListAdapter
+from worker.seed.adapters.github_org import GitHubOrgAdapter
 from worker.seed.adapters.npm import NPMAdapter
 from worker.seed.adapters.pypi import PyPIAdapter
 from worker.storage.local_json_store import LocalJsonStore
@@ -114,3 +116,83 @@ def run_curated_repo_ingestion(list_name: str, repo_entries: list[str | dict] | 
                 "status": "ingested",
             },
         )
+
+
+def run_benchmark_dataset_ingestion(dataset_name: str, dataset_config: dict | None = None) -> None:
+    adapter = BenchmarkDatasetAdapter()
+    store = LocalJsonStore()
+
+    if not dataset_config:
+        return
+
+    for metadata in adapter.build_repo_metadatas(dataset_name, dataset_config):
+
+        raw_metadata_path = (
+            f"raw/benchmark_dataset/{_safe_path_fragment(dataset_name)}/"
+            f"{_safe_path_fragment(metadata.source_item_id)}.json"
+        )
+        store.put_json(raw_metadata_path, metadata.raw_metadata)
+
+        doc_id = f"benchmark_dataset_repo:{dataset_name}:{metadata.source_item_id}"
+        store.upsert_document(
+            collection_name="seed_item_index",
+            doc_id=doc_id,
+            body={
+                "source_type": "benchmark_dataset_repo",
+                "source_name": dataset_name,
+                "source_item_id": metadata.source_item_id,
+                "source_context": {
+                    "dataset_name": dataset_name,
+                    "benchmark_name": metadata.raw_metadata.get("benchmark_name"),
+                    "benchmark_type": metadata.raw_metadata.get("benchmark_type"),
+                    "benchmark_version": metadata.raw_metadata.get("benchmark_version"),
+                    "split": metadata.raw_metadata.get("split"),
+                    "language": metadata.raw_metadata.get("language"),
+                    "task_type": metadata.raw_metadata.get("task_type"),
+                    "dataset_path": metadata.raw_metadata.get("dataset_path"),
+                    "dataset_format": metadata.raw_metadata.get("dataset_format"),
+                    "record_id": metadata.raw_metadata.get("record_id"),
+                },
+                "raw_metadata_path": raw_metadata_path,
+                "candidate_repo_urls": metadata.candidate_repo_urls,
+                "status": "ingested",
+            },
+        )
+
+
+def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None) -> None:
+    adapter = GitHubOrgAdapter()
+    store = LocalJsonStore()
+
+    if not org_names:
+        return
+
+    for org_name in org_names:
+        repo_metadatas = adapter.fetch_org_repositories(list_name=list_name, org_name=org_name)
+
+        for metadata in repo_metadatas:
+            raw_metadata_path = (
+                f"raw/github_org/{_safe_path_fragment(list_name)}/"
+                f"{_safe_path_fragment(org_name)}/"
+                f"{_safe_path_fragment(metadata.repo_name)}.json"
+            )
+            store.put_json(raw_metadata_path, metadata.raw_metadata)
+
+            doc_id = f"org_repo:{list_name}:{metadata.source_item_id}"
+            store.upsert_document(
+                collection_name="seed_item_index",
+                doc_id=doc_id,
+                body={
+                    "source_type": "org_repo",
+                    "source_name": list_name,
+                    "source_item_id": metadata.source_item_id,
+                    "source_context": {
+                        "list_name": list_name,
+                        "org_name": org_name,
+                        "repo_name": metadata.repo_name,
+                    },
+                    "raw_metadata_path": raw_metadata_path,
+                    "candidate_repo_urls": metadata.candidate_repo_urls,
+                    "status": "ingested",
+                },
+            )

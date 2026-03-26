@@ -17,6 +17,7 @@ services:
     volumes:
       - ./airflow/logs:/opt/airflow/logs
       - ./local_data:/opt/airflow/local_data
+      - ./benchmark_data:/opt/airflow/benchmark_data
     command: >
       bash -c "
       airflow db migrate &&

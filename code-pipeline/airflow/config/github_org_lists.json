@@ -1,0 +1,12 @@
+{
+  "llm_license_focus_orgs_v1": [
+    "apache",
+    "hashicorp",
+    "kubernetes",
+    "pallets",
+    "pytorch",
+    "huggingface",
+    "vercel",
+    "grafana"
+  ]
+}

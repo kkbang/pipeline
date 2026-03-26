@@ -1,4 +1,8 @@
 *_data/
+!benchmark_data/
+benchmark_data/*
+!benchmark_data/.gitkeep
+!benchmark_data/README.md
 .env
 .DS_Store
 __pycache__/

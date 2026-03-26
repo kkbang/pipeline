@@ -54,7 +54,7 @@ def run_seed_qualification() -> None:
 
         owner = source["owner"]
         repo = source["repo"]
-
+        
         try:
             repo_metadata = resolver.fetch_repo_metadata(owner, repo)
         except requests.HTTPError as exc:

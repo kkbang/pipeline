@@ -18,6 +18,8 @@ class Settings:
 
     github_token: str = os.getenv("GITHUB_TOKEN", "")
     request_timeout_seconds: int = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
+    github_org_repo_limit: int = int(os.getenv("GITHUB_ORG_REPO_LIMIT", "100"))
+    benchmark_data_dir: str = os.getenv("BENCHMARK_DATA_DIR", "/opt/airflow/benchmark_data")
     keep_full_package_registry_raw: bool = (
         os.getenv("KEEP_FULL_PACKAGE_REGISTRY_RAW", "false").lower() == "true"
     )

@@ -1,0 +1,90 @@
+{
+  "swe_bench_verified_v1": {
+    "enabled": true,
+    "benchmark_name": "SWE-bench",
+    "benchmark_type": "swe_bench",
+    "benchmark_version": "verified-v1",
+    "dataset_format": "parquet",
+    "repo_field_paths": [
+      "repo"
+    ],
+    "record_id_field_paths": [
+      "instance_id"
+    ],
+    "artifact_fetch": {
+      "enabled": true,
+      "artifacts": [
+        {
+          "artifact_name": "test-00000-of-00001.parquet",
+          "source_url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified/resolve/main/data/test-00000-of-00001.parquet?download=true",
+          "archive_format": "none",
+          "target_relpath": "swe_bench/test-00000-of-00001.parquet"
+        }
+      ]
+    },
+    "dataset_paths": [
+      "swe_bench/test-00000-of-00001.parquet"
+    ],
+    "split": "verified"
+  },
+  "codesearchnet_python_train_v1": {
+    "enabled": false,
+    "benchmark_name": "CodeSearchNet",
+    "benchmark_type": "codesearchnet",
+    "benchmark_version": "v1",
+    "dataset_format": "jsonl",
+    "repo_field_paths": [
+      "repo"
+    ],
+    "record_id_field_paths": [
+      "sha",
+      "url"
+    ],
+    "artifact_fetch": {
+      "enabled": true,
+      "artifacts": [
+        {
+          "artifact_name": "python.zip",
+          "source_url": "https://s3.amazonaws.com/code-search-net/CodeSearchNet/v2/python.zip",
+          "archive_format": "zip",
+          "extract_to_relpath": "codesearchnet"
+        }
+      ]
+    },
+    "dataset_paths": [
+      "codesearchnet/python/final/jsonl/train/*.jsonl"
+    ],
+    "language": "python",
+    "split": "train"
+  },
+  "codexglue_clone_detection_v1": {
+    "enabled": false,
+    "benchmark_name": "CodeXGLUE",
+    "benchmark_type": "codexglue",
+    "benchmark_version": "v1",
+    "dataset_format": "jsonl",
+    "artifact_fetch": {
+      "enabled": false,
+      "artifacts": []
+    },
+    "dataset_paths": [
+      "codexglue/clone_detection/*.jsonl"
+    ],
+    "task_type": "clone_detection"
+  },
+  "coir_curated_v1": {
+    "enabled": false,
+    "benchmark_name": "CoIR",
+    "benchmark_type": "coir",
+    "benchmark_version": "v1",
+    "dataset_format": "jsonl",
+    "artifact_fetch": {
+      "enabled": false,
+      "artifacts": []
+    },
+    "dataset_paths": [
+      "coir/**/*.jsonl"
+    ],
+    "task_type": "retrieval"
+  }
+}
