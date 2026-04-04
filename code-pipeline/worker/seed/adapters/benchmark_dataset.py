@@ -137,8 +137,25 @@ class BenchmarkDatasetAdapter:
                     "pyarrow is required to read parquet benchmark datasets"
                 ) from exc
 
-            table = pq.read_table(dataset_path)
+            try:
+                # 평소에는 원래 경로에서 바로 읽음
+                table = pq.read_table(str(dataset_path))
+            except OSError as exc:
+                # macOS Docker bind mount에서 가끔 나는 errno 35 우회
+                if exc.errno != 35:
+                    raise
+
+                import shutil
+                import tempfile
+
+                with tempfile.TemporaryDirectory(prefix="benchmark_parquet_") as tmp_dir:
+                    local_path = Path(tmp_dir) / dataset_path.name
+                    shutil.copyfile(dataset_path, local_path)
+                    # 컨테이너 로컬 디스크(/tmp) 복사본으로 다시 읽음
+                    table = pq.read_table(str(local_path))
+
             return [item for item in table.to_pylist() if isinstance(item, dict)]
+
 
         records = []
         for line in dataset_path.read_text(encoding="utf-8").splitlines():

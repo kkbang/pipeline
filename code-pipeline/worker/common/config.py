@@ -23,6 +23,7 @@ class Settings:
     keep_full_package_registry_raw: bool = (
         os.getenv("KEEP_FULL_PACKAGE_REGISTRY_RAW", "false").lower() == "true"
     )
-
-
+    github_repo_resolver_concurrency: int = int(
+        os.getenv("GITHUB_REPO_RESOLVER_CONCURRENCY", "3")
+    )
 settings = Settings()

@@ -78,6 +78,11 @@ class LocalJsonStore:
         }
         self._write_json(path, payload)
 
+    def delete_document(self, collection_name: str, doc_id: str) -> None:
+        path = self._document_path(collection_name, doc_id)
+        if path.exists():
+            path.unlink()
+
     def find_documents_by_status(
         self,
         collection_name: str,

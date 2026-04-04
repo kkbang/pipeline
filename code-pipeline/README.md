@@ -242,7 +242,7 @@ benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/k
 - `source_type`
 - `source_name`
 - `source_item_id`
-- `source_context`
+- `raw_metadata_path`
 - `candidate_repo_urls`
 - `selected_repository_url`
 - `canonical_repo_url`
@@ -273,15 +273,7 @@ ingested -> normalized -> registered
 - `hosting_platform`
 - `owner`
 - `repo_name`
-- `primary_language`
-- `repo_license_spdx`
-- `stars`
-- `forks_count`
-- `default_branch`
-- `is_public`
-- `is_archived`
-- `is_fork`
-- `priority_score`
+- `crawl_status`
 - `discovery_source_count`
 - `source_types`
 - `discovery_sources`
@@ -289,7 +281,7 @@ ingested -> normalized -> registered
 중요한 점:
 
 - 이 문서는 단순 repo 목록이 아닙니다.
-- "어떤 source가 왜 이 repo를 발견했는가"까지 함께 남기는 provenance registry입니다.
+- "어떤 source가 이 repo를 발견했는가"를 최소 provenance 형태로 함께 남기는 registry입니다.
 
 ## 현재 기본 저장 모드
 

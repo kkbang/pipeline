@@ -45,7 +45,6 @@ def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None =
         raw_metadata_path = f"raw/package_registry/{registry}/{package_name}.json"
         store.put_json(raw_metadata_path, metadata.raw_metadata)
 
-        full_raw_metadata_path = None
         if settings.keep_full_package_registry_raw and metadata.full_raw_metadata is not None:
             full_raw_metadata_path = f"raw/package_registry_full/{registry}/{package_name}.json"
             store.put_json(full_raw_metadata_path, metadata.full_raw_metadata)
@@ -58,28 +57,11 @@ def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None =
                 "source_type": "package_registry_repo",
                 "source_name": registry,
                 "source_item_id": doc_id,
-                "source_context": {
-                    "registry_name": registry,
-                    "package_name": package_name,
-                    "package_version": metadata.package_version,
-                },
-                "registry_name": registry,
-                "package_name": package_name,
-                "package_version": metadata.package_version,
                 "raw_metadata_path": raw_metadata_path,
                 "candidate_repo_urls": metadata.candidate_repo_urls,
                 "status": "ingested",
             },
         )
-
-        if full_raw_metadata_path:
-            store.update_document(
-                collection_name="seed_item_index",
-                doc_id=doc_id,
-                body={
-                    "full_raw_metadata_path": full_raw_metadata_path,
-                },
-            )
 
 
 def run_curated_repo_ingestion(list_name: str, repo_entries: list[str | dict] | None = None) -> None:
@@ -106,11 +88,6 @@ def run_curated_repo_ingestion(list_name: str, repo_entries: list[str | dict] | 
                 "source_type": "curated_repo_list",
                 "source_name": list_name,
                 "source_item_id": metadata.source_item_id,
-                "source_context": {
-                    "list_name": list_name,
-                    "repo_label": metadata.raw_metadata.get("repo_label"),
-                    "tags": metadata.raw_metadata.get("tags") or [],
-                },
                 "raw_metadata_path": raw_metadata_path,
                 "candidate_repo_urls": metadata.candidate_repo_urls,
                 "status": "ingested",
@@ -141,18 +118,6 @@ def run_benchmark_dataset_ingestion(dataset_name: str, dataset_config: dict | No
                 "source_type": "benchmark_dataset_repo",
                 "source_name": dataset_name,
                 "source_item_id": metadata.source_item_id,
-                "source_context": {
-                    "dataset_name": dataset_name,
-                    "benchmark_name": metadata.raw_metadata.get("benchmark_name"),
-                    "benchmark_type": metadata.raw_metadata.get("benchmark_type"),
-                    "benchmark_version": metadata.raw_metadata.get("benchmark_version"),
-                    "split": metadata.raw_metadata.get("split"),
-                    "language": metadata.raw_metadata.get("language"),
-                    "task_type": metadata.raw_metadata.get("task_type"),
-                    "dataset_path": metadata.raw_metadata.get("dataset_path"),
-                    "dataset_format": metadata.raw_metadata.get("dataset_format"),
-                    "record_id": metadata.raw_metadata.get("record_id"),
-                },
                 "raw_metadata_path": raw_metadata_path,
                 "candidate_repo_urls": metadata.candidate_repo_urls,
                 "status": "ingested",
@@ -186,11 +151,6 @@ def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None)
                     "source_type": "org_repo",
                     "source_name": list_name,
                     "source_item_id": metadata.source_item_id,
-                    "source_context": {
-                        "list_name": list_name,
-                        "org_name": org_name,
-                        "repo_name": metadata.repo_name,
-                    },
                     "raw_metadata_path": raw_metadata_path,
                     "candidate_repo_urls": metadata.candidate_repo_urls,
                     "status": "ingested",

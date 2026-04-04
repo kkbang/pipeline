@@ -139,3 +139,5 @@ with DAG(
     )
 
     [*package_registry_ingest_tasks, *curated_ingest_tasks, *benchmark_ingest_tasks] >> normalize_task >> qualify_task
+
+
