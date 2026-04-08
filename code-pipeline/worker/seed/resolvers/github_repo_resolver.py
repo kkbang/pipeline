@@ -1,15 +1,13 @@
 import asyncio
+import httpx
 import random
 import socket
 import threading
 import time
 from dataclasses import dataclass
 
-import requests
-from requests.adapters import HTTPAdapter
 from stem import Signal
 from stem.control import Controller
-from urllib3.util.retry import Retry
 
 from worker.common.config import settings
 
@@ -25,6 +23,9 @@ class RepoMetadataFetchResult:
 
 class GitHubRepoResolver:
     BASE_URL = "https://api.github.com"
+    RATE_LIMIT_STATUS_CODES = {403, 429}
+    RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
+    MAX_RETRY_COUNT = 3
 
     def __init__(self) -> None:
         self.headers = {
@@ -36,25 +37,22 @@ class GitHubRepoResolver:
         }
         if settings.github_token:
             self.headers["Authorization"] = f"Bearer {settings.github_token}"
-        self.proxies = {
-            "http": "socks5h://tor-proxy:9050",
-            "https": "socks5h://tor-proxy:9050",
-        }
+        self.proxy = "socks5://tor-proxy:9050"
 
         # 여러 스레드가 동시에 Tor IP를 바꾸지 않도록 lock 사용
         self._tor_lock = threading.Lock()
 
-    def _build_session(self) -> requests.Session:
-        # requests.Session은 요청마다 새로 만드는 편이 병렬 처리에서 안전함
-        retry_strategy = Retry(
-            total=3,
-            status_forcelist=[500, 502, 503, 504],
-            backoff_factor=1,
+    def _build_async_client(self, concurrency: int) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            headers=self.headers,
+            proxy=self.proxy,
+            timeout=httpx.Timeout(settings.request_timeout_seconds),
+            limits=httpx.Limits(
+                max_connections=max(concurrency, 1),
+                max_keepalive_connections=max(concurrency, 1),
+            ),
+            trust_env=False,
         )
-        session = requests.Session()
-        session.mount("http://", HTTPAdapter(max_retries=retry_strategy))
-        session.mount("https://", HTTPAdapter(max_retries=retry_strategy))
-        return session
 
     def renew_tor_ip(self) -> None:
         try:
@@ -69,60 +67,55 @@ class GitHubRepoResolver:
         except Exception as e:
             print(f"[Tor] IP 교체 실패: {e}")
 
-    def _fetch_repo_metadata_with_session(
+    async def renew_tor_ip_async(self) -> None:
+        await asyncio.to_thread(self.renew_tor_ip)
+
+    async def _fetch_repo_metadata_with_client(
         self,
-        session: requests.Session,
+        client: httpx.AsyncClient,
         owner: str,
         repo: str,
-        retry_count: int = 0,
     ) -> dict | None:
-        # 요청이 한꺼번에 몰리지 않도록 약간 랜덤 지연
-        time.sleep(random.uniform(1.0, 3.0))
+        url = f"{self.BASE_URL}/repos/{owner}/{repo}"
 
-        try:
-            url = f"{self.BASE_URL}/repos/{owner}/{repo}"
+        for retry_count in range(self.MAX_RETRY_COUNT + 1):
+            await asyncio.sleep(random.uniform(1.0, 3.0))
 
-            response = session.get(
-                url,
-                headers=self.headers,
-                proxies=self.proxies,
-                timeout=settings.request_timeout_seconds,
-            )
+            try:
+                response = await client.get(url)
+            except httpx.RequestError as exc:
+                if retry_count < self.MAX_RETRY_COUNT:
+                    await asyncio.sleep(retry_count + 1)
+                    continue
+                print(f"Error fetching metadata for {owner}/{repo}: {exc}")
+                raise
 
-            # rate limit이 걸리면 Tor IP 교체 후 재시도
-            if response.status_code in [403, 429]:
-                if retry_count < 3:
+            if response.status_code == 404:
+                return None
+
+            if response.status_code in self.RATE_LIMIT_STATUS_CODES:
+                if retry_count < self.MAX_RETRY_COUNT:
                     print(f"[403/429] Limit 도달! IP 교체 후 다시 시도합니다. (시도 {retry_count + 1}/3)")
-                    self.renew_tor_ip()
-                    return self._fetch_repo_metadata_with_session(
-                        session,
-                        owner,
-                        repo,
-                        retry_count + 1,
-                    )
-
+                    await self.renew_tor_ip_async()
+                    continue
                 print("IP 교체를 3번 시도했으나 계속 실패했습니다.")
                 response.raise_for_status()
 
-            # repo가 없으면 None 반환
-            if response.status_code == 404:
-                return None
+            if response.status_code in self.RETRYABLE_STATUS_CODES and retry_count < self.MAX_RETRY_COUNT:
+                await asyncio.sleep(retry_count + 1)
+                continue
 
             response.raise_for_status()
             return response.json()
 
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching metadata for {owner}/{repo}: {e}")
-            raise
+        return None
 
-    def fetch_repo_metadata(self, owner: str, repo: str, retry_count: int = 0) -> dict | None:
-        # 기존 동기 함수
-        with self._build_session() as session:
-            return self._fetch_repo_metadata_with_session(session, owner, repo, retry_count)
+    def fetch_repo_metadata(self, owner: str, repo: str) -> dict | None:
+        return asyncio.run(self.fetch_repo_metadata_async(owner, repo))
 
     async def fetch_repo_metadata_async(self, owner: str, repo: str) -> dict | None:
-        # requests는 blocking이므로 thread로 넘겨서 async처럼 사용
-        return await asyncio.to_thread(self.fetch_repo_metadata, owner, repo)
+        async with self._build_async_client(concurrency=1) as client:
+            return await self._fetch_repo_metadata_with_client(client, owner, repo)
 
     async def fetch_repo_metadata_batch(
         self,
@@ -132,24 +125,25 @@ class GitHubRepoResolver:
         limit = max(1, concurrency or settings.github_repo_resolver_concurrency)
         semaphore = asyncio.Semaphore(limit)
 
-        async def _fetch(owner: str, repo: str) -> RepoMetadataFetchResult:
-            async with semaphore:
-                try:
-                    metadata = await self.fetch_repo_metadata_async(owner, repo)
-                    return RepoMetadataFetchResult(
-                        owner=owner,
-                        repo=repo,
-                        metadata=metadata,
-                    )
-                except Exception as exc:
-                    return RepoMetadataFetchResult(
-                        owner=owner,
-                        repo=repo,
-                        error=exc,
-                    )
+        async with self._build_async_client(concurrency=limit) as client:
+            async def _fetch(owner: str, repo: str) -> RepoMetadataFetchResult:
+                async with semaphore:
+                    try:
+                        metadata = await self._fetch_repo_metadata_with_client(client, owner, repo)
+                        return RepoMetadataFetchResult(
+                            owner=owner,
+                            repo=repo,
+                            metadata=metadata,
+                        )
+                    except Exception as exc:
+                        return RepoMetadataFetchResult(
+                            owner=owner,
+                            repo=repo,
+                            error=exc,
+                        )
 
-        # 여러 repo 요청을 동시에 실행
-        results = await asyncio.gather(*(_fetch(owner, repo) for owner, repo in repo_keys))
+            # 여러 repo 요청을 동시에 실행
+            results = await asyncio.gather(*(_fetch(owner, repo) for owner, repo in repo_keys))
 
         # 나중에 (owner, repo)로 바로 찾기 쉽도록 dict로 변환
         return {(result.owner, result.repo): result for result in results}

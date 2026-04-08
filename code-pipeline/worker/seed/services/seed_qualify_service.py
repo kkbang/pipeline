@@ -1,9 +1,7 @@
 import asyncio
 import logging
+import httpx
 from datetime import datetime, timezone
-
-import requests
-
 from worker.seed.qualifiers.repo_qualifier import qualify_repo
 from worker.seed.resolvers.github_repo_resolver import (
     GitHubRepoResolver,
@@ -124,7 +122,7 @@ def run_seed_qualification() -> None:
         fetch_result = fetch_results[(owner, repo)]
         exc = fetch_result.error
 
-        if isinstance(exc, requests.HTTPError):
+        if isinstance(exc, httpx.HTTPStatusError):
             status_code = exc.response.status_code if exc.response is not None else None
             reason = "github_rate_limited" if status_code == 403 else "github_api_error"
             logger.warning(
@@ -156,7 +154,7 @@ def run_seed_qualification() -> None:
                 )
             continue
 
-        if isinstance(exc, requests.RequestException):
+        if isinstance(exc, httpx.RequestError):
             logger.warning(
                 "GitHub request failed for %s/%s: group_size=%s error=%s",
                 owner,

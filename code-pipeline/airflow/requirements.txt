@@ -1,5 +1,6 @@
 boto3==1.35.36
 opensearch-py==2.7.1
+httpx[socks]==0.28.1
 requests==2.32.3
 pydantic==2.9.2
 python-dotenv==1.0.1
