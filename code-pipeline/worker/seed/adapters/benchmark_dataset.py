@@ -1,10 +1,21 @@
+import errno
 import glob
 import json
+import shutil
+import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable, TypeVar
+
+import requests
 
 from worker.common.config import settings
+
+
+T = TypeVar("T")
+RETRYABLE_IO_ERRNOS = {errno.EDEADLK}
 
 
 @dataclass
@@ -16,6 +27,74 @@ class RawBenchmarkDatasetRepoMetadata:
 
 
 class BenchmarkDatasetAdapter:
+    def _run_io_with_retry(
+        self,
+        operation: Callable[[], T],
+        retries: int = 5,
+        delay_seconds: float = 0.05,
+    ) -> T:
+        last_error: OSError | None = None
+
+        for attempt in range(retries):
+            try:
+                return operation()
+            except OSError as exc:
+                last_error = exc
+                if exc.errno not in RETRYABLE_IO_ERRNOS or attempt == retries - 1:
+                    raise
+                time.sleep(delay_seconds * (attempt + 1))
+
+        raise RuntimeError("unreachable") from last_error
+
+    def _read_text_with_retry(self, path: Path) -> str:
+        return self._run_io_with_retry(lambda: path.read_text(encoding="utf-8"))
+
+    def _copy_to_local_scratch(self, source_path: Path, destination_path: Path) -> None:
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        self._run_io_with_retry(lambda: shutil.copyfile(source_path, destination_path))
+
+    def _download_to_local_scratch(self, source_url: str, destination_path: Path) -> None:
+        response = requests.get(
+            source_url,
+            stream=True,
+            timeout=settings.request_timeout_seconds,
+        )
+        response.raise_for_status()
+
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        with destination_path.open("wb") as output:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    output.write(chunk)
+
+    def _resolve_artifact_source_url(self, dataset_path: Path, dataset_config: dict) -> str | None:
+        artifact_fetch = dataset_config.get("artifact_fetch") or {}
+        artifacts = artifact_fetch.get("artifacts") or []
+        benchmark_data_dir = Path(settings.benchmark_data_dir)
+
+        try:
+            relative_path = dataset_path.resolve().relative_to(benchmark_data_dir.resolve())
+        except ValueError:
+            relative_path = None
+
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+
+            target_relpath = str(artifact.get("target_relpath") or "").strip()
+            source_url = str(artifact.get("source_url") or "").strip()
+            if not target_relpath or not source_url:
+                continue
+
+            target_path = (benchmark_data_dir / target_relpath).resolve()
+            if target_path == dataset_path.resolve():
+                return source_url
+
+            if relative_path is not None and Path(target_relpath) == relative_path:
+                return source_url
+
+        return None
+
     def build_repo_metadatas(
         self,
         dataset_name: str,
@@ -44,7 +123,11 @@ class BenchmarkDatasetAdapter:
         repo_metadatas: list[RawBenchmarkDatasetRepoMetadata] = []
 
         for dataset_path in dataset_paths:
-            records = self._load_records(dataset_path=dataset_path, dataset_format=dataset_format)
+            records = self._load_records(
+                dataset_path=dataset_path,
+                dataset_format=dataset_format,
+                dataset_config=dataset_config,
+            )
 
             for index, record in enumerate(records):
                 raw_repo_references = self._extract_field_values(record, repo_field_paths)
@@ -112,9 +195,16 @@ class BenchmarkDatasetAdapter:
 
         return resolved_paths
 
-    def _load_records(self, dataset_path: Path, dataset_format: str) -> list[dict]:
+    def _load_records(
+        self,
+        dataset_path: Path,
+        dataset_format: str,
+        dataset_config: dict | None = None,
+    ) -> list[dict]:
+        dataset_config = dataset_config or {}
+
         if dataset_format == "json":
-            payload = json.loads(dataset_path.read_text(encoding="utf-8"))
+            payload = json.loads(self._read_text_with_retry(dataset_path))
 
             if isinstance(payload, list):
                 return [item for item in payload if isinstance(item, dict)]
@@ -137,28 +227,21 @@ class BenchmarkDatasetAdapter:
                     "pyarrow is required to read parquet benchmark datasets"
                 ) from exc
 
-            try:
-                # 평소에는 원래 경로에서 바로 읽음
-                table = pq.read_table(str(dataset_path))
-            except OSError as exc:
-                # macOS Docker bind mount에서 가끔 나는 errno 35 우회
-                if exc.errno != 35:
-                    raise
-
-                import shutil
-                import tempfile
-
-                with tempfile.TemporaryDirectory(prefix="benchmark_parquet_") as tmp_dir:
-                    local_path = Path(tmp_dir) / dataset_path.name
-                    shutil.copyfile(dataset_path, local_path)
-                    # 컨테이너 로컬 디스크(/tmp) 복사본으로 다시 읽음
-                    table = pq.read_table(str(local_path))
+            with tempfile.TemporaryDirectory(prefix="benchmark_parquet_") as tmp_dir:
+                local_path = Path(tmp_dir) / dataset_path.name
+                try:
+                    self._copy_to_local_scratch(dataset_path, local_path)
+                except OSError:
+                    source_url = self._resolve_artifact_source_url(dataset_path, dataset_config)
+                    if not source_url:
+                        raise
+                    self._download_to_local_scratch(source_url, local_path)
+                table = self._run_io_with_retry(lambda: pq.read_table(str(local_path)))
 
             return [item for item in table.to_pylist() if isinstance(item, dict)]
 
-
         records = []
-        for line in dataset_path.read_text(encoding="utf-8").splitlines():
+        for line in self._read_text_with_retry(dataset_path).splitlines():
             stripped = line.strip()
             if not stripped:
                 continue

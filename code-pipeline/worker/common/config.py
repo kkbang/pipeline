@@ -26,4 +26,6 @@ class Settings:
     github_repo_resolver_concurrency: int = int(
         os.getenv("GITHUB_REPO_RESOLVER_CONCURRENCY", "3")
     )
+    repo_crawl_concurrency: int = int(os.getenv("REPO_CRAWL_CONCURRENCY", "4"))
+    repo_crawl_lease_seconds: int = int(os.getenv("REPO_CRAWL_LEASE_SECONDS", "1800"))
 settings = Settings()

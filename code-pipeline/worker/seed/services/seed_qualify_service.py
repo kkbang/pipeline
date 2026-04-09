@@ -230,6 +230,7 @@ def run_seed_qualification() -> None:
             "canonical_repo_url": source["canonical_repo_url"],
             "owner": owner,
             "repo_name": repo,
+            "default_branch": repo_metadata.get("default_branch"),
             "hosting_platform": "github",
             "crawl_status": "scheduled",
             "discovery_source_count": len(hits),
