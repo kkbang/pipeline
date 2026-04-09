@@ -1,0 +1,16 @@
+{
+  "llm_license_focus_search_v1": [
+    {
+      "query": "language:Python stars:>500 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 50
+    },
+    {
+      "query": "language:TypeScript stars:>500 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 50
+    }
+  ]
+}

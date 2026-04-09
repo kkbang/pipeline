@@ -1,0 +1,16 @@
+{
+  "llm_license_focus_topics_v1": [
+    {
+      "topic": "machine-learning",
+      "max_repos": 40
+    },
+    {
+      "topic": "llm",
+      "max_repos": 30
+    },
+    {
+      "topic": "nlp",
+      "max_repos": 30
+    }
+  ]
+}

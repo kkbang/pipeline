@@ -1,12 +1,13 @@
 import asyncio
-import logging
 import httpx
+import logging
 from datetime import datetime, timezone
-from worker.seed.qualifiers.repo_qualifier import qualify_repo
-from worker.seed.resolvers.github_repo_resolver import (
-    GitHubRepoResolver,
+
+from worker.seed.adapters.github import (
+    GitHubRepoMetadataAdapter,
     RepoMetadataFetchResult,
 )
+from worker.seed.qualifiers.repo_qualifier import qualify_repo
 from worker.storage.local_json_store import LocalJsonStore
 
 # from worker.storage.opensearch_store import OpenSearchStore
@@ -89,20 +90,61 @@ def _group_by_repo(seed_docs: list[dict]) -> dict[tuple[str, str], list[dict]]:
     return grouped
 
 
+def _build_repo_registry_body(
+    source: dict,
+    hits: list[dict],
+    repo_metadata: dict,
+) -> dict:
+    license_info = repo_metadata.get("license") or {}
+    parent = repo_metadata.get("parent") or {}
+    topics = repo_metadata.get("topics") or []
+    if not isinstance(topics, list):
+        topics = []
+
+    return {
+        "canonical_repo_url": source["canonical_repo_url"],
+        "owner": source["owner"].lower(),
+        "repo_name": source["repo"].lower(),
+        "default_branch": repo_metadata.get("default_branch"),
+        "hosting_platform": "github",
+        "crawl_status": "scheduled",
+        "discovery_source_count": len(hits),
+        "source_types": _collect_source_types(hits),
+        "repo_description": repo_metadata.get("description"),
+        "repo_homepage": repo_metadata.get("homepage"),
+        "repo_language": repo_metadata.get("language"),
+        "repo_topics": [topic for topic in topics if isinstance(topic, str) and topic.strip()],
+        "repo_license_spdx": license_info.get("spdx_id"),
+        "repo_license_name": license_info.get("name"),
+        "repo_visibility": repo_metadata.get("visibility"),
+        "repo_owner_type": ((repo_metadata.get("owner") or {}).get("type")),
+        "repo_stars": repo_metadata.get("stargazers_count"),
+        "repo_forks_count": repo_metadata.get("forks_count"),
+        "repo_watchers_count": repo_metadata.get("watchers_count"),
+        "repo_open_issues_count": repo_metadata.get("open_issues_count"),
+        "repo_size_kb": repo_metadata.get("size"),
+        "repo_is_fork": repo_metadata.get("fork") is True,
+        "repo_parent_full_name": str(parent.get("full_name") or "").strip() or None,
+        "repo_created_at": repo_metadata.get("created_at"),
+        "repo_updated_at": repo_metadata.get("updated_at"),
+        "repo_pushed_at": repo_metadata.get("pushed_at"),
+    }
+
+
 def _fetch_repo_metadata_results(
-    resolver: GitHubRepoResolver,
+    metadata_adapter: GitHubRepoMetadataAdapter,
     repo_keys: list[tuple[str, str]],
 ) -> dict[tuple[str, str], RepoMetadataFetchResult]:
     # 현재 서비스 함수는 동기 함수라서 async 배치를 여기서 실행
     if not repo_keys:
         return {}
-    return asyncio.run(resolver.fetch_repo_metadata_batch(repo_keys))
+    return asyncio.run(metadata_adapter.fetch_repo_metadata_batch(repo_keys))
 
 
 def run_seed_qualification() -> None:
     store = LocalJsonStore()
     # os = OpenSearchStore()
-    resolver = GitHubRepoResolver()
+    metadata_adapter = GitHubRepoMetadataAdapter()
     seed_docs = store.find_documents_by_status(
         collection_name="seed_item_index",
         status="normalized",
@@ -111,7 +153,7 @@ def run_seed_qualification() -> None:
 
     # GitHub 메타데이터 병렬로 수집
     fetch_results = _fetch_repo_metadata_results(
-        resolver,
+        metadata_adapter,
         list(grouped_seed_docs.keys()),
     )
 
@@ -226,17 +268,11 @@ def run_seed_qualification() -> None:
 
         _clear_qualification_failure(store, owner, repo)
 
-        repo_body = {
-            "canonical_repo_url": source["canonical_repo_url"],
-            "owner": owner,
-            "repo_name": repo,
-            "default_branch": repo_metadata.get("default_branch"),
-            "hosting_platform": "github",
-            "crawl_status": "scheduled",
-            "discovery_source_count": len(hits),
-            "source_types": _collect_source_types(hits),
-            "discovery_sources": [],
-        }
+        repo_body = _build_repo_registry_body(
+            source=source,
+            hits=hits,
+            repo_metadata=repo_metadata,
+        )
 
         store.upsert_document(
             collection_name="repo_registry_index",

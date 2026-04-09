@@ -118,12 +118,24 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 ## 현재 구현된 DAG
 
-현재 DAG 파일은 [seed_pipeline_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/seed_pipeline_dag.py) 입니다.
+현재 seed DAG는 역할별로 분리되어 있습니다.
 
-- DAG ID: `seed_pipeline_dag`
-- 스케줄: `@daily`
-- `catchup=False`
-- Airflow 태그: `seed`, `package-registry`
+- [seed_discovery_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/seed_discovery_dag.py)
+  - DAG ID: `seed_discovery_dag`
+  - 스케줄: `@daily`
+  - 역할: base seed ingestion -> normalization -> qualification
+- [seed_expansion_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/seed_expansion_dag.py)
+  - DAG ID: `seed_expansion_dag`
+  - 스케줄: 수동/trigger 전용
+  - 역할: README / dependency expansion -> normalization -> qualification
+- [repo_relation_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/repo_relation_dag.py)
+  - DAG ID: `repo_relation_dag`
+  - 스케줄: 수동/trigger 전용
+  - 역할: registered repo 간 관계 그래프 생성
+- [seed_pipeline_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/seed_pipeline_dag.py)
+  - DAG ID: `seed_pipeline_dag`
+  - 스케줄: 수동/compatibility 전용
+  - 역할: `seed_discovery_dag` trigger
 
 현재 기본 구성 태스크는 아래와 같습니다.
 
@@ -154,10 +166,10 @@ benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/k
 파일:
 
 - [seed_ingest_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/services/seed_ingest_service.py)
-- [benchmark_dataset.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/benchmark_dataset.py)
-- [pypi.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/pypi.py)
-- [npm.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/npm.py)
-- [curated_repo.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/curated_repo.py)
+- [dataset.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/benchmark/dataset.py)
+- [pypi.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/package_registry/pypi.py)
+- [npm.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/package_registry/npm.py)
+- [repo_list.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/curated/repo_list.py)
 
 역할:
 
@@ -196,7 +208,7 @@ benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/k
 파일:
 
 - [seed_qualify_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/services/seed_qualify_service.py)
-- [github_repo_resolver.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/resolvers/github_repo_resolver.py)
+- [repo_metadata.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/github/repo_metadata.py)
 - [repo_qualifier.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/qualifiers/repo_qualifier.py)
 
 역할:
@@ -354,8 +366,8 @@ docker compose up --build -d --force-recreate airflow
 ### 3. 전체 DAG 실행
 
 ```bash
-docker compose exec airflow airflow dags unpause seed_pipeline_dag
-docker compose exec airflow airflow dags trigger seed_pipeline_dag
+docker compose exec airflow airflow dags unpause seed_discovery_dag
+docker compose exec airflow airflow dags trigger seed_discovery_dag
 ```
 
 ### 4. 특정 태스크만 테스트 실행
@@ -363,7 +375,7 @@ docker compose exec airflow airflow dags trigger seed_pipeline_dag
 예를 들어 qualification 단계만 보고 싶다면:
 
 ```bash
-docker compose exec airflow airflow tasks test seed_pipeline_dag seed_qualification 2026-03-24
+docker compose exec airflow airflow tasks test seed_discovery_dag seed_qualification 2026-03-24
 ```
 
 ## 결과 확인 위치
@@ -391,6 +403,10 @@ code-pipeline/
 │   │   ├── curated_repo_lists.json
 │   │   └── seed_packages.json
 │   ├── dags/
+│   │   ├── repo_relation_dag.py
+│   │   ├── seed_dag_support.py
+│   │   ├── seed_discovery_dag.py
+│   │   ├── seed_expansion_dag.py
 │   │   └── seed_pipeline_dag.py
 │   ├── plugins/
 │   ├── Dockerfile
@@ -402,6 +418,10 @@ code-pipeline/
 │   ├── common/
 │   ├── seed/
 │   │   ├── adapters/
+│   │   │   ├── benchmark/
+│   │   │   ├── curated/
+│   │   │   ├── github/
+│   │   │   └── package_registry/
 │   │   ├── extractors/
 │   │   ├── qualifiers/
 │   │   ├── resolvers/

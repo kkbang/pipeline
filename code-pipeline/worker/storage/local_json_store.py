@@ -133,6 +133,23 @@ class LocalJsonStore:
         if path.exists():
             path.unlink()
 
+    def list_documents(
+        self,
+        collection_name: str,
+        size: int = 1000,
+    ) -> list[dict]:
+        collection_dir = self.base_dir / collection_name
+        if not collection_dir.exists():
+            return []
+
+        hits = []
+        for path in sorted(collection_dir.glob("*.json")):
+            hits.append(self._read_json(path))
+            if len(hits) >= size:
+                break
+
+        return hits
+
     def find_documents_by_field(
         self,
         collection_name: str,
