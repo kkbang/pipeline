@@ -32,7 +32,7 @@ with DAG(
     default_args=SEED_DEFAULT_ARGS,
     description="Seed discovery pipeline",
     start_date=SEED_DAG_START_DATE,
-    schedule_interval="@daily",
+    schedule_interval=None,
     catchup=False,
     tags=["seed", "discovery"],
 ) as dag:

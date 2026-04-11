@@ -10,6 +10,8 @@ from typing import Callable, TypeVar
 
 T = TypeVar("T")
 RETRYABLE_IO_ERRNOS = {errno.EDEADLK}
+JSON_READ_RETRIES = 20
+JSON_READ_RETRY_DELAY_SECONDS = 0.25
 
 
 class LocalJsonStore:
@@ -56,13 +58,35 @@ class LocalJsonStore:
         if not path.exists():
             return {} if default is None else default
 
-        payload = self._run_io_with_retry(
-            lambda: path.read_text(encoding="utf-8"),
-        ).strip()
-        if not payload:
-            return {} if default is None else default
+        missing_payload_error: ValueError | None = None
 
-        return json.loads(payload)
+        for attempt in range(JSON_READ_RETRIES):
+            if not path.exists():
+                return {} if default is None else default
+
+            payload = self._run_io_with_retry(
+                lambda: path.read_text(encoding="utf-8"),
+            ).strip()
+
+            if not payload:
+                missing_payload_error = ValueError(f"Empty JSON document at '{path}'")
+                if attempt == JSON_READ_RETRIES - 1:
+                    raise missing_payload_error
+                time.sleep(JSON_READ_RETRY_DELAY_SECONDS)
+                continue
+
+            try:
+                return json.loads(payload)
+            except json.JSONDecodeError as exc:
+                if attempt == JSON_READ_RETRIES - 1:
+                    raise json.JSONDecodeError(
+                        f"{exc.msg} while reading '{path}'",
+                        exc.doc,
+                        exc.pos,
+                    ) from exc
+                time.sleep(JSON_READ_RETRY_DELAY_SECONDS)
+
+        raise RuntimeError("unreachable") from missing_payload_error
 
     def _write_json(self, path: Path, payload: dict) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,6 +99,8 @@ class LocalJsonStore:
             delete=False,
         ) as tmp_file:
             tmp_file.write(serialized)
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
             tmp_path = Path(tmp_file.name)
 
         try:
