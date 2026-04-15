@@ -17,9 +17,7 @@ from worker.seed.services.seed_item_writer import (
     stable_digest,
     write_seed_item,
 )
-from worker.storage.local_json_store import LocalJsonStore
-# from worker.storage.s3_store import S3Store
-# from worker.storage.opensearch_store import OpenSearchStore
+from worker.storage.opensearch_store import OpenSearchStore
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +65,7 @@ def _raise_first_fetch_error(results: list[GitHubSeedFetchResult]) -> None:
 
 def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None = None) -> None:
     adapter = _get_package_registry_adapter(registry)
-    store = LocalJsonStore()
-    # s3 = S3Store()
-    # os = OpenSearchStore()
+    store = OpenSearchStore()
 
     if not package_names:
         if registry == "pypi":
@@ -82,19 +78,24 @@ def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None =
     for package_name in package_names:
         metadata = adapter.fetch_package_metadata(package_name)
 
-        raw_metadata_path = f"raw/package_registry/{registry}/{package_name}.json"
-        if settings.keep_full_package_registry_raw and metadata.full_raw_metadata is not None:
-            full_raw_metadata_path = f"raw/package_registry_full/{registry}/{package_name}.json"
-            store.put_json(full_raw_metadata_path, metadata.full_raw_metadata)
-
         doc_id = f"{registry}:{package_name}"
+        if settings.keep_full_package_registry_raw and metadata.full_raw_metadata is not None:
+            store.upsert_document(
+                collection_name="package_registry_full_metadata_index",
+                doc_id=doc_id,
+                body={
+                    "registry_name": registry,
+                    "package_name": package_name,
+                    "full_raw_metadata": metadata.full_raw_metadata,
+                },
+            )
+
         write_seed_item(
             store,
             doc_id=doc_id,
             source_type="package_registry_repo",
             source_name=registry,
             source_item_id=doc_id,
-            raw_metadata_path=raw_metadata_path,
             raw_metadata=metadata.raw_metadata,
             candidate_repo_urls=metadata.candidate_repo_urls,
         )
@@ -102,18 +103,13 @@ def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None =
 
 def run_curated_repo_ingestion(list_name: str, repo_entries: list[str | dict] | None = None) -> None:
     adapter = CuratedRepoListAdapter()
-    store = LocalJsonStore()
+    store = OpenSearchStore()
 
     if not repo_entries:
         return
 
     for repo_entry in repo_entries:
         metadata = adapter.build_repo_metadata(list_name, repo_entry)
-
-        raw_metadata_path = (
-            f"raw/curated_repo_list/{safe_path_fragment(list_name)}/"
-            f"{safe_path_fragment(metadata.source_item_id)}.json"
-        )
 
         doc_id = f"curated_repo_list:{list_name}:{metadata.source_item_id}"
         write_seed_item(
@@ -122,7 +118,6 @@ def run_curated_repo_ingestion(list_name: str, repo_entries: list[str | dict] | 
             source_type="curated_repo_list",
             source_name=list_name,
             source_item_id=metadata.source_item_id,
-            raw_metadata_path=raw_metadata_path,
             raw_metadata=metadata.raw_metadata,
             candidate_repo_urls=metadata.candidate_repo_urls,
         )
@@ -130,18 +125,12 @@ def run_curated_repo_ingestion(list_name: str, repo_entries: list[str | dict] | 
 
 def run_benchmark_dataset_ingestion(dataset_name: str, dataset_config: dict | None = None) -> None:
     adapter = BenchmarkDatasetAdapter()
-    store = LocalJsonStore()
+    store = OpenSearchStore()
 
     if not dataset_config:
         return
 
     for metadata in adapter.build_repo_metadatas(dataset_name, dataset_config):
-
-        raw_metadata_path = (
-            f"raw/benchmark_dataset/{safe_path_fragment(dataset_name)}/"
-            f"{safe_path_fragment(metadata.source_item_id)}.json"
-        )
-
         doc_id = f"benchmark_dataset_repo:{dataset_name}:{metadata.source_item_id}"
         write_seed_item(
             store,
@@ -149,14 +138,13 @@ def run_benchmark_dataset_ingestion(dataset_name: str, dataset_config: dict | No
             source_type="benchmark_dataset_repo",
             source_name=dataset_name,
             source_item_id=metadata.source_item_id,
-            raw_metadata_path=raw_metadata_path,
             raw_metadata=metadata.raw_metadata,
             candidate_repo_urls=metadata.candidate_repo_urls,
         )
 
 
 def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None) -> None:
-    store = LocalJsonStore()
+    store = OpenSearchStore()
 
     if not org_names:
         return
@@ -185,12 +173,6 @@ def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None)
             continue
 
         for metadata in result.metadatas:
-            raw_metadata_path = (
-                f"raw/github_org/{safe_path_fragment(list_name)}/"
-                f"{safe_path_fragment(result.label)}/"
-                f"{safe_path_fragment(metadata.repo_name)}.json"
-            )
-
             doc_id = f"org_repo:{list_name}:{metadata.source_item_id}"
             write_seed_item(
                 store,
@@ -198,7 +180,6 @@ def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None)
                 source_type="org_repo",
                 source_name=list_name,
                 source_item_id=metadata.source_item_id,
-                raw_metadata_path=raw_metadata_path,
                 raw_metadata=metadata.raw_metadata,
                 candidate_repo_urls=metadata.candidate_repo_urls,
             )
@@ -210,7 +191,7 @@ def run_github_search_ingestion(
     list_name: str,
     search_queries: list[dict] | None = None,
 ) -> None:
-    store = LocalJsonStore()
+    store = OpenSearchStore()
 
     if not search_queries:
         return
@@ -251,12 +232,6 @@ def run_github_search_ingestion(
         query_digest = stable_digest(f"{result.key}:{query_value or list_name}")
 
         for metadata in result.metadatas:
-            raw_metadata_path = (
-                f"raw/github_search/{safe_path_fragment(list_name)}/"
-                f"{query_digest}/"
-                f"{safe_path_fragment(metadata.source_item_id)}.json"
-            )
-
             doc_id = (
                 f"github_search_repo:{list_name}:{query_digest}:"
                 f"{safe_path_fragment(metadata.source_item_id)}"
@@ -267,7 +242,6 @@ def run_github_search_ingestion(
                 source_type="github_search_repo",
                 source_name=list_name,
                 source_item_id=metadata.source_item_id,
-                raw_metadata_path=raw_metadata_path,
                 raw_metadata=metadata.raw_metadata,
                 candidate_repo_urls=metadata.candidate_repo_urls,
                 extra_body={
@@ -283,7 +257,7 @@ def run_github_topic_ingestion(
     list_name: str,
     topic_entries: list[dict] | None = None,
 ) -> None:
-    store = LocalJsonStore()
+    store = OpenSearchStore()
 
     if not topic_entries:
         return
@@ -324,12 +298,6 @@ def run_github_topic_ingestion(
         topic_digest = stable_digest(f"{result.key}:{topic_name or list_name}")
 
         for metadata in result.metadatas:
-            raw_metadata_path = (
-                f"raw/github_topic/{safe_path_fragment(list_name)}/"
-                f"{topic_digest}/"
-                f"{safe_path_fragment(metadata.source_item_id)}.json"
-            )
-
             doc_id = (
                 f"github_topic_repo:{list_name}:{topic_digest}:"
                 f"{safe_path_fragment(metadata.source_item_id)}"
@@ -340,7 +308,6 @@ def run_github_topic_ingestion(
                 source_type="github_topic_repo",
                 source_name=list_name,
                 source_item_id=metadata.source_item_id,
-                raw_metadata_path=raw_metadata_path,
                 raw_metadata=metadata.raw_metadata,
                 candidate_repo_urls=metadata.candidate_repo_urls,
                 extra_body={

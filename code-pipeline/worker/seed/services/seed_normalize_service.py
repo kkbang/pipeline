@@ -1,7 +1,5 @@
 from worker.seed.resolvers.github_url_canonicalizer import canonicalize_github_repo_url
-from worker.storage.local_json_store import LocalJsonStore
-# from worker.storage.s3_store import S3Store
-# from worker.storage.opensearch_store import OpenSearchStore
+from worker.storage.opensearch_store import OpenSearchStore
 
 
 def _load_candidate_urls(source: dict) -> list[str]:
@@ -13,9 +11,7 @@ def _load_candidate_urls(source: dict) -> list[str]:
 
 
 def run_seed_normalization() -> None:
-    store = LocalJsonStore()
-    # s3 = S3Store()
-    # os = OpenSearchStore()
+    store = OpenSearchStore()
 
     seed_docs = store.find_documents_by_status(collection_name="seed_item_index", status="ingested")
 

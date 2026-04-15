@@ -16,7 +16,7 @@ from worker.seed.services.seed_item_writer import (
     stable_digest,
     write_seed_item,
 )
-from worker.storage.local_json_store import LocalJsonStore
+from worker.storage.opensearch_store import OpenSearchStore
 
 
 @dataclass(slots=True)
@@ -56,7 +56,7 @@ def _repo_id(owner: str, repo_name: str) -> str:
     return f"github:{owner}/{repo_name}"
 
 
-def _iter_target_repos(store: LocalJsonStore, rule_name: str, max_registered_repos: int) -> list[dict]:
+def _iter_target_repos(store: OpenSearchStore, rule_name: str, max_registered_repos: int) -> list[dict]:
     rule_status_field = _rule_field("content_expansion_status", rule_name)
     repo_docs = []
     for hit in store.list_documents("repo_registry_index", size=max_registered_repos * 5):
@@ -121,7 +121,7 @@ async def _fetch_repo_content_batch(
 
 
 def _emit_expansion_seed(
-    store: LocalJsonStore,
+    store: OpenSearchStore,
     *,
     rule_name: str,
     parent_repo_id: str,
@@ -153,13 +153,6 @@ def _emit_expansion_seed(
         "candidate_repo_url": canonical_repo_url,
     }
 
-    raw_metadata_path = (
-        f"raw/repo_content_expansion/{safe_path_fragment(rule_name)}/"
-        f"{safe_path_fragment(parent_repo_id)}/"
-        f"{safe_path_fragment(source_path)}/"
-        f"{safe_path_fragment(owner)}__{safe_path_fragment(repo_name)}.json"
-    )
-
     doc_id = (
         f"{source_type}:{safe_path_fragment(rule_name)}:{safe_path_fragment(parent_repo_id)}:"
         f"{stable_digest(source_path)}:{owner}/{repo_name}"
@@ -170,7 +163,6 @@ def _emit_expansion_seed(
         source_type=source_type,
         source_name=rule_name,
         source_item_id=source_item_id,
-        raw_metadata_path=raw_metadata_path,
         raw_metadata=raw_metadata,
         candidate_repo_urls=[canonical_repo_url],
         extra_body={
@@ -186,7 +178,7 @@ def run_repo_content_expansion(rule_name: str = "default", rule_config: dict | N
     if config.get("enabled") is not True:
         return
 
-    store = LocalJsonStore()
+    store = OpenSearchStore()
     started_at = datetime.now(timezone.utc).isoformat()
 
     status_field = _rule_field("content_expansion_status", rule_name)

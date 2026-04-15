@@ -1,7 +1,7 @@
 import re
 from hashlib import sha1
 
-from worker.storage.local_json_store import LocalJsonStore
+from worker.storage.opensearch_store import OpenSearchStore
 
 
 def safe_path_fragment(value: str) -> str:
@@ -13,24 +13,21 @@ def stable_digest(value: str) -> str:
 
 
 def write_seed_item(
-    store: LocalJsonStore,
+    store: OpenSearchStore,
     *,
     doc_id: str,
     source_type: str,
     source_name: str,
     source_item_id: str,
-    raw_metadata_path: str,
     raw_metadata: dict,
     candidate_repo_urls: list[str],
     extra_body: dict | None = None,
 ) -> None:
-    store.put_json(raw_metadata_path, raw_metadata)
-
     body = {
         "source_type": source_type,
         "source_name": source_name,
         "source_item_id": source_item_id,
-        "raw_metadata_path": raw_metadata_path,
+        "raw_metadata": raw_metadata,
         "candidate_repo_urls": candidate_repo_urls,
         "status": "ingested",
     }

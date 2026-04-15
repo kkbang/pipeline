@@ -8,9 +8,7 @@ from worker.seed.adapters.github import (
     RepoMetadataFetchResult,
 )
 from worker.seed.qualifiers.repo_qualifier import qualify_repo
-from worker.storage.local_json_store import LocalJsonStore
-
-# from worker.storage.opensearch_store import OpenSearchStore
+from worker.storage.opensearch_store import OpenSearchStore
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +26,7 @@ def _collect_source_types(hits: list[dict]) -> list[str]:
 
 
 def _record_qualification_failure(
-    store: LocalJsonStore,
+    store: OpenSearchStore,
     owner: str,
     repo: str,
     hits: list[dict],
@@ -64,7 +62,7 @@ def _record_qualification_failure(
 
 
 def _clear_qualification_failure(
-    store: LocalJsonStore,
+    store: OpenSearchStore,
     owner: str,
     repo: str,
 ) -> None:
@@ -142,8 +140,7 @@ def _fetch_repo_metadata_results(
 
 
 def run_seed_qualification() -> None:
-    store = LocalJsonStore()
-    # os = OpenSearchStore()
+    store = OpenSearchStore()
     metadata_adapter = GitHubRepoMetadataAdapter()
     seed_docs = store.find_documents_by_status(
         collection_name="seed_item_index",

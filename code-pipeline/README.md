@@ -14,8 +14,8 @@
   - package registry repo: `PyPI`, `npm`
   - curated repo list: 정적 GitHub repo URL 목록
   - benchmark dataset source: benchmark dataset artifact에서 추출한 공개 repo
-- 현재 기본 저장소: 로컬 JSON 파일
-- 장기 설계 저장소: `OpenSearch`, `S3`
+- 현재 기본 저장소: `OpenSearch`
+- 장기 설계 저장소: `OpenSearch`, `Backblaze B2`
 - 실행 환경: `Airflow + Docker Compose`
 
 ## 왜 이 프로젝트가 필요한가
@@ -102,7 +102,6 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 ```text
 [PyPI / npm / Curated Repo List / Benchmark Dataset Source]
   -> [Seed Ingestion]
-  -> [Local JSON Raw Store]
   -> [seed_item_index]
   -> [Seed Normalization]
   -> [GitHub Repo Qualification]
@@ -113,8 +112,8 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 - Airflow: orchestration과 실행 순서 제어
 - worker: seed 수집, URL 추출, normalize, qualification 로직 수행
-- local JSON store: 현재 기본 저장소
-- OpenSearch / S3: 장기 설계상 저장소 인터페이스, 현재 기본 경로는 아님
+- OpenSearch: 현재 기본 저장소
+- Backblaze B2: 장기 설계상 아카이브 저장소 인터페이스
 
 ## 현재 구현된 DAG
 
@@ -174,7 +173,7 @@ benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/k
 역할:
 
 - package registry, curated list, benchmark dataset source에서 입력을 가져옵니다.
-- raw metadata를 로컬 JSON으로 저장합니다.
+- raw metadata를 `seed_item_index.raw_metadata`로 저장합니다.
 - `candidate_repo_urls`를 미리 계산해 `seed_item_index`에 함께 저장합니다.
 - 문서 상태를 `ingested`로 기록합니다.
 
@@ -227,20 +226,18 @@ benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/k
 
 ## 현재 데이터 모델
 
-### 1. Raw Data
+### 1. Source Metadata
 
 기본 저장 위치:
 
-- `local_data/raw/package_registry/pypi/*.json`
-- `local_data/raw/package_registry/npm/*.json`
-- `local_data/raw/curated_repo_list/<list_name>/*.json`
-- `local_data/raw/benchmark_dataset/<dataset_name>/*.json`
+- `seed_item_index.raw_metadata`
+- `package_registry_full_metadata_index.full_raw_metadata` (옵션)
 
 특징:
 
-- package registry raw는 compact format이 기본입니다.
-- 너무 큰 registry 응답을 그대로 저장하지 않도록 최소 필드만 남깁니다.
-- full raw 전체 응답이 필요하면 `KEEP_FULL_PACKAGE_REGISTRY_RAW=true` 로 켤 수 있습니다.
+- source raw metadata는 `seed_item_index` 문서 내부 필드로 직접 저장합니다.
+- 너무 큰 registry 응답을 그대로 저장하지 않도록 compact format이 기본입니다.
+- full raw 전체 응답이 필요하면 `KEEP_FULL_PACKAGE_REGISTRY_RAW=true` 로 `package_registry_full_metadata_index`에 저장합니다.
 
 ### 2. `seed_item_index`
 
@@ -254,7 +251,7 @@ benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/k
 - `source_type`
 - `source_name`
 - `source_item_id`
-- `raw_metadata_path`
+- `raw_metadata`
 - `candidate_repo_urls`
 - `selected_repository_url`
 - `canonical_repo_url`
@@ -297,19 +294,17 @@ ingested -> normalized -> registered
 
 ## 현재 기본 저장 모드
 
-현재 기본 경로는 `LocalJsonStore` 입니다.
+현재 기본 저장 모드는 `OpenSearchStore` 입니다.
 
 파일:
 
-- [local_json_store.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/storage/local_json_store.py)
+- [opensearch_store.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/storage/opensearch_store.py)
 
 이 모드의 장점:
 
-- OpenSearch와 S3 없이도 로컬에서 빠르게 테스트 가능
-- 산출물을 JSON 파일로 직접 확인 가능
-- seed/source/provenance 구조를 디버깅하기 쉬움
-
-장기적으로는 OpenSearch와 S3를 다시 활성화할 수 있도록 저장소 인터페이스 파일을 함께 유지하고 있습니다.
+- `seed_item_index`, `repo_registry_index` 등 인덱스 단위 조회/갱신이 바로 가능
+- Airflow/worker에서 동일한 저장소 인터페이스로 운영 환경과 개발 환경을 맞출 수 있음
+- 이후 검색/유사도/통계 파이프라인을 붙이기 쉬움
 
 ## 설정 파일
 
@@ -324,7 +319,17 @@ ingested -> normalized -> registered
 - [airflow.env](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/airflow.env)
   - Airflow executor, timezone, metadata DB 설정
 - [.env](/Users/xxuchan/Desktop/kkbang/code-pipeline/.env)
-  - 앱 환경변수, local data 위치, timeout 등
+  - 앱 환경변수, OpenSearch/B2 연결, timeout 등
+
+Backblaze B2 연결에 쓰는 주요 키:
+
+- `B2_ENDPOINT_URL` (예: `https://s3.us-west-004.backblazeb2.com`)
+- `B2_REGION` (예: `us-west-004`)
+- `B2_BUCKET`
+- `B2_KEY_ID`
+- `B2_APPLICATION_KEY`
+- `REPO_SNAPSHOT_UPLOAD_ENABLED` (`true/false`)
+- `REPO_SNAPSHOT_B2_PREFIX` (예: `repo_snapshot_archive`)
 
 benchmark dataset 파일은 기본적으로 아래 경로에 마운트해서 읽습니다.
 
@@ -380,17 +385,14 @@ docker compose exec airflow airflow tasks test seed_discovery_dag seed_qualifica
 
 ## 결과 확인 위치
 
-기본 결과 위치:
+OpenSearch 주요 인덱스:
 
-- [local_data](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data)
-
-대표 경로:
-
-- [local_data/raw/package_registry](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/raw/package_registry)
-- [local_data/raw/curated_repo_list](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/raw/curated_repo_list)
-- [local_data/raw/benchmark_dataset](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/raw/benchmark_dataset)
-- [local_data/seed_item_index](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/seed_item_index)
-- [local_data/repo_registry_index](/Users/xxuchan/Desktop/kkbang/code-pipeline/local_data/repo_registry_index)
+- `seed_item_index`
+- `repo_registry_index`
+- `repo_relation_index`
+- `seed_qualification_failure_index`
+- `package_registry_full_metadata_index` (옵션)
+- `benchmark_artifact_fetch_index`
 
 ## 디렉토리 구조
 
@@ -433,7 +435,7 @@ code-pipeline/
 
 ## 현재 한계
 
-- 현재 기본 저장소는 OpenSearch/S3가 아니라 local JSON입니다.
+- 현재 저장소는 OpenSearch 중심이며, repo snapshot 아카이브는 Backblaze B2 업로드를 지원합니다.
 - GitHub qualification은 GitHub REST API 무인증 호출에 의존합니다.
 - repo snapshot, 파일 수집, chunking, embedding, retrieval 단계는 아직 구현되지 않았습니다.
 - seed source coverage는 아직 초기 단계입니다.

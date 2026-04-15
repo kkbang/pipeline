@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import requests
 
 from worker.common.config import settings
-from worker.storage.local_json_store import LocalJsonStore
+from worker.storage.opensearch_store import OpenSearchStore
 
 
 def _safe_extract_archive_path(base_dir: Path, member_name: str) -> Path:
@@ -182,7 +182,7 @@ def run_benchmark_artifact_fetch(dataset_name: str, dataset_config: dict | None 
 
     benchmark_data_dir = Path(settings.benchmark_data_dir)
     benchmark_data_dir.mkdir(parents=True, exist_ok=True)
-    store = LocalJsonStore()
+    store = OpenSearchStore()
 
     materialized_artifacts = []
     for artifact in artifacts:
@@ -197,9 +197,10 @@ def run_benchmark_artifact_fetch(dataset_name: str, dataset_config: dict | None 
             )
         )
 
-    store.put_json(
-        f"raw/benchmark_artifact_fetch/{dataset_name}/manifest.json",
-        {
+    store.upsert_document(
+        collection_name="benchmark_artifact_fetch_index",
+        doc_id=dataset_name,
+        body={
             "dataset_name": dataset_name,
             "artifact_fetch": artifact_fetch,
             "materialized_artifacts": materialized_artifacts,

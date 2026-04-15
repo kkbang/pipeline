@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from worker.common.config import settings
-from worker.storage.local_json_store import LocalJsonStore
+from worker.storage.opensearch_store import OpenSearchStore
 
 
 def _safe_fragment(value: str) -> str:
@@ -66,7 +66,7 @@ def _limited_pairs(items: list[dict], max_pairs: int) -> list[tuple[dict, dict]]
 
 
 def _upsert_relation(
-    store: LocalJsonStore,
+    store: OpenSearchStore,
     *,
     relation_type: str,
     from_repo_id: str,
@@ -99,7 +99,7 @@ def _upsert_relation(
     )
 
 
-def _load_repo_sources(store: LocalJsonStore, max_registered_repos: int) -> list[dict]:
+def _load_repo_sources(store: OpenSearchStore, max_registered_repos: int) -> list[dict]:
     repo_sources = []
     for hit in store.list_documents("repo_registry_index", size=max_registered_repos):
         source = hit.get("_source", {})
@@ -114,7 +114,7 @@ def _load_repo_sources(store: LocalJsonStore, max_registered_repos: int) -> list
 
 
 def _enrich_same_owner_relations(
-    store: LocalJsonStore,
+    store: OpenSearchStore,
     repo_sources: list[dict],
     *,
     rule_name: str,
@@ -142,7 +142,7 @@ def _enrich_same_owner_relations(
 
 
 def _enrich_same_project_family_relations(
-    store: LocalJsonStore,
+    store: OpenSearchStore,
     repo_sources: list[dict],
     *,
     rule_name: str,
@@ -182,7 +182,7 @@ def _enrich_same_project_family_relations(
 
 
 def _enrich_fork_relations(
-    store: LocalJsonStore,
+    store: OpenSearchStore,
     repo_sources: list[dict],
     *,
     rule_name: str,
@@ -215,7 +215,7 @@ def run_repo_relation_enrichment(rule_name: str = "default", rule_config: dict |
     if config.get("enabled") is not True:
         return
 
-    store = LocalJsonStore()
+    store = OpenSearchStore()
     repo_sources = _load_repo_sources(
         store,
         max_registered_repos=int(config["max_registered_repos"]),
