@@ -18,7 +18,7 @@ with DAG(
     default_args=default_args,
     description="Repository snapshot download pipeline",
     start_date=datetime(2026, 1, 1),
-    schedule_interval="*/10 * * * *",
+    schedule_interval=None,
     catchup=False,
     max_active_runs=1,
     tags=["repo", "snapshot"],

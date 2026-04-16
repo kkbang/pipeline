@@ -19,7 +19,7 @@ with DAG(
     default_args=default_args,
     description="Repository code chunking stage",
     start_date=datetime(2026, 1, 1),
-    schedule_interval="1-59/5 * * * *",
+    schedule_interval=None,
     catchup=False,
     max_active_runs=1,
     max_active_tasks=max(1, settings.repo_pipeline_parallelism),
