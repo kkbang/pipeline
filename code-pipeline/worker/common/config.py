@@ -51,7 +51,7 @@ class Settings:
         os.getenv("REPO_CONTENT_EXPANSION_CONCURRENCY", "4")
     )
     repo_relation_repo_limit: int = int(os.getenv("REPO_RELATION_REPO_LIMIT", "200"))
-    repo_crawl_concurrency: int = int(os.getenv("REPO_CRAWL_CONCURRENCY", "4"))
+    repo_crawl_concurrency: int = int(os.getenv("REPO_CRAWL_CONCURRENCY", "8"))
     repo_crawl_lease_seconds: int = int(os.getenv("REPO_CRAWL_LEASE_SECONDS", "1800"))
     repo_file_extract_repo_limit: int = int(os.getenv("REPO_FILE_EXTRACT_REPO_LIMIT", "1000"))
     repo_file_extract_max_file_size_bytes: int = int(
@@ -62,5 +62,5 @@ class Settings:
     repo_chunk_overlap_lines: int = int(os.getenv("REPO_CHUNK_OVERLAP_LINES", "20"))
     repo_validation_repo_limit: int = int(os.getenv("REPO_VALIDATION_REPO_LIMIT", "1000"))
     repo_pipeline_batch_size: int = int(os.getenv("REPO_PIPELINE_BATCH_SIZE", "200"))
-    repo_pipeline_parallelism: int = int(os.getenv("REPO_PIPELINE_PARALLELISM", "8"))
+    repo_pipeline_parallelism: int = int(os.getenv("REPO_PIPELINE_PARALLELISM", "12"))
 settings = Settings()

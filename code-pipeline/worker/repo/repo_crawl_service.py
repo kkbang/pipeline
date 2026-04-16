@@ -236,6 +236,11 @@ def _load_repo_docs_for_crawl(
         field_name="crawl_status",
         value="downloading",
     )
+    crawl_failed_docs = store.find_documents_by_field(
+        collection_name="repo_registry_index",
+        field_name="crawl_status",
+        value="crawl_failed",
+    )
     stale_docs = [
         hit
         for hit in downloading_docs
@@ -245,7 +250,8 @@ def _load_repo_docs_for_crawl(
     repo_docs_by_id = {hit["_id"]: hit for hit in scheduled_docs}
     for hit in stale_docs:
         repo_docs_by_id[hit["_id"]] = hit
-
+    for hit in crawl_failed_docs:
+        repo_docs_by_id[hit["_id"]] = hit
     if stale_docs:
         logger.warning(
             "Reclaiming stale repo crawl leases: count=%s lease_seconds=%s",
