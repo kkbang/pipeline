@@ -9,3 +9,5 @@ python-dotenv==1.0.1
 pyarrow==17.0.0
 requests[socks]==2.32.3
 stem==1.8.2
+tree-sitter==0.21.3
+tree-sitter-languages==1.10.2

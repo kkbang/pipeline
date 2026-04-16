@@ -3,10 +3,20 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from worker.common.config import settings
 from worker.repo.repo_stage_service import list_repo_ids_for_chunking
 from worker.storage.opensearch_store import OpenSearchStore
+
+try:
+    from tree_sitter import Node, Parser, Tree
+    from tree_sitter_languages import get_parser
+except ImportError:  # pragma: no cover - optional dependency fallback
+    Node = Any
+    Parser = Any
+    Tree = Any
+    get_parser = None
 
 
 logger = logging.getLogger(__name__)
@@ -15,6 +25,94 @@ REPO_REGISTRY_INDEX = "repo_registry_index"
 REPO_FILE_INDEX = "repo_file_index"
 REPO_CHUNK_INDEX = "repo_chunk_index"
 
+LANGUAGE_TO_PARSER_KEY = {
+    "python": "python",
+    "javascript": "javascript",
+    "typescript": "typescript",
+    "java": "java",
+    "go": "go",
+    "rust": "rust",
+    "c": "c",
+    "cpp": "cpp",
+    "csharp": "c_sharp",
+    "php": "php",
+    "ruby": "ruby",
+    "swift": "swift",
+    "kotlin": "kotlin",
+    "scala": "scala",
+    "shell": "bash",
+    "sql": "sql",
+}
+
+FUNCTION_NODE_TYPES_BY_LANGUAGE = {
+    "python": {
+        "function_definition",
+        "decorated_definition",
+    },
+    "javascript": {
+        "function_declaration",
+        "generator_function_declaration",
+        "method_definition",
+        "arrow_function",
+    },
+    "typescript": {
+        "function_declaration",
+        "generator_function_declaration",
+        "method_definition",
+        "arrow_function",
+    },
+    "java": {
+        "method_declaration",
+        "constructor_declaration",
+    },
+    "go": {
+        "function_declaration",
+        "method_declaration",
+    },
+    "rust": {
+        "function_item",
+    },
+    "c": {
+        "function_definition",
+    },
+    "cpp": {
+        "function_definition",
+    },
+    "csharp": {
+        "method_declaration",
+        "constructor_declaration",
+        "local_function_statement",
+    },
+    "php": {
+        "function_definition",
+        "method_declaration",
+    },
+    "ruby": {
+        "method",
+    },
+    "swift": {
+        "function_declaration",
+        "initializer_declaration",
+        "deinitializer_declaration",
+    },
+    "kotlin": {
+        "function_declaration",
+        "secondary_constructor",
+    },
+    "scala": {
+        "function_definition",
+    },
+    "shell": {
+        "function_definition",
+    },
+    "sql": {
+        "create_function_statement",
+        "create_procedure_statement",
+    },
+}
+
+_PARSER_CACHE: dict[str, Parser | None] = {}
+
 
 @dataclass(slots=True)
 class RepoChunkStats:
@@ -22,9 +120,22 @@ class RepoChunkStats:
     chunk_docs_created: int = 0
     total_lines_seen: int = 0
     chunked_lines_total: int = 0
+    function_chunks_created: int = 0
+    line_window_chunks_created: int = 0
+    files_chunked_with_functions: int = 0
+    files_chunked_with_line_window: int = 0
+    parser_unavailable_files: int = 0
+    parser_failed_files: int = 0
     skipped_missing_files: int = 0
     skipped_non_utf8_files: int = 0
     deleted_previous_docs: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class FunctionSpan:
+    line_start: int
+    line_end: int
+    node_type: str
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -115,11 +226,18 @@ def _claim_repo_docs_for_chunking(
             "chunk_code_files_count": None,
             "chunk_total_lines_seen": None,
             "chunked_lines_total": None,
+            "chunk_function_chunks_count": None,
+            "chunk_line_window_chunks_count": None,
+            "chunk_function_chunked_files_count": None,
+            "chunk_line_window_chunked_files_count": None,
+            "chunk_parser_unavailable_files": None,
+            "chunk_parser_failed_files": None,
             "chunk_skipped_missing_files": None,
             "chunk_skipped_non_utf8_files": None,
             "chunk_deleted_previous_docs": None,
             "chunk_max_lines": None,
             "chunk_overlap_lines": None,
+            "chunk_strategy": None,
         }
         store.replace_document(
             collection_name=REPO_REGISTRY_INDEX,
@@ -136,6 +254,201 @@ def _chunk_parameters() -> tuple[int, int]:
     if overlap_lines >= max_lines:
         overlap_lines = max(0, max_lines - 1)
     return max_lines, overlap_lines
+
+
+def _resolve_parser_key(language: object) -> str | None:
+    normalized = str(language or "").strip().lower()
+    if not normalized:
+        return None
+    return LANGUAGE_TO_PARSER_KEY.get(normalized)
+
+
+def _get_tree_sitter_parser(language: object) -> Parser | None:
+    parser_key = _resolve_parser_key(language)
+    if parser_key is None:
+        return None
+
+    if parser_key in _PARSER_CACHE:
+        return _PARSER_CACHE[parser_key]
+
+    if get_parser is None:
+        _PARSER_CACHE[parser_key] = None
+        return None
+
+    try:
+        parser = get_parser(parser_key)
+    except Exception:  # noqa: BLE001 - unsupported parser는 라인 윈도우 fallback
+        parser = None
+
+    _PARSER_CACHE[parser_key] = parser
+    return parser
+
+
+def _is_function_like_node(language: str, node: Node) -> bool:
+    node_type = str(node.type or "")
+    if not node_type:
+        return False
+
+    if not node.is_named:
+        return False
+
+    if language == "python" and node_type == "function_definition":
+        parent = node.parent
+        if parent is not None and str(parent.type or "") == "decorated_definition":
+            return False
+
+    function_node_types = FUNCTION_NODE_TYPES_BY_LANGUAGE.get(language, set())
+    if node_type in function_node_types:
+        return True
+
+    # 언어별 매핑이 없거나 누락된 노드 타입은 이름 기반으로 보수적으로 허용.
+    lowered = node_type.lower()
+    if "function" in lowered or "method" in lowered or "constructor" in lowered:
+        return True
+
+    return False
+
+
+def _collect_function_spans(language: object, tree: Tree) -> list[FunctionSpan]:
+    normalized_language = str(language or "").strip().lower()
+    if not normalized_language:
+        return []
+
+    root = tree.root_node
+    stack: list[Node] = [root]
+    spans: list[FunctionSpan] = []
+    seen_ranges: set[tuple[int, int]] = set()
+
+    while stack:
+        node = stack.pop()
+        children = list(node.children)
+        if children:
+            stack.extend(reversed(children))
+
+        if not _is_function_like_node(normalized_language, node):
+            continue
+
+        line_start = int(node.start_point[0]) + 1
+        line_end = int(node.end_point[0]) + 1
+        if line_start <= 0 or line_end < line_start:
+            continue
+
+        range_key = (line_start, line_end)
+        if range_key in seen_ranges:
+            continue
+        seen_ranges.add(range_key)
+        spans.append(
+            FunctionSpan(
+                line_start=line_start,
+                line_end=line_end,
+                node_type=str(node.type or ""),
+            )
+        )
+
+    spans.sort(key=lambda span: (span.line_start, span.line_end, span.node_type))
+    return spans
+
+
+def _iterate_line_chunks_in_range(
+    *,
+    lines: list[str],
+    line_start: int,
+    line_end: int,
+    max_lines: int,
+    overlap_lines: int,
+):
+    bounded_start = max(1, line_start)
+    bounded_end = min(len(lines), line_end)
+    if bounded_end < bounded_start:
+        return
+
+    sub_lines = lines[bounded_start - 1 : bounded_end]
+    for start, end, chunk_text in _iterate_line_chunks(
+        sub_lines,
+        max_lines=max_lines,
+        overlap_lines=overlap_lines,
+    ):
+        yield (
+            bounded_start + start - 1,
+            bounded_start + end - 1,
+            chunk_text,
+        )
+
+
+def _iterate_chunks_for_file(
+    *,
+    content: str,
+    lines: list[str],
+    language: object,
+    max_lines: int,
+    overlap_lines: int,
+):
+    parser = _get_tree_sitter_parser(language)
+    if parser is None:
+        yield from (
+            (line_start, line_end, chunk_text, "line_window", None, "parser_unavailable")
+            for line_start, line_end, chunk_text in _iterate_line_chunks(
+                lines,
+                max_lines=max_lines,
+                overlap_lines=overlap_lines,
+            )
+        )
+        return
+
+    try:
+        tree = parser.parse(content.encode("utf-8"))
+    except Exception:  # noqa: BLE001 - parse 실패 시 라인 윈도우 fallback
+        yield from (
+            (line_start, line_end, chunk_text, "line_window", None, "parser_failed")
+            for line_start, line_end, chunk_text in _iterate_line_chunks(
+                lines,
+                max_lines=max_lines,
+                overlap_lines=overlap_lines,
+            )
+        )
+        return
+
+    function_spans = _collect_function_spans(language, tree)
+    if not function_spans:
+        yield from (
+            (line_start, line_end, chunk_text, "line_window", None, "no_function_nodes")
+            for line_start, line_end, chunk_text in _iterate_line_chunks(
+                lines,
+                max_lines=max_lines,
+                overlap_lines=overlap_lines,
+            )
+        )
+        return
+
+    for span in function_spans:
+        span_line_count = span.line_end - span.line_start + 1
+        if span_line_count <= max_lines:
+            chunk_text = "\n".join(lines[span.line_start - 1 : span.line_end])
+            yield (
+                span.line_start,
+                span.line_end,
+                chunk_text,
+                "function",
+                span.node_type,
+                None,
+            )
+            continue
+
+        for line_start, line_end, chunk_text in _iterate_line_chunks_in_range(
+            lines=lines,
+            line_start=span.line_start,
+            line_end=span.line_end,
+            max_lines=max_lines,
+            overlap_lines=overlap_lines,
+        ):
+            yield (
+                line_start,
+                line_end,
+                chunk_text,
+                "function_window",
+                span.node_type,
+                None,
+            )
 
 
 def _build_chunk_doc_id(
@@ -249,8 +562,22 @@ def _chunk_single_repo(
         stats.total_lines_seen += len(lines)
         language = file_source.get("language")
         chunk_index = 0
-        for line_start, line_end, chunk_text in _iterate_line_chunks(
-            lines,
+
+        file_has_function_chunk = False
+        file_has_line_window_chunk = False
+        file_parser_unavailable = False
+        file_parser_failed = False
+        for (
+            line_start,
+            line_end,
+            chunk_text,
+            chunk_strategy,
+            function_node_type,
+            fallback_reason,
+        ) in _iterate_chunks_for_file(
+            content=content,
+            lines=lines,
+            language=language,
             max_lines=max_lines,
             overlap_lines=overlap_lines,
         ):
@@ -261,6 +588,16 @@ def _chunk_single_repo(
             line_count = line_end - line_start + 1
             stats.chunk_docs_created += 1
             stats.chunked_lines_total += line_count
+            if chunk_strategy in {"function", "function_window"}:
+                file_has_function_chunk = True
+                stats.function_chunks_created += 1
+            else:
+                file_has_line_window_chunk = True
+                stats.line_window_chunks_created += 1
+                if fallback_reason == "parser_unavailable":
+                    file_parser_unavailable = True
+                elif fallback_reason == "parser_failed":
+                    file_parser_failed = True
 
             pending_docs.append(
                 (
@@ -280,6 +617,9 @@ def _chunk_single_repo(
                         "file_path": relative_path,
                         "language": language,
                         "chunk_index": chunk_index,
+                        "chunk_strategy": chunk_strategy,
+                        "function_node_type": function_node_type,
+                        "fallback_reason": fallback_reason,
                         "line_start": line_start,
                         "line_end": line_end,
                         "line_count": line_count,
@@ -298,6 +638,15 @@ def _chunk_single_repo(
                     chunk_size=bulk_flush_docs,
                 )
                 pending_docs.clear()
+
+        if file_has_function_chunk:
+            stats.files_chunked_with_functions += 1
+        if file_has_line_window_chunk:
+            stats.files_chunked_with_line_window += 1
+        if file_parser_unavailable:
+            stats.parser_unavailable_files += 1
+        if file_parser_failed:
+            stats.parser_failed_files += 1
 
     if pending_docs:
         store.bulk_upsert_documents(
@@ -397,11 +746,18 @@ def run_repo_code_chunking_for_repo(
             "chunk_code_files_count": stats.code_files_seen,
             "chunk_total_lines_seen": stats.total_lines_seen,
             "chunked_lines_total": stats.chunked_lines_total,
+            "chunk_function_chunks_count": stats.function_chunks_created,
+            "chunk_line_window_chunks_count": stats.line_window_chunks_created,
+            "chunk_function_chunked_files_count": stats.files_chunked_with_functions,
+            "chunk_line_window_chunked_files_count": stats.files_chunked_with_line_window,
+            "chunk_parser_unavailable_files": stats.parser_unavailable_files,
+            "chunk_parser_failed_files": stats.parser_failed_files,
             "chunk_skipped_missing_files": stats.skipped_missing_files,
             "chunk_skipped_non_utf8_files": stats.skipped_non_utf8_files,
             "chunk_deleted_previous_docs": stats.deleted_previous_docs,
             "chunk_max_lines": max_lines,
             "chunk_overlap_lines": overlap_lines,
+            "chunk_strategy": "function_first_with_fallback",
         }
         store.replace_document(
             collection_name=REPO_REGISTRY_INDEX,
@@ -414,6 +770,8 @@ def run_repo_code_chunking_for_repo(
             "stage": "chunk",
             "stage_status": chunk_status,
             "chunk_total_count": stats.chunk_docs_created,
+            "function_chunks_count": stats.function_chunks_created,
+            "line_window_chunks_count": stats.line_window_chunks_created,
             "code_files_seen": stats.code_files_seen,
             "error_message": chunk_error_message,
         }
@@ -427,6 +785,7 @@ def run_repo_code_chunking_for_repo(
             "chunk_error_message": str(exc),
             "chunk_max_lines": max_lines,
             "chunk_overlap_lines": overlap_lines,
+            "chunk_strategy": "function_first_with_fallback",
         }
         store.replace_document(
             collection_name=REPO_REGISTRY_INDEX,
@@ -525,11 +884,18 @@ def run_repo_code_chunking() -> None:
                 "chunk_code_files_count": stats.code_files_seen,
                 "chunk_total_lines_seen": stats.total_lines_seen,
                 "chunked_lines_total": stats.chunked_lines_total,
+                "chunk_function_chunks_count": stats.function_chunks_created,
+                "chunk_line_window_chunks_count": stats.line_window_chunks_created,
+                "chunk_function_chunked_files_count": stats.files_chunked_with_functions,
+                "chunk_line_window_chunked_files_count": stats.files_chunked_with_line_window,
+                "chunk_parser_unavailable_files": stats.parser_unavailable_files,
+                "chunk_parser_failed_files": stats.parser_failed_files,
                 "chunk_skipped_missing_files": stats.skipped_missing_files,
                 "chunk_skipped_non_utf8_files": stats.skipped_non_utf8_files,
                 "chunk_deleted_previous_docs": stats.deleted_previous_docs,
                 "chunk_max_lines": max_lines,
                 "chunk_overlap_lines": overlap_lines,
+                "chunk_strategy": "function_first_with_fallback",
             }
             store.replace_document(
                 collection_name=REPO_REGISTRY_INDEX,
@@ -546,6 +912,7 @@ def run_repo_code_chunking() -> None:
                 "chunk_error_message": str(exc),
                 "chunk_max_lines": max_lines,
                 "chunk_overlap_lines": overlap_lines,
+                "chunk_strategy": "function_first_with_fallback",
             }
             store.replace_document(
                 collection_name=REPO_REGISTRY_INDEX,
