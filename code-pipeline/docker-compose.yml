@@ -49,6 +49,7 @@ services:
         sleep 3
       done &&
       echo 'Postgres + Tor-Proxy are UP! Starting Airflow...' &&
+      airflow db init &&
       airflow db migrate &&
       (
         airflow users create --username admin --firstname admin --lastname admin --role Admin --email admin@example.com --password admin ||
