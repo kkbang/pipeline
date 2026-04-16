@@ -18,8 +18,9 @@ with DAG(
     default_args=default_args,
     description="Repository snapshot download pipeline",
     start_date=datetime(2026, 1, 1),
-    schedule_interval=None,
+    schedule_interval="*/10 * * * *",
     catchup=False,
+    max_active_runs=1,
     tags=["repo", "snapshot"],
 ) as dag:
     repo_snapshot_download_task = PythonOperator(

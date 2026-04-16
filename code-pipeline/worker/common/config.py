@@ -25,6 +25,7 @@ class Settings:
     opensearch_user: str = os.getenv("OPENSEARCH_USER", "")
     opensearch_password: str = os.getenv("OPENSEARCH_PASSWORD", "")
     opensearch_use_ssl: bool = os.getenv("OPENSEARCH_USE_SSL", "false").lower() == "true"
+    opensearch_bulk_flush_docs: int = int(os.getenv("OPENSEARCH_BULK_FLUSH_DOCS", "500"))
 
     github_token: str = os.getenv("GITHUB_TOKEN", "")
     request_timeout_seconds: int = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))

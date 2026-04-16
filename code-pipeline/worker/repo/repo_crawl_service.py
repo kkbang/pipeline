@@ -222,40 +222,49 @@ def _is_stale_downloading(source: dict, now: datetime) -> bool:
     return elapsed_seconds >= settings.repo_crawl_lease_seconds
 
 
+def _field_term_query(field_name: str, value: str) -> dict:
+    return {
+        "bool": {
+            "should": [
+                {"term": {f"{field_name}.keyword": value}},
+                {"term": {field_name: value}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
+def _iter_repo_docs_by_field(store: OpenSearchStore, field_name: str, value: str):
+    yield from store.iterate_documents_by_query(
+        collection_name="repo_registry_index",
+        query=_field_term_query(field_name, value),
+        size=1000,
+        sort=[{"_id": "asc"}],
+    )
+
+
 def _load_repo_docs_for_crawl(
     store: OpenSearchStore,
     now: datetime,
 ) -> list[dict]:
-    scheduled_docs = store.find_documents_by_field(
-        collection_name="repo_registry_index",
-        field_name="crawl_status",
-        value="scheduled",
-    )
-    downloading_docs = store.find_documents_by_field(
-        collection_name="repo_registry_index",
-        field_name="crawl_status",
-        value="downloading",
-    )
-    crawl_failed_docs = store.find_documents_by_field(
-        collection_name="repo_registry_index",
-        field_name="crawl_status",
-        value="crawl_failed",
-    )
-    stale_docs = [
-        hit
-        for hit in downloading_docs
-        if _is_stale_downloading(hit.get("_source", {}), now)
-    ]
+    repo_docs_by_id = {}
+    stale_count = 0
 
-    repo_docs_by_id = {hit["_id"]: hit for hit in scheduled_docs}
-    for hit in stale_docs:
+    for hit in _iter_repo_docs_by_field(store, "crawl_status", "scheduled"):
         repo_docs_by_id[hit["_id"]] = hit
-    for hit in crawl_failed_docs:
+
+    for hit in _iter_repo_docs_by_field(store, "crawl_status", "downloading"):
+        if _is_stale_downloading(hit.get("_source", {}), now):
+            stale_count += 1
+            repo_docs_by_id[hit["_id"]] = hit
+
+    for hit in _iter_repo_docs_by_field(store, "crawl_status", "crawl_failed"):
         repo_docs_by_id[hit["_id"]] = hit
-    if stale_docs:
+
+    if stale_count > 0:
         logger.warning(
             "Reclaiming stale repo crawl leases: count=%s lease_seconds=%s",
-            len(stale_docs),
+            stale_count,
             settings.repo_crawl_lease_seconds,
         )
 
@@ -452,6 +461,19 @@ def repo_crawler() -> None:
         repo_docs=repo_docs,
         started_at=crawl_started_at.isoformat(),
     )
+    bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
+    pending_registry_docs: list[tuple[str, dict]] = []
+
+    def _flush_registry_docs(*, refresh: bool) -> None:
+        if not pending_registry_docs:
+            return
+        store.bulk_index_documents(
+            collection_name="repo_registry_index",
+            documents=pending_registry_docs,
+            refresh=refresh,
+            chunk_size=bulk_flush_docs,
+        )
+        pending_registry_docs.clear()
 
     def _handle_crawl_result(crawl_result: RepoSnapshotCrawlResult) -> None:
         doc_id = crawl_result.doc_id
@@ -480,12 +502,10 @@ def repo_crawler() -> None:
                 "snapshot_b2_upload_error": upload_error,
                 "snapshot_b2_provider": "backblaze_b2" if snapshot_metadata else None,
             }
-            store.replace_document(
-                collection_name="repo_registry_index",
-                doc_id=doc_id,
-                source=updated_source,
-            )
             claimed_docs[doc_id]["_source"] = updated_source
+            pending_registry_docs.append((doc_id, updated_source))
+            if len(pending_registry_docs) >= bulk_flush_docs:
+                _flush_registry_docs(refresh=False)
             return
 
         updated_source = {
@@ -508,12 +528,10 @@ def repo_crawler() -> None:
             "snapshot_archive_size_bytes": upload_metadata.get("size_bytes"),
             "crawl_error_message": None,
         }
-        store.replace_document(
-            collection_name="repo_registry_index",
-            doc_id=doc_id,
-            source=updated_source,
-        )
         claimed_docs[doc_id]["_source"] = updated_source
+        pending_registry_docs.append((doc_id, updated_source))
+        if len(pending_registry_docs) >= bulk_flush_docs:
+            _flush_registry_docs(refresh=False)
 
     asyncio.run(
         _crawl_repo_batch(
@@ -523,3 +541,5 @@ def repo_crawler() -> None:
             b2_store=b2_store,
         )
     )
+    _flush_registry_docs(refresh=False)
+    store.refresh_index("repo_registry_index")

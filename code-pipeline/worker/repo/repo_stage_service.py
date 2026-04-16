@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timezone
 
 from worker.common.config import settings
@@ -41,37 +42,72 @@ def _has_newer_chunk_than_validation(source: dict) -> bool:
     return chunk_finished_at > validation_checked_at
 
 
-def _resolve_batch_size(batch_size: int | None) -> int:
-    if isinstance(batch_size, int) and batch_size > 0:
-        return batch_size
-    return max(1, settings.repo_pipeline_batch_size)
+def _field_term_query(field_name: str, value: str) -> dict:
+    return {
+        "bool": {
+            "should": [
+                {"term": {f"{field_name}.keyword": value}},
+                {"term": {field_name: value}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
 
 
-def _normalized_repo_ids(repo_ids: list[str], batch_size: int) -> list[str]:
+def _iter_repo_docs_by_field(store: OpenSearchStore, field_name: str, value: str):
+    yield from store.iterate_documents_by_query(
+        collection_name=REPO_REGISTRY_INDEX,
+        query=_field_term_query(field_name, value),
+        size=1000,
+        sort=[{"_id": "asc"}],
+    )
+
+
+def _resolve_batch_limit(batch_size: int | None) -> int | None:
+    if not isinstance(batch_size, int):
+        return None
+    if batch_size <= 0:
+        return None
+    return batch_size
+
+
+def _repo_id_shard_index(repo_id: str, shard_count: int) -> int:
+    digest = hashlib.sha1(repo_id.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % shard_count
+
+
+def _normalized_repo_ids(
+    repo_ids: list[str],
+    batch_limit: int | None,
+    *,
+    shard_index: int | None = None,
+    shard_count: int | None = None,
+) -> list[str]:
     unique_repo_ids = sorted({repo_id for repo_id in repo_ids if isinstance(repo_id, str) and repo_id.strip()})
-    return unique_repo_ids[:batch_size]
+    if isinstance(shard_index, int) and isinstance(shard_count, int) and shard_count > 0:
+        normalized_shard_index = shard_index % shard_count
+        unique_repo_ids = [
+            repo_id
+            for repo_id in unique_repo_ids
+            if _repo_id_shard_index(repo_id, shard_count) == normalized_shard_index
+        ]
+    if batch_limit is None:
+        return unique_repo_ids
+    return unique_repo_ids[:batch_limit]
 
 
-def list_repo_ids_for_extraction(batch_size: int | None = None) -> list[str]:
+def list_repo_ids_for_extraction(
+    batch_size: int | None = None,
+    *,
+    shard_index: int | None = None,
+    shard_count: int | None = None,
+) -> list[str]:
     store = OpenSearchStore()
-    safe_batch_size = _resolve_batch_size(batch_size)
+    batch_limit = _resolve_batch_limit(batch_size)
     now = datetime.now(timezone.utc)
 
-    downloaded_docs = store.find_documents_by_field(
-        collection_name=REPO_REGISTRY_INDEX,
-        field_name="crawl_status",
-        value="downloaded",
-        size=safe_batch_size,
-    )
-    extracting_docs = store.find_documents_by_field(
-        collection_name=REPO_REGISTRY_INDEX,
-        field_name="file_extract_status",
-        value="extracting",
-        size=safe_batch_size,
-    )
-
     selected_repo_ids = []
-    for hit in downloaded_docs:
+    for hit in _iter_repo_docs_by_field(store, "crawl_status", "downloaded"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if source.get("file_extract_status") == "extracted":
@@ -79,7 +115,7 @@ def list_repo_ids_for_extraction(batch_size: int | None = None) -> list[str]:
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)
 
-    for hit in extracting_docs:
+    for hit in _iter_repo_docs_by_field(store, "file_extract_status", "extracting"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if source.get("crawl_status") != "downloaded":
@@ -89,29 +125,26 @@ def list_repo_ids_for_extraction(batch_size: int | None = None) -> list[str]:
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)
 
-    return _normalized_repo_ids(selected_repo_ids, safe_batch_size)
+    return _normalized_repo_ids(
+        selected_repo_ids,
+        batch_limit,
+        shard_index=shard_index,
+        shard_count=shard_count,
+    )
 
 
-def list_repo_ids_for_chunking(batch_size: int | None = None) -> list[str]:
+def list_repo_ids_for_chunking(
+    batch_size: int | None = None,
+    *,
+    shard_index: int | None = None,
+    shard_count: int | None = None,
+) -> list[str]:
     store = OpenSearchStore()
-    safe_batch_size = _resolve_batch_size(batch_size)
+    batch_limit = _resolve_batch_limit(batch_size)
     now = datetime.now(timezone.utc)
 
-    extracted_docs = store.find_documents_by_field(
-        collection_name=REPO_REGISTRY_INDEX,
-        field_name="file_extract_status",
-        value="extracted",
-        size=safe_batch_size,
-    )
-    chunking_docs = store.find_documents_by_field(
-        collection_name=REPO_REGISTRY_INDEX,
-        field_name="chunk_status",
-        value="chunking",
-        size=safe_batch_size,
-    )
-
     selected_repo_ids = []
-    for hit in extracted_docs:
+    for hit in _iter_repo_docs_by_field(store, "file_extract_status", "extracted"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if source.get("chunk_status") == "chunked":
@@ -119,7 +152,7 @@ def list_repo_ids_for_chunking(batch_size: int | None = None) -> list[str]:
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)
 
-    for hit in chunking_docs:
+    for hit in _iter_repo_docs_by_field(store, "chunk_status", "chunking"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if source.get("file_extract_status") != "extracted":
@@ -129,35 +162,26 @@ def list_repo_ids_for_chunking(batch_size: int | None = None) -> list[str]:
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)
 
-    return _normalized_repo_ids(selected_repo_ids, safe_batch_size)
+    return _normalized_repo_ids(
+        selected_repo_ids,
+        batch_limit,
+        shard_index=shard_index,
+        shard_count=shard_count,
+    )
 
 
-def list_repo_ids_for_validation(batch_size: int | None = None) -> list[str]:
+def list_repo_ids_for_validation(
+    batch_size: int | None = None,
+    *,
+    shard_index: int | None = None,
+    shard_count: int | None = None,
+) -> list[str]:
     store = OpenSearchStore()
-    safe_batch_size = _resolve_batch_size(batch_size)
+    batch_limit = _resolve_batch_limit(batch_size)
     now = datetime.now(timezone.utc)
 
-    chunked_docs = store.find_documents_by_field(
-        collection_name=REPO_REGISTRY_INDEX,
-        field_name="chunk_status",
-        value="chunked",
-        size=safe_batch_size,
-    )
-    chunk_failed_docs = store.find_documents_by_field(
-        collection_name=REPO_REGISTRY_INDEX,
-        field_name="chunk_status",
-        value="chunk_failed",
-        size=safe_batch_size,
-    )
-    validating_docs = store.find_documents_by_field(
-        collection_name=REPO_REGISTRY_INDEX,
-        field_name="validation_status",
-        value="validating",
-        size=safe_batch_size,
-    )
-
     selected_repo_ids = []
-    for hit in [*chunked_docs, *chunk_failed_docs]:
+    for hit in _iter_repo_docs_by_field(store, "chunk_status", "chunked"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if source.get("validation_status") == "validated" and not _has_newer_chunk_than_validation(source):
@@ -165,7 +189,15 @@ def list_repo_ids_for_validation(batch_size: int | None = None) -> list[str]:
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)
 
-    for hit in validating_docs:
+    for hit in _iter_repo_docs_by_field(store, "chunk_status", "chunk_failed"):
+        doc_id = hit.get("_id")
+        source = hit.get("_source", {})
+        if source.get("validation_status") == "validated" and not _has_newer_chunk_than_validation(source):
+            continue
+        if isinstance(doc_id, str) and doc_id.strip():
+            selected_repo_ids.append(doc_id)
+
+    for hit in _iter_repo_docs_by_field(store, "validation_status", "validating"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if source.get("chunk_status") not in {"chunked", "chunk_failed"}:
@@ -175,4 +207,9 @@ def list_repo_ids_for_validation(batch_size: int | None = None) -> list[str]:
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)
 
-    return _normalized_repo_ids(selected_repo_ids, safe_batch_size)
+    return _normalized_repo_ids(
+        selected_repo_ids,
+        batch_limit,
+        shard_index=shard_index,
+        shard_count=shard_count,
+    )

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from worker.common.config import settings
+from worker.repo.repo_stage_service import list_repo_ids_for_extraction
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -272,8 +273,10 @@ def _extract_repo_files(
     owner, repo = _normalize_repo_identity(source)
     snapshot_ref = str(source.get("snapshot_ref") or "").strip() or None
     canonical_repo_url = source.get("canonical_repo_url")
+    bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
 
     stats = RepoFileExtractStats(deleted_previous_docs=deleted_docs)
+    pending_docs: list[tuple[str, dict]] = []
     for absolute_path in _iter_snapshot_files(snapshot_root):
         if not absolute_path.is_file():
             continue
@@ -302,29 +305,45 @@ def _extract_repo_files(
 
         stats.text_files_indexed += 1
         line_count = text.count("\n") + (1 if text else 0)
-        store.upsert_document(
+        pending_docs.append(
+            (
+                _build_repo_file_doc_id(repo_id, relative_path),
+                {
+                    "repo_id": repo_id,
+                    "owner": owner,
+                    "repo_name": repo,
+                    "canonical_repo_url": canonical_repo_url,
+                    "snapshot_ref": snapshot_ref,
+                    "snapshot_root_path": str(snapshot_root),
+                    "file_path": relative_path,
+                    "file_name": PurePosixPath(relative_path).name,
+                    "file_extension": PurePosixPath(relative_path).suffix.lower(),
+                    "language": language,
+                    "file_category": file_category,
+                    "is_code_file": is_code_file,
+                    "is_license_file": is_license_file,
+                    "file_size_bytes": size_bytes,
+                    "line_count": line_count,
+                    "content_sha1": hashlib.sha1(raw_bytes).hexdigest(),
+                    "extracted_at": extracted_at,
+                },
+            )
+        )
+        if len(pending_docs) >= bulk_flush_docs:
+            store.bulk_upsert_documents(
+                collection_name=REPO_FILE_INDEX,
+                documents=pending_docs,
+                refresh=False,
+                chunk_size=bulk_flush_docs,
+            )
+            pending_docs.clear()
+
+    if pending_docs:
+        store.bulk_upsert_documents(
             collection_name=REPO_FILE_INDEX,
-            doc_id=_build_repo_file_doc_id(repo_id, relative_path),
-            body={
-                "repo_id": repo_id,
-                "owner": owner,
-                "repo_name": repo,
-                "canonical_repo_url": canonical_repo_url,
-                "snapshot_ref": snapshot_ref,
-                "snapshot_root_path": str(snapshot_root),
-                "file_path": relative_path,
-                "file_name": PurePosixPath(relative_path).name,
-                "file_extension": PurePosixPath(relative_path).suffix.lower(),
-                "language": language,
-                "file_category": file_category,
-                "is_code_file": is_code_file,
-                "is_license_file": is_license_file,
-                "file_size_bytes": size_bytes,
-                "line_count": line_count,
-                "content_sha1": hashlib.sha1(raw_bytes).hexdigest(),
-                "extracted_at": extracted_at,
-            },
+            documents=pending_docs,
             refresh=False,
+            chunk_size=bulk_flush_docs,
         )
 
     store.refresh_index(REPO_FILE_INDEX)
@@ -457,6 +476,50 @@ def run_repo_file_extraction_for_repo(
             "stage_status": "extract_failed",
             "error_message": str(exc),
         }
+
+
+def run_repo_file_extraction_for_shard(
+    shard_index: int,
+    *,
+    shard_count: int | None = None,
+    batch_size: int | None = None,
+) -> dict:
+    resolved_shard_count = (
+        shard_count
+        if isinstance(shard_count, int) and shard_count > 0
+        else max(1, settings.repo_pipeline_parallelism)
+    )
+    store = OpenSearchStore()
+    repo_ids = list_repo_ids_for_extraction(
+        batch_size=batch_size,
+        shard_index=shard_index,
+        shard_count=resolved_shard_count,
+    )
+
+    processed_count = 0
+    extracted_count = 0
+    failed_count = 0
+    skipped_count = 0
+    for repo_id in repo_ids:
+        processed_count += 1
+        result = run_repo_file_extraction_for_repo(repo_id, store=store)
+        stage_status = str(result.get("stage_status") or "")
+        if stage_status == "extracted":
+            extracted_count += 1
+        elif stage_status == "extract_failed":
+            failed_count += 1
+        else:
+            skipped_count += 1
+
+    return {
+        "stage": "extract",
+        "shard_index": shard_index,
+        "shard_count": resolved_shard_count,
+        "processed_count": processed_count,
+        "extracted_count": extracted_count,
+        "failed_count": failed_count,
+        "skipped_count": skipped_count,
+    }
 
 
 def run_repo_file_extraction() -> None:

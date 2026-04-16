@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 from worker.common.config import settings
+from worker.repo.repo_stage_service import list_repo_ids_for_validation
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -342,6 +343,50 @@ def run_repo_processing_validation_for_repo(
             "failed_rules": ["validation_runtime_error"],
             "error_message": str(exc),
         }
+
+
+def run_repo_processing_validation_for_shard(
+    shard_index: int,
+    *,
+    shard_count: int | None = None,
+    batch_size: int | None = None,
+) -> dict:
+    resolved_shard_count = (
+        shard_count
+        if isinstance(shard_count, int) and shard_count > 0
+        else max(1, settings.repo_pipeline_parallelism)
+    )
+    store = OpenSearchStore()
+    repo_ids = list_repo_ids_for_validation(
+        batch_size=batch_size,
+        shard_index=shard_index,
+        shard_count=resolved_shard_count,
+    )
+
+    processed_count = 0
+    validated_count = 0
+    failed_count = 0
+    skipped_count = 0
+    for repo_id in repo_ids:
+        processed_count += 1
+        result = run_repo_processing_validation_for_repo(repo_id, store=store)
+        stage_status = str(result.get("stage_status") or "")
+        if stage_status == "validated":
+            validated_count += 1
+        elif stage_status == "validation_failed":
+            failed_count += 1
+        else:
+            skipped_count += 1
+
+    return {
+        "stage": "validation",
+        "shard_index": shard_index,
+        "shard_count": resolved_shard_count,
+        "processed_count": processed_count,
+        "validated_count": validated_count,
+        "failed_count": failed_count,
+        "skipped_count": skipped_count,
+    }
 
 
 def run_repo_processing_validation() -> None:

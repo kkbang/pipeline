@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from worker.common.config import settings
+from worker.repo.repo_stage_service import list_repo_ids_for_chunking
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -222,8 +223,10 @@ def _chunk_single_repo(
     repo_name = str(source.get("repo_name") or "").strip().lower()
     canonical_repo_url = source.get("canonical_repo_url")
     snapshot_ref = source.get("snapshot_ref")
+    bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
 
     stats = RepoChunkStats(deleted_previous_docs=deleted_docs)
+    pending_docs: list[tuple[str, dict]] = []
     for file_hit in _iter_code_file_docs(store, repo_id):
         file_source = file_hit.get("_source", {})
         relative_path = str(file_source.get("file_path") or "").strip()
@@ -259,34 +262,50 @@ def _chunk_single_repo(
             stats.chunk_docs_created += 1
             stats.chunked_lines_total += line_count
 
-            store.upsert_document(
-                collection_name=REPO_CHUNK_INDEX,
-                doc_id=_build_chunk_doc_id(
-                    repo_id=repo_id,
-                    file_path=relative_path,
-                    line_start=line_start,
-                    line_end=line_end,
-                    chunk_index=chunk_index,
-                ),
-                body={
-                    "repo_id": repo_id,
-                    "owner": owner,
-                    "repo_name": repo_name,
-                    "canonical_repo_url": canonical_repo_url,
-                    "snapshot_ref": snapshot_ref,
-                    "file_path": relative_path,
-                    "language": language,
-                    "chunk_index": chunk_index,
-                    "line_start": line_start,
-                    "line_end": line_end,
-                    "line_count": line_count,
-                    "chunk_text": chunk_text,
-                    "chunk_char_count": len(chunk_text),
-                    "chunk_sha1": hashlib.sha1(chunk_text.encode("utf-8")).hexdigest(),
-                    "chunked_at": chunked_at,
-                },
-                refresh=False,
+            pending_docs.append(
+                (
+                    _build_chunk_doc_id(
+                        repo_id=repo_id,
+                        file_path=relative_path,
+                        line_start=line_start,
+                        line_end=line_end,
+                        chunk_index=chunk_index,
+                    ),
+                    {
+                        "repo_id": repo_id,
+                        "owner": owner,
+                        "repo_name": repo_name,
+                        "canonical_repo_url": canonical_repo_url,
+                        "snapshot_ref": snapshot_ref,
+                        "file_path": relative_path,
+                        "language": language,
+                        "chunk_index": chunk_index,
+                        "line_start": line_start,
+                        "line_end": line_end,
+                        "line_count": line_count,
+                        "chunk_text": chunk_text,
+                        "chunk_char_count": len(chunk_text),
+                        "chunk_sha1": hashlib.sha1(chunk_text.encode("utf-8")).hexdigest(),
+                        "chunked_at": chunked_at,
+                    },
+                )
             )
+            if len(pending_docs) >= bulk_flush_docs:
+                store.bulk_upsert_documents(
+                    collection_name=REPO_CHUNK_INDEX,
+                    documents=pending_docs,
+                    refresh=False,
+                    chunk_size=bulk_flush_docs,
+                )
+                pending_docs.clear()
+
+    if pending_docs:
+        store.bulk_upsert_documents(
+            collection_name=REPO_CHUNK_INDEX,
+            documents=pending_docs,
+            refresh=False,
+            chunk_size=bulk_flush_docs,
+        )
 
     store.refresh_index(REPO_CHUNK_INDEX)
     return stats
@@ -420,6 +439,50 @@ def run_repo_code_chunking_for_repo(
             "stage_status": "chunk_failed",
             "error_message": str(exc),
         }
+
+
+def run_repo_code_chunking_for_shard(
+    shard_index: int,
+    *,
+    shard_count: int | None = None,
+    batch_size: int | None = None,
+) -> dict:
+    resolved_shard_count = (
+        shard_count
+        if isinstance(shard_count, int) and shard_count > 0
+        else max(1, settings.repo_pipeline_parallelism)
+    )
+    store = OpenSearchStore()
+    repo_ids = list_repo_ids_for_chunking(
+        batch_size=batch_size,
+        shard_index=shard_index,
+        shard_count=resolved_shard_count,
+    )
+
+    processed_count = 0
+    chunked_count = 0
+    failed_count = 0
+    skipped_count = 0
+    for repo_id in repo_ids:
+        processed_count += 1
+        result = run_repo_code_chunking_for_repo(repo_id, store=store)
+        stage_status = str(result.get("stage_status") or "")
+        if stage_status == "chunked":
+            chunked_count += 1
+        elif stage_status == "chunk_failed":
+            failed_count += 1
+        else:
+            skipped_count += 1
+
+    return {
+        "stage": "chunk",
+        "shard_index": shard_index,
+        "shard_count": resolved_shard_count,
+        "processed_count": processed_count,
+        "chunked_count": chunked_count,
+        "failed_count": failed_count,
+        "skipped_count": skipped_count,
+    }
 
 
 def run_repo_code_chunking() -> None:

@@ -4,8 +4,7 @@ from airflow import DAG
 from airflow.decorators import task
 
 from worker.common.config import settings
-from worker.repo.repo_stage_service import list_repo_ids_for_validation
-from worker.repo.repo_validation_service import run_repo_processing_validation_for_repo
+from worker.repo.repo_validation_service import run_repo_processing_validation_for_shard
 
 
 default_args = {
@@ -20,22 +19,22 @@ with DAG(
     default_args=default_args,
     description="Repository processing validation stage",
     start_date=datetime(2026, 1, 1),
-    schedule_interval=None,
+    schedule_interval="2-59/5 * * * *",
     catchup=False,
     max_active_runs=1,
     max_active_tasks=max(1, settings.repo_pipeline_parallelism),
     tags=["repo", "validation", "parallel"],
 ) as dag:
-    @task(task_id="validation_targets")
-    def validation_targets() -> list[str]:
-        return list_repo_ids_for_validation()
+    shard_count = max(1, settings.repo_pipeline_parallelism)
 
     @task(
-        task_id="validate_repo",
+        task_id="validate_shard",
         max_active_tis_per_dag=max(1, settings.repo_pipeline_parallelism),
     )
-    def validate_repo(repo_id: str) -> dict:
-        return run_repo_processing_validation_for_repo(repo_id)
+    def validate_shard(shard_index: int) -> dict:
+        return run_repo_processing_validation_for_shard(
+            shard_index=shard_index,
+            shard_count=shard_count,
+        )
 
-    target_repo_ids = validation_targets()
-    validate_repo.expand(repo_id=target_repo_ids)
+    validate_shard.expand(shard_index=list(range(shard_count)))

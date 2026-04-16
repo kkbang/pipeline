@@ -3,6 +3,7 @@ from pathlib import Path
 
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import NotFoundError
+from opensearchpy.helpers import bulk as opensearch_bulk
 
 from worker.common.config import settings
 
@@ -67,6 +68,36 @@ class OpenSearchStore:
             refresh=refresh,
         )
 
+    def bulk_upsert_documents(
+        self,
+        collection_name: str,
+        documents: list[tuple[str, dict]],
+        *,
+        refresh: bool = False,
+        chunk_size: int = 500,
+    ) -> None:
+        if not documents:
+            return
+        self._ensure_index(collection_name)
+        safe_chunk_size = max(1, chunk_size)
+        actions = (
+            {
+                "_op_type": "update",
+                "_index": collection_name,
+                "_id": doc_id,
+                "doc": body,
+                "doc_as_upsert": True,
+            }
+            for doc_id, body in documents
+        )
+        opensearch_bulk(
+            self.client,
+            actions,
+            chunk_size=safe_chunk_size,
+            refresh=refresh,
+            raise_on_error=True,
+        )
+
     def update_document(
         self,
         collection_name: str,
@@ -100,6 +131,35 @@ class OpenSearchStore:
             id=doc_id,
             body=source,
             refresh=refresh,
+        )
+
+    def bulk_index_documents(
+        self,
+        collection_name: str,
+        documents: list[tuple[str, dict]],
+        *,
+        refresh: bool = False,
+        chunk_size: int = 500,
+    ) -> None:
+        if not documents:
+            return
+        self._ensure_index(collection_name)
+        safe_chunk_size = max(1, chunk_size)
+        actions = (
+            {
+                "_op_type": "index",
+                "_index": collection_name,
+                "_id": doc_id,
+                "_source": source,
+            }
+            for doc_id, source in documents
+        )
+        opensearch_bulk(
+            self.client,
+            actions,
+            chunk_size=safe_chunk_size,
+            refresh=refresh,
+            raise_on_error=True,
         )
 
     def delete_document(
