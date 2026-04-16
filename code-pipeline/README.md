@@ -318,6 +318,7 @@ ingested -> normalized -> registered
   - benchmark dataset artifact 입력 설정
 - [airflow.env](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/airflow.env)
   - Airflow executor, timezone, metadata DB 설정
+  - 기본값: `LocalExecutor` + `PostgreSQL` (`postgres` 서비스)
 - [.env](/Users/xxuchan/Desktop/kkbang/code-pipeline/.env)
   - 앱 환경변수, OpenSearch/B2 연결, timeout 등
 
@@ -344,6 +345,9 @@ benchmark dataset 파일은 기본적으로 아래 경로에 마운트해서 읽
 cd /Users/xxuchan/Desktop/kkbang/code-pipeline
 docker compose up --build -d airflow
 ```
+
+초기 실행 시 `postgres`, `tor-proxy`, `airflow` 순서로 올라오며,
+Airflow 메타데이터 DB는 PostgreSQL(`postgresql+psycopg2://airflow:airflow@postgres:5432/airflow`)를 사용합니다.
 
 Airflow UI:
 

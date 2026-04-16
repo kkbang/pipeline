@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: code-pipeline-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
   airflow:
     build:
       context: .
@@ -23,12 +38,17 @@ services:
       - ./benchmark_data:/opt/airflow/benchmark_data
     command: >
       bash -c "
+      echo 'Waiting for Postgres (5432)...' &&
+      until (echo > /dev/tcp/postgres/5432) >/dev/null 2>&1; do
+        echo 'Postgres is not ready yet... sleeping'
+        sleep 2
+      done &&
       echo 'Waiting for Tor-Proxy (9050)...' &&
       until (echo > /dev/tcp/tor-proxy/9050) >/dev/null 2>&1; do
         echo 'Tor is not ready yet... sleeping'
         sleep 3
       done &&
-      echo 'Tor-Proxy is UP! Starting Airflow...' &&
+      echo 'Postgres + Tor-Proxy are UP! Starting Airflow...' &&
       airflow db migrate &&
       (
         airflow users create --username admin --firstname admin --lastname admin --role Admin --email admin@example.com --password admin ||
@@ -37,7 +57,10 @@ services:
       airflow scheduler & exec airflow webserver
       "
     depends_on:
-      - tor-proxy
+      postgres:
+        condition: service_healthy
+      tor-proxy:
+        condition: service_started
   tor-proxy:
     image: dockurr/tor
     container_name: tor-proxy
@@ -47,6 +70,17 @@ services:
       - "9050:9050"
       - "9051:9051"
     restart: always
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:3.5.0
+    container_name: os-dashboards
+    restart: unless-stopped
+    environment:
+      OPENSEARCH_HOSTS: '["http://100.97.222.61:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+      SERVER_HOST: "0.0.0.0"
+    ports:
+      - "5601:5601"
 
 volumes:
   airflow_logs:
+  postgres_data:
