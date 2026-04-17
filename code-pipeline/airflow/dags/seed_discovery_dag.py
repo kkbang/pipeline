@@ -36,8 +36,24 @@ with DAG(
     catchup=False,
     tags=["seed", "discovery"],
 ) as dag:
+    package_registries = [
+        "pypi",
+        "npm",
+        "nuget",
+        "maven",
+        "cratesio",
+        "hexpm",
+        "rubygems",
+        "cpan",
+        "hackage",
+        "cocoapods",
+        "packagist",
+        "pubdev",
+        "gomod",
+        "swiftpm",
+    ]
     package_registry_ingest_tasks = []
-    for registry in ["pypi", "npm"]:
+    for registry in package_registries:
         package_registry_ingest_tasks.append(
             PythonOperator(
                 task_id=f"seed_ingestion_{registry}",

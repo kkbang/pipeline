@@ -9,7 +9,22 @@ from worker.seed.adapters.github import (
     GitHubTopicAdapter,
     RepoMetadataFetchResult,
 )
-from worker.seed.adapters.package_registry import NPMAdapter, PyPIAdapter
+from worker.seed.adapters.package_registry import (
+    CocoaPodsAdapter,
+    CPANAdapter,
+    CratesIOAdapter,
+    GoModuleAdapter,
+    HackageAdapter,
+    HexPMAdapter,
+    MavenCentralAdapter,
+    NPMAdapter,
+    NuGetAdapter,
+    PackagistAdapter,
+    PubDevAdapter,
+    PyPIAdapter,
+    RubyGemsAdapter,
+    SwiftPMAdapter,
+)
 
 __all__ = [
     "BenchmarkDatasetAdapter",
@@ -20,7 +35,19 @@ __all__ = [
     "GitHubRepoMetadataAdapter",
     "GitHubSearchAdapter",
     "GitHubTopicAdapter",
+    "CocoaPodsAdapter",
+    "CPANAdapter",
+    "CratesIOAdapter",
+    "GoModuleAdapter",
+    "HackageAdapter",
+    "HexPMAdapter",
+    "MavenCentralAdapter",
     "NPMAdapter",
+    "NuGetAdapter",
+    "PackagistAdapter",
+    "PubDevAdapter",
     "PyPIAdapter",
+    "RubyGemsAdapter",
+    "SwiftPMAdapter",
     "RepoMetadataFetchResult",
 ]

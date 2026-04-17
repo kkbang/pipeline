@@ -11,7 +11,22 @@ from worker.seed.adapters.github import (
     GitHubSearchAdapter,
     GitHubTopicAdapter,
 )
-from worker.seed.adapters.package_registry import NPMAdapter, PyPIAdapter
+from worker.seed.adapters.package_registry import (
+    CocoaPodsAdapter,
+    CPANAdapter,
+    CratesIOAdapter,
+    GoModuleAdapter,
+    HackageAdapter,
+    HexPMAdapter,
+    MavenCentralAdapter,
+    NPMAdapter,
+    NuGetAdapter,
+    PackagistAdapter,
+    PubDevAdapter,
+    PyPIAdapter,
+    RubyGemsAdapter,
+    SwiftPMAdapter,
+)
 from worker.seed.services.seed_item_writer import (
     safe_path_fragment,
     stable_digest,
@@ -30,12 +45,50 @@ class GitHubSeedFetchResult:
     error: Exception | None = None
 
 
-def _get_package_registry_adapter(registry: str) -> PyPIAdapter | NPMAdapter:
+def _get_package_registry_adapter(
+    registry: str,
+) -> object:
     if registry == "pypi":
         return PyPIAdapter()
 
     if registry == "npm":
         return NPMAdapter()
+
+    if registry == "nuget":
+        return NuGetAdapter()
+
+    if registry == "maven":
+        return MavenCentralAdapter()
+
+    if registry == "cratesio":
+        return CratesIOAdapter()
+
+    if registry == "hexpm":
+        return HexPMAdapter()
+
+    if registry == "rubygems":
+        return RubyGemsAdapter()
+
+    if registry == "cpan":
+        return CPANAdapter()
+
+    if registry == "hackage":
+        return HackageAdapter()
+
+    if registry == "cocoapods":
+        return CocoaPodsAdapter()
+
+    if registry == "packagist":
+        return PackagistAdapter()
+
+    if registry == "pubdev":
+        return PubDevAdapter()
+
+    if registry == "gomod":
+        return GoModuleAdapter()
+
+    if registry == "swiftpm":
+        return SwiftPMAdapter()
 
     raise ValueError(f"Unsupported package registry: {registry}")
 
@@ -72,11 +125,97 @@ def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None =
             package_names = ["requests", "flask", "django", "fastapi", "numpy", "pandas"]
         elif registry == "npm":
             package_names = ["react", "express", "lodash", "axios", "typescript", "vite"]
+        elif registry == "nuget":
+            package_names = [
+                "Newtonsoft.Json",
+                "Serilog",
+                "Dapper",
+                "MediatR",
+                "AutoMapper",
+                "FluentValidation",
+            ]
+        elif registry == "maven":
+            package_names = [
+                "org.springframework:spring-core",
+                "com.fasterxml.jackson.core:jackson-databind",
+                "org.apache.commons:commons-lang3",
+                "org.slf4j:slf4j-api",
+                "junit:junit",
+                "org.mockito:mockito-core",
+            ]
+        elif registry == "cratesio":
+            package_names = ["serde", "tokio", "reqwest", "axum", "clap", "sqlx"]
+        elif registry == "hexpm":
+            package_names = ["phoenix", "ecto", "plug", "jason", "nimble_parsec", "oban"]
+        elif registry == "rubygems":
+            package_names = ["rails", "sinatra", "sidekiq", "rspec", "rubocop", "nokogiri"]
+        elif registry == "cpan":
+            package_names = [
+                "DBI",
+                "Mojolicious",
+                "Dancer2",
+                "Plack",
+                "Try-Tiny",
+                "Moo",
+            ]
+        elif registry == "hackage":
+            package_names = ["aeson", "text", "bytestring", "lens", "servant", "yesod"]
+        elif registry == "cocoapods":
+            package_names = [
+                "AFNetworking",
+                "Alamofire",
+                "SnapKit",
+                "RxSwift",
+                "Kingfisher",
+                "Moya",
+            ]
+        elif registry == "packagist":
+            package_names = [
+                "laravel/framework",
+                "symfony/symfony",
+                "guzzlehttp/guzzle",
+                "monolog/monolog",
+                "doctrine/orm",
+                "phpunit/phpunit",
+            ]
+        elif registry == "pubdev":
+            package_names = ["flutter", "dio", "riverpod", "provider", "bloc", "go_router"]
+        elif registry == "gomod":
+            package_names = [
+                "github.com/gin-gonic/gin",
+                "github.com/spf13/cobra",
+                "github.com/gofiber/fiber/v2",
+                "github.com/labstack/echo/v4",
+                "github.com/stretchr/testify",
+                "go.uber.org/zap",
+            ]
+        elif registry == "swiftpm":
+            package_names = [
+                "apple/swift-nio",
+                "apple/swift-argument-parser",
+                "pointfreeco/swift-composable-architecture",
+                "realm/realm-swift",
+                "Alamofire/Alamofire",
+                "onevcat/Kingfisher",
+            ]
         else:
             package_names = []
 
+    success_count = 0
+    first_error: Exception | None = None
     for package_name in package_names:
-        metadata = adapter.fetch_package_metadata(package_name)
+        try:
+            metadata = adapter.fetch_package_metadata(package_name)
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+            logger.warning(
+                "Package registry seed ingestion failed for registry=%s package=%s error=%s",
+                registry,
+                package_name,
+                str(exc),
+            )
+            continue
 
         doc_id = f"{registry}:{package_name}"
         if settings.keep_full_package_registry_raw and metadata.full_raw_metadata is not None:
@@ -99,6 +238,10 @@ def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None =
             raw_metadata=metadata.raw_metadata,
             candidate_repo_urls=metadata.candidate_repo_urls,
         )
+        success_count += 1
+
+    if success_count == 0 and first_error is not None:
+        raise first_error
 
 
 def run_curated_repo_ingestion(list_name: str, repo_entries: list[str | dict] | None = None) -> None:

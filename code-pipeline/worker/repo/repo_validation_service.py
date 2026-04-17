@@ -146,6 +146,18 @@ def _repo_id_query(repo_id: str, extra_must: list[dict] | None = None) -> dict:
     return {"bool": {"must": must_clauses}}
 
 
+def _repo_chunk_query(
+    repo_id: str,
+    *,
+    extra_must: list[dict] | None = None,
+    extra_must_not: list[dict] | None = None,
+) -> dict:
+    query = _repo_id_query(repo_id, extra_must=extra_must)
+    if extra_must_not:
+        query["bool"]["must_not"] = extra_must_not
+    return query
+
+
 def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) -> tuple[str, list[str], list[str], dict]:
     failed_rules = []
     warning_rules = []
@@ -162,12 +174,137 @@ def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) ->
         collection_name=REPO_CHUNK_INDEX,
         query=_repo_id_query(repo_id),
     )
+    chunk_docs_with_strategy_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[{"exists": {"field": "chunk_strategy"}}],
+        ),
+    )
+    function_chunk_docs_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[{"term": {"chunk_strategy": "function"}}],
+        ),
+    )
+    function_window_chunk_docs_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[{"term": {"chunk_strategy": "function_window"}}],
+        ),
+    )
+    line_window_chunk_docs_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[{"term": {"chunk_strategy": "line_window"}}],
+        ),
+    )
+
+    function_chunks_total = function_chunk_docs_count + function_window_chunk_docs_count
+    recognized_chunk_docs_count = function_chunks_total + line_window_chunk_docs_count
+    chunk_docs_missing_strategy_count = max(0, chunk_docs_count - chunk_docs_with_strategy_count)
+    unknown_strategy_chunk_docs_count = max(
+        0,
+        chunk_docs_with_strategy_count - recognized_chunk_docs_count,
+    )
+
+    line_window_parser_unavailable_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[
+                {"term": {"chunk_strategy": "line_window"}},
+                {"term": {"fallback_reason": "parser_unavailable"}},
+            ],
+        ),
+    )
+    line_window_parser_failed_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[
+                {"term": {"chunk_strategy": "line_window"}},
+                {"term": {"fallback_reason": "parser_failed"}},
+            ],
+        ),
+    )
+    line_window_no_function_nodes_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[
+                {"term": {"chunk_strategy": "line_window"}},
+                {"term": {"fallback_reason": "no_function_nodes"}},
+            ],
+        ),
+    )
+
+    line_window_missing_fallback_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[{"term": {"chunk_strategy": "line_window"}}],
+            extra_must_not=[{"exists": {"field": "fallback_reason"}}],
+        ),
+    )
+    function_chunks_missing_node_type_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[
+                {
+                    "bool": {
+                        "should": [
+                            {"term": {"chunk_strategy": "function"}},
+                            {"term": {"chunk_strategy": "function_window"}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            ],
+            extra_must_not=[{"exists": {"field": "function_node_type"}}],
+        ),
+    )
+    function_chunks_with_fallback_reason_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[
+                {
+                    "bool": {
+                        "should": [
+                            {"term": {"chunk_strategy": "function"}},
+                            {"term": {"chunk_strategy": "function_window"}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                },
+                {"exists": {"field": "fallback_reason"}},
+            ],
+        ),
+    )
+    line_window_chunks_with_node_type_count = store.count_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[
+                {"term": {"chunk_strategy": "line_window"}},
+                {"exists": {"field": "function_node_type"}},
+            ],
+        ),
+    )
 
     extract_status = str(source.get("file_extract_status") or "")
     chunk_status = str(source.get("chunk_status") or "")
+    repo_chunk_strategy = str(source.get("chunk_strategy") or "")
     expected_text_files = source.get("file_extract_text_files_count")
     expected_code_files = source.get("file_extract_code_files_count")
     expected_chunk_count = source.get("chunk_total_count")
+    expected_function_chunk_count = source.get("chunk_function_chunks_count")
+    expected_line_window_chunk_count = source.get("chunk_line_window_chunks_count")
 
     if extract_status != "extracted":
         failed_rules.append("file_extract_not_extracted")
@@ -179,6 +316,19 @@ def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) ->
         failed_rules.append("no_extracted_code_file_docs")
     if chunk_docs_count <= 0:
         failed_rules.append("no_chunk_docs")
+    if chunk_status == "chunked":
+        if chunk_docs_missing_strategy_count > 0:
+            failed_rules.append("chunk_docs_missing_strategy")
+        if unknown_strategy_chunk_docs_count > 0:
+            failed_rules.append("chunk_docs_unknown_strategy")
+        if line_window_missing_fallback_count > 0:
+            failed_rules.append("line_window_missing_fallback_reason")
+        if function_chunks_missing_node_type_count > 0:
+            failed_rules.append("function_chunks_missing_node_type")
+        if function_chunks_with_fallback_reason_count > 0:
+            failed_rules.append("function_chunks_have_fallback_reason")
+        if line_window_chunks_with_node_type_count > 0:
+            failed_rules.append("line_window_chunks_have_function_node_type")
 
     if isinstance(expected_text_files, int) and expected_text_files > 0 and file_docs_count != expected_text_files:
         warning_rules.append("text_file_count_mismatch")
@@ -186,17 +336,48 @@ def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) ->
         warning_rules.append("code_file_count_mismatch")
     if isinstance(expected_chunk_count, int) and expected_chunk_count > 0 and chunk_docs_count != expected_chunk_count:
         warning_rules.append("chunk_count_mismatch")
+    if (
+        isinstance(expected_function_chunk_count, int)
+        and expected_function_chunk_count >= 0
+        and function_chunks_total != expected_function_chunk_count
+    ):
+        warning_rules.append("function_chunk_count_mismatch")
+    if (
+        isinstance(expected_line_window_chunk_count, int)
+        and expected_line_window_chunk_count >= 0
+        and line_window_chunk_docs_count != expected_line_window_chunk_count
+    ):
+        warning_rules.append("line_window_chunk_count_mismatch")
+    if repo_chunk_strategy and repo_chunk_strategy != "function_first_with_fallback":
+        warning_rules.append("unexpected_repo_chunk_strategy")
 
     status = "validated" if not failed_rules else "validation_failed"
     metrics = {
         "file_extract_status": extract_status,
         "chunk_status": chunk_status,
+        "repo_chunk_strategy": repo_chunk_strategy,
         "file_docs_count": file_docs_count,
         "code_file_docs_count": code_file_docs_count,
         "chunk_docs_count": chunk_docs_count,
+        "chunk_docs_with_strategy_count": chunk_docs_with_strategy_count,
+        "chunk_docs_missing_strategy_count": chunk_docs_missing_strategy_count,
+        "chunk_docs_unknown_strategy_count": unknown_strategy_chunk_docs_count,
+        "function_chunk_docs_count": function_chunk_docs_count,
+        "function_window_chunk_docs_count": function_window_chunk_docs_count,
+        "function_chunks_total": function_chunks_total,
+        "line_window_chunk_docs_count": line_window_chunk_docs_count,
+        "line_window_parser_unavailable_count": line_window_parser_unavailable_count,
+        "line_window_parser_failed_count": line_window_parser_failed_count,
+        "line_window_no_function_nodes_count": line_window_no_function_nodes_count,
+        "line_window_missing_fallback_count": line_window_missing_fallback_count,
+        "function_chunks_missing_node_type_count": function_chunks_missing_node_type_count,
+        "function_chunks_with_fallback_reason_count": function_chunks_with_fallback_reason_count,
+        "line_window_chunks_with_node_type_count": line_window_chunks_with_node_type_count,
         "expected_text_files": expected_text_files,
         "expected_code_files": expected_code_files,
         "expected_chunk_count": expected_chunk_count,
+        "expected_function_chunk_count": expected_function_chunk_count,
+        "expected_line_window_chunk_count": expected_line_window_chunk_count,
     }
     return status, failed_rules, warning_rules, metrics
 
@@ -293,6 +474,10 @@ def run_repo_processing_validation_for_repo(
             "validation_file_docs_count": metrics["file_docs_count"],
             "validation_code_file_docs_count": metrics["code_file_docs_count"],
             "validation_chunk_docs_count": metrics["chunk_docs_count"],
+            "validation_chunk_docs_missing_strategy_count": metrics["chunk_docs_missing_strategy_count"],
+            "validation_chunk_docs_unknown_strategy_count": metrics["chunk_docs_unknown_strategy_count"],
+            "validation_function_chunks_total": metrics["function_chunks_total"],
+            "validation_line_window_chunk_docs_count": metrics["line_window_chunk_docs_count"],
         }
         store.replace_document(
             collection_name=REPO_REGISTRY_INDEX,
@@ -435,6 +620,10 @@ def run_repo_processing_validation() -> None:
                 "validation_file_docs_count": metrics["file_docs_count"],
                 "validation_code_file_docs_count": metrics["code_file_docs_count"],
                 "validation_chunk_docs_count": metrics["chunk_docs_count"],
+                "validation_chunk_docs_missing_strategy_count": metrics["chunk_docs_missing_strategy_count"],
+                "validation_chunk_docs_unknown_strategy_count": metrics["chunk_docs_unknown_strategy_count"],
+                "validation_function_chunks_total": metrics["function_chunks_total"],
+                "validation_line_window_chunk_docs_count": metrics["line_window_chunk_docs_count"],
             }
             store.replace_document(
                 collection_name=REPO_REGISTRY_INDEX,
