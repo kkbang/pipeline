@@ -3,6 +3,7 @@ from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from seed_dag_support import (
+    GITHUB_SEARCH_POOL_NAME,
     SEED_DAG_START_DATE,
     SEED_DEFAULT_ARGS,
     load_benchmark_datasets,
@@ -97,6 +98,7 @@ with DAG(
             PythonOperator(
                 task_id=f"seed_ingestion_github_search_{slugify_task_suffix(list_name)}",
                 python_callable=run_github_search_ingestion,
+                pool=GITHUB_SEARCH_POOL_NAME,
                 op_kwargs={
                     "list_name": list_name,
                     "search_queries": search_queries,
@@ -110,6 +112,7 @@ with DAG(
             PythonOperator(
                 task_id=f"seed_ingestion_github_topic_{slugify_task_suffix(list_name)}",
                 python_callable=run_github_topic_ingestion,
+                pool=GITHUB_SEARCH_POOL_NAME,
                 op_kwargs={
                     "list_name": list_name,
                     "topic_entries": topic_entries,

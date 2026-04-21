@@ -33,7 +33,9 @@ class GitHubTopicAdapter:
         if extra_query:
             query = f"{query} {extra_query}"
 
-        repo_limit = int(topic_entry.get("max_repos") or settings.github_topic_repo_limit)
+        requested_repo_limit = int(topic_entry.get("max_repos") or settings.github_topic_repo_limit)
+        # Enforce env-configured cap even when per-topic max_repos is provided.
+        repo_limit = max(1, min(requested_repo_limit, settings.github_topic_repo_limit))
         sort = str(topic_entry.get("sort") or "stars").strip() or "stars"
         order = str(topic_entry.get("order") or "desc").strip() or "desc"
 

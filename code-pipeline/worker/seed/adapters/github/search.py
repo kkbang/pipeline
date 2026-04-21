@@ -28,7 +28,9 @@ class GitHubSearchAdapter:
         if not query:
             return []
 
-        repo_limit = int(search_query.get("max_repos") or settings.github_search_repo_limit)
+        requested_repo_limit = int(search_query.get("max_repos") or settings.github_search_repo_limit)
+        # Enforce env-configured cap even when per-query max_repos is provided.
+        repo_limit = max(1, min(requested_repo_limit, settings.github_search_repo_limit))
         sort = str(search_query.get("sort") or "stars").strip() or "stars"
         order = str(search_query.get("order") or "desc").strip() or "desc"
 

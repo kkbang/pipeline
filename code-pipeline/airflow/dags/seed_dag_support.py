@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,10 @@ GITHUB_ORG_LIST_CONFIG_PATH = Path("/opt/airflow/config/github_org_lists.json")
 GITHUB_SEARCH_QUERY_CONFIG_PATH = Path("/opt/airflow/config/github_search_queries.json")
 GITHUB_TOPIC_LIST_CONFIG_PATH = Path("/opt/airflow/config/github_topic_lists.json")
 SEED_EXPANSION_RULE_CONFIG_PATH = Path("/opt/airflow/config/seed_expansion_rules.json")
+GITHUB_SEARCH_POOL_NAME = (
+    os.getenv("AIRFLOW_GITHUB_SEARCH_POOL", "github_search_pool").strip()
+    or "github_search_pool"
+)
 
 SEED_DEFAULT_ARGS = {
     "owner": "data-platform",
