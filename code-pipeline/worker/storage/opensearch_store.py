@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 from opensearchpy import OpenSearch
-from opensearchpy.exceptions import NotFoundError
+from opensearchpy.exceptions import NotFoundError, RequestError
 from opensearchpy.helpers import bulk as opensearch_bulk
 
 from worker.common.config import settings
@@ -37,8 +37,24 @@ class OpenSearchStore:
     def _ensure_index(self, index_name: str) -> None:
         if index_name in self._ensured_indices:
             return
-        if not self.client.indices.exists(index=index_name):
-            self.client.indices.create(index=index_name)
+
+        try:
+            if not self.client.indices.exists(index=index_name):
+                self.client.indices.create(index=index_name)
+        except RequestError as exc:
+            # Concurrent workers can race on index creation.
+            # If another worker already created the index, treat it as success.
+            error_type = None
+            if isinstance(getattr(exc, "info", None), dict):
+                error = exc.info.get("error")
+                if isinstance(error, dict):
+                    error_type = error.get("type")
+
+            if error_type != "resource_already_exists_exception" and (
+                "resource_already_exists_exception" not in str(exc)
+            ):
+                raise
+
         self._ensured_indices.add(index_name)
 
     def refresh_index(self, collection_name: str) -> None:
