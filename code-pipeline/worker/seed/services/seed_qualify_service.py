@@ -88,6 +88,18 @@ def _group_by_repo(seed_docs: list[dict]) -> dict[tuple[str, str], list[dict]]:
     return grouped
 
 
+def _is_repo_already_registered(
+    store: OpenSearchStore,
+    owner: str,
+    repo: str,
+) -> bool:
+    existing = store.get_document(
+        collection_name="repo_registry_index",
+        doc_id=f"github:{owner}/{repo}",
+    )
+    return bool(existing)
+
+
 def _build_repo_registry_body(
     source: dict,
     hits: list[dict],
@@ -148,14 +160,45 @@ def run_seed_qualification() -> None:
     )
     grouped_seed_docs = _group_by_repo(seed_docs)
 
+    existing_repo_groups: dict[tuple[str, str], list[dict]] = {}
+    to_qualify_groups: dict[tuple[str, str], list[dict]] = {}
+    for repo_key, hits in grouped_seed_docs.items():
+        owner, repo = repo_key
+        if _is_repo_already_registered(store, owner, repo):
+            existing_repo_groups[repo_key] = hits
+        else:
+            to_qualify_groups[repo_key] = hits
+
+    if existing_repo_groups:
+        logger.info(
+            "Seed qualification skipped already-registered repos: repo_count=%s seed_doc_count=%s",
+            len(existing_repo_groups),
+            sum(len(hits) for hits in existing_repo_groups.values()),
+        )
+
+    for (owner, repo), hits in existing_repo_groups.items():
+        _clear_qualification_failure(store, owner, repo)
+        for group_hit in hits:
+            store.update_document(
+                collection_name="seed_item_index",
+                doc_id=group_hit["_id"],
+                body={
+                    "status": "already_registered",
+                    "reason": "repo_already_registered",
+                },
+            )
+
+    if not to_qualify_groups:
+        return
+
     # GitHub 메타데이터 병렬로 수집
     fetch_results = _fetch_repo_metadata_results(
         metadata_adapter,
-        list(grouped_seed_docs.keys()),
+        list(to_qualify_groups.keys()),
     )
 
     # 저장/업데이트는 그대로 순차 처리해서 충돌 가능성을 줄임
-    for (owner, repo), hits in grouped_seed_docs.items():
+    for (owner, repo), hits in to_qualify_groups.items():
         source = hits[0]["_source"]
         repo_doc_id = f"github:{owner}/{repo}"
         fetch_result = fetch_results[(owner, repo)]

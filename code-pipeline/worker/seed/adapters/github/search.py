@@ -28,9 +28,9 @@ class GitHubSearchAdapter:
         if not query:
             return []
 
-        requested_repo_limit = int(search_query.get("max_repos") or settings.github_search_repo_limit)
-        # Enforce env-configured cap even when per-query max_repos is provided.
-        repo_limit = max(1, min(requested_repo_limit, settings.github_search_repo_limit))
+        # Limit is controlled only by env (`GITHUB_SEARCH_REPO_LIMIT`).
+        # GitHub Search API returns up to 1000 results per query.
+        repo_limit = max(1, min(settings.github_search_repo_limit, 1000))
         sort = str(search_query.get("sort") or "stars").strip() or "stars"
         order = str(search_query.get("order") or "desc").strip() or "desc"
 

@@ -1,13 +1,13 @@
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import re
 
 from worker.common.config import settings
 from worker.seed.adapters.github import GitHubApiAdapter, GitHubRepoContentAdapter
 from worker.seed.extractors.dependency_repo_hint_extractor import (
     MANIFEST_PATHS,
     extract_repo_candidates_from_dependency_manifest,
+    select_manifest_paths_from_repo_paths,
 )
 from worker.seed.extractors.readme_link_extractor import extract_repo_candidates_from_readme
 from worker.seed.resolvers.github_url_canonicalizer import canonicalize_github_repo_url
@@ -40,6 +40,8 @@ def _default_rule_config() -> dict:
         "enabled": True,
         "max_registered_repos": settings.repo_content_expansion_repo_limit,
         "max_children_per_repo": 20,
+        "max_manifest_paths_per_repo": 20,
+        "expansion_version": "v2_manifest_tree_scan",
         "include_readme_links": True,
         "include_dependency_manifests": True,
     }
@@ -56,15 +58,25 @@ def _repo_id(owner: str, repo_name: str) -> str:
     return f"github:{owner}/{repo_name}"
 
 
-def _iter_target_repos(store: OpenSearchStore, rule_name: str, max_registered_repos: int) -> list[dict]:
+def _iter_target_repos(
+    store: OpenSearchStore,
+    rule_name: str,
+    max_registered_repos: int,
+    *,
+    expansion_version: str,
+) -> list[dict]:
     rule_status_field = _rule_field("content_expansion_status", rule_name)
+    version_field = _rule_field("content_expansion_version", rule_name)
     repo_docs = []
     for hit in store.list_documents("repo_registry_index", size=max_registered_repos * 5):
         source = hit.get("_source", {})
         if source.get("hosting_platform") != "github":
             continue
         if source.get(rule_status_field) == "completed":
-            continue
+            if not expansion_version:
+                continue
+            if source.get(version_field) == expansion_version:
+                continue
         repo_docs.append(hit)
 
     repo_docs.sort(
@@ -83,6 +95,7 @@ async def _fetch_repo_content_batch(
     *,
     include_readme_links: bool,
     include_dependency_manifests: bool,
+    max_manifest_paths_per_repo: int,
 ) -> list[RepoContentFetchResult]:
     semaphore = asyncio.Semaphore(max(1, settings.repo_content_expansion_concurrency))
     adapter = GitHubRepoContentAdapter(api_adapter)
@@ -93,6 +106,7 @@ async def _fetch_repo_content_batch(
             owner = str(source.get("owner") or "").strip()
             repo_name = str(source.get("repo_name") or "").strip()
             canonical_repo_url = str(source.get("canonical_repo_url") or "").strip()
+            default_branch = str(source.get("default_branch") or "").strip() or None
             parent_repo_id = _repo_id(owner, repo_name)
 
             result = RepoContentFetchResult(
@@ -105,11 +119,39 @@ async def _fetch_repo_content_batch(
 
             try:
                 if include_readme_links:
-                    result.readme_text = await adapter.fetch_readme_text(owner, repo_name)
+                    try:
+                        result.readme_text = await adapter.fetch_readme_text(owner, repo_name)
+                    except Exception:
+                        result.readme_text = None
 
                 if include_dependency_manifests:
-                    for manifest_path in MANIFEST_PATHS:
-                        manifest_text = await adapter.fetch_file_text(owner, repo_name, manifest_path)
+                    selected_manifest_paths: list[str] = []
+                    try:
+                        repo_paths = await adapter.list_repository_paths(
+                            owner,
+                            repo_name,
+                            ref=default_branch,
+                            max_paths=max(2000, max_manifest_paths_per_repo * 200),
+                        )
+                        selected_manifest_paths = select_manifest_paths_from_repo_paths(
+                            repo_paths,
+                            max_paths=max_manifest_paths_per_repo,
+                        )
+                    except Exception:
+                        selected_manifest_paths = []
+
+                    manifest_paths = list(selected_manifest_paths)
+                    existing_paths = set(manifest_paths)
+                    for root_manifest in MANIFEST_PATHS:
+                        if root_manifest not in existing_paths:
+                            manifest_paths.append(root_manifest)
+                            existing_paths.add(root_manifest)
+
+                    for manifest_path in manifest_paths:
+                        try:
+                            manifest_text = await adapter.fetch_file_text(owner, repo_name, manifest_path)
+                        except Exception:
+                            continue
                         if manifest_text:
                             result.manifest_texts[manifest_path] = manifest_text
             except Exception as exc:
@@ -184,12 +226,15 @@ def run_repo_content_expansion(rule_name: str = "default", rule_config: dict | N
     status_field = _rule_field("content_expansion_status", rule_name)
     expanded_at_field = _rule_field("content_expanded_at", rule_name)
     generated_count_field = _rule_field("content_expansion_generated_count", rule_name)
+    version_field = _rule_field("content_expansion_version", rule_name)
     error_field = _rule_field("content_expansion_error", rule_name)
+    expansion_version = str(config.get("expansion_version") or "").strip()
 
     repo_hits = _iter_target_repos(
         store,
         rule_name=rule_name,
         max_registered_repos=int(config["max_registered_repos"]),
+        expansion_version=expansion_version,
     )
     async def _run() -> list[RepoContentFetchResult]:
         async with GitHubApiAdapter(concurrency=settings.repo_content_expansion_concurrency) as api_adapter:
@@ -198,6 +243,7 @@ def run_repo_content_expansion(rule_name: str = "default", rule_config: dict | N
                 repo_hits,
                 include_readme_links=config.get("include_readme_links") is True,
                 include_dependency_manifests=config.get("include_dependency_manifests") is True,
+                max_manifest_paths_per_repo=max(1, int(config.get("max_manifest_paths_per_repo", 20))),
             )
 
     fetch_results = asyncio.run(_run())
@@ -280,6 +326,7 @@ def run_repo_content_expansion(rule_name: str = "default", rule_config: dict | N
                     status_field: "completed",
                     expanded_at_field: started_at,
                     generated_count_field: generated_count,
+                    version_field: expansion_version or None,
                     error_field: None,
                 },
             )
@@ -292,6 +339,7 @@ def run_repo_content_expansion(rule_name: str = "default", rule_config: dict | N
                 body={
                     status_field: "failed",
                     expanded_at_field: started_at,
+                    version_field: expansion_version or None,
                     error_field: str(exc),
                 },
             )

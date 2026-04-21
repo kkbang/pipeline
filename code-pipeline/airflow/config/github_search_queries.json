@@ -3,1220 +3,1982 @@
     {
       "query": "language:Python stars:250..5000 forks:>40 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 60
+      "order": "desc"
     },
     {
       "query": "language:Python stars:80..250 forks:>20 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 55
+      "order": "desc"
     },
     {
       "query": "language:\"Jupyter Notebook\" stars:120..5000 forks:>20 pushed:>=2023-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 50
+      "order": "desc"
     },
     {
       "query": "language:TypeScript stars:150..4000 forks:>30 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 50
+      "order": "desc"
     },
     {
       "query": "language:Rust stars:120..3000 forks:>20 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 45
+      "order": "desc"
     },
     {
       "query": "license:apache-2.0 stars:200..5000 forks:>30 pushed:>=2023-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 50
+      "order": "desc"
     },
     {
       "query": "license:mit stars:200..5000 forks:>30 pushed:>=2023-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 50
+      "order": "desc"
     },
     {
       "query": "license:gpl-3.0 stars:120..4000 forks:>20 pushed:>=2022-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:Python topic:machine-learning stars:>300 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 60
+      "order": "desc"
     },
     {
       "query": "language:TypeScript topic:llm stars:>150 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 60
+      "order": "desc"
     },
     {
       "query": "language:Jupyter Notebook topic:llm stars:>200 archived:false mirror:false pushed:>=2023-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 50
+      "order": "desc"
     },
     {
       "query": "topic:generative-ai stars:>150 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 50
+      "order": "desc"
     },
     {
       "query": "topic:prompt-engineering stars:>80 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "topic:rag stars:>80 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "topic:vector-database stars:>150 archived:false mirror:false pushed:>=2023-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "topic:fine-tuning stars:>80 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:inference stars:>100 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "license:mit topic:llm stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "license:apache-2.0 topic:machine-learning stars:>150 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "license:gpl-3.0 language:Python topic:nlp stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     }
   ],
   "backend_services_search_v1": [
     {
       "query": "language:Go stars:120..3000 forks:>30 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 45
+      "order": "desc"
     },
     {
       "query": "language:Java stars:120..3500 forks:>30 size:>400 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 45
+      "order": "desc"
     },
     {
       "query": "language:Python stars:120..2500 forks:>20 size:>300 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 45
+      "order": "desc"
     },
     {
       "query": "language:TypeScript stars:120..2500 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 45
+      "order": "desc"
     },
     {
       "query": "language:JavaScript stars:120..2500 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:C# stars:100..2500 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Kotlin stars:80..1800 forks:>10 size:>150 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:PHP stars:120..2500 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Python topic:fastapi stars:>120 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:Python topic:django stars:>200 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:Python topic:flask stars:>200 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:Go topic:microservices stars:>150 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:Java topic:spring-boot stars:>150 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:Kotlin topic:spring-boot stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:TypeScript topic:nodejs stars:>200 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:JavaScript topic:express stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:graphql language:TypeScript stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:rest-api stars:>120 archived:false mirror:false pushed:>=2023-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:websocket stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:grpc stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     }
   ],
   "frontend_web_search_v1": [
     {
       "query": "language:TypeScript stars:150..3500 forks:>30 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 50
+      "order": "desc"
     },
     {
       "query": "language:JavaScript stars:150..3500 forks:>30 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 50
+      "order": "desc"
     },
     {
       "query": "language:TypeScript stars:60..150 forks:>10 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:JavaScript stars:60..150 forks:>10 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:CSS stars:80..2200 forks:>10 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:HTML stars:100..2600 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Dart stars:100..2400 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Svelte stars:80..2000 forks:>10 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:TypeScript topic:react stars:>250 archived:false mirror:false pushed:>=2024-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 45
+      "order": "desc"
     },
     {
       "query": "language:TypeScript topic:nextjs stars:>180 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:JavaScript topic:vue stars:>180 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "topic:nuxt stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:svelte stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:angular stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:tailwindcss stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:vite stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:webpack stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:web-components stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:CSS topic:ui-components stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:frontend stars:>200 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     }
   ],
   "data_ml_search_v1": [
     {
       "query": "language:Python stars:180..5000 forks:>40 size:>1000 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 50
+      "order": "desc"
     },
     {
       "query": "language:Python stars:70..180 forks:>20 size:>700 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 45
+      "order": "desc"
     },
     {
       "query": "language:\"Jupyter Notebook\" stars:100..5000 forks:>20 size:>500 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 45
+      "order": "desc"
     },
     {
       "query": "language:R stars:100..3500 forks:>20 size:>300 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:C++ stars:120..3500 forks:>20 size:>500 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Rust stars:100..2500 forks:>15 size:>300 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Scala stars:80..2200 forks:>10 size:>300 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Julia stars:80..2200 forks:>10 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:data-engineering stars:>120 archived:false mirror:false pushed:>=2023-01-01",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:data-science stars:>150 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:deep-learning stars:>150 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:pytorch stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:tensorflow stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:computer-vision stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:time-series stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:airflow stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:spark stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:etl stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:feature-store stars:>60 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:mlops stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     }
   ],
   "devops_platform_search_v1": [
     {
       "query": "language:Go stars:100..3000 forks:>25 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:Shell stars:100..2800 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:HCL stars:80..2000 forks:>15 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Python stars:100..2800 forks:>20 size:>300 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Ruby stars:100..2500 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:PowerShell stars:80..2200 forks:>10 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:YAML stars:80..2200 forks:>10 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Makefile stars:80..2000 forks:>10 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:devops stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:kubernetes stars:>200 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "topic:docker stars:>150 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:terraform stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:ansible stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:observability stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:prometheus stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:grafana stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:ci-cd stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:github-actions stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:helm stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:serverless stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     }
   ],
   "mobile_game_search_v1": [
     {
       "query": "language:Swift stars:100..3000 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Kotlin stars:100..3000 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Dart stars:100..3000 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:C# stars:100..3000 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:C++ stars:100..3200 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:C stars:100..3000 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Lua stars:80..2200 forks:>10 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Objective-C stars:80..2200 forks:>10 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:android stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:ios stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:flutter stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:react-native stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:swift stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:kotlin stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:unity stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:unreal-engine stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:godot stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:game-development stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:gamedev stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:game-engine stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     }
   ],
   "security_search_v1": [
     {
       "query": "language:C stars:120..4000 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:C++ stars:120..4000 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Rust stars:120..3500 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Go stars:120..3500 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Python stars:120..3500 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Java stars:120..3500 forks:>20 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Shell stars:120..2800 forks:>20 size:>100 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:PowerShell stars:100..2400 forks:>15 size:>100 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:security stars:>150 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:cybersecurity stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:application-security stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:secure-coding stars:>50 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:vulnerability-scanner stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:sast stars:>50 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:dast stars:>50 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:dependency-scanning stars:>50 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:reverse-engineering stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:cryptography stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:pentesting stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:ctf stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     }
   ],
   "systems_programming_search_v1": [
     {
       "query": "language:C stars:200..5000 forks:>30 pushed:>=2023-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:C++ stars:200..5000 forks:>30 pushed:>=2023-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:Rust stars:150..4000 forks:>25 pushed:>=2023-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 40
+      "order": "desc"
     },
     {
       "query": "language:Zig stars:80..2500 forks:>10 pushed:>=2023-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Assembly stars:80..2200 forks:>10 pushed:>=2023-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:C stars:80..200 forks:>15 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:C++ stars:80..200 forks:>15 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Rust stars:80..200 forks:>15 pushed:>=2024-01-01 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:C stars:>400 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:C++ stars:>400 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Rust stars:>250 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:systems-programming stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:operating-system stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:linux stars:>200 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:kernel stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:compilers stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:llvm stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:wasm stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:embedded stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:network-programming stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     }
   ],
   "dev_tooling_search_v1": [
     {
       "query": "language:Rust stars:100..3000 forks:>20 size:>100 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Go stars:100..3000 forks:>20 size:>100 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:TypeScript stars:100..3000 forks:>20 size:>100 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Python stars:100..3000 forks:>20 size:>100 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:JavaScript stars:100..2800 forks:>20 size:>100 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Lua stars:80..2000 forks:>10 size:>80 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "language:Ruby stars:80..2200 forks:>15 size:>80 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "language:PHP stars:80..2200 forks:>15 size:>80 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:developer-tools stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "topic:code-quality stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:linter stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:formatter stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:testing stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:unit-testing stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:integration-testing stars:>60 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:benchmark stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:performance stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:profiling stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:sdk stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:api-client stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     }
   ],
   "learning_examples_search_v1": [
     {
       "query": "language:Python stars:50..300 forks:>30 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:TypeScript stars:50..300 forks:>30 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:JavaScript stars:50..300 forks:>30 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 35
+      "order": "desc"
     },
     {
       "query": "language:Go stars:50..300 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Rust stars:50..300 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:Java stars:50..300 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:C++ stars:50..300 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "language:C stars:50..300 forks:>20 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 30
+      "order": "desc"
     },
     {
       "query": "topic:awesome-list stars:>1000 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:tutorial stars:>200 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:example-project stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:boilerplate stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:starter-kit stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:reference-implementation stars:>80 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:coding-interview stars:>100 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
     },
     {
       "query": "topic:algorithms stars:>200 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:data-structures stars:>200 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:leetcode stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:design-patterns stars:>150 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 25
+      "order": "desc"
     },
     {
       "query": "topic:system-design stars:>120 archived:false mirror:false",
       "sort": "stars",
-      "order": "desc",
-      "max_repos": 20
+      "order": "desc"
+    }
+  ],
+  "created_long_tail_search_v1": [
+    {
+      "query": "language:Python stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Python stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:JavaScript stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:TypeScript stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Java stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Go stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Rust stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:C# stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Kotlin stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:PHP stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Dart stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Swift stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:20..120 forks:>5 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:121..500 forks:>10 created:2016-01-01..2016-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:20..120 forks:>5 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:121..500 forks:>10 created:2017-01-01..2017-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:20..120 forks:>5 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:121..500 forks:>10 created:2018-01-01..2018-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:20..120 forks:>5 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:121..500 forks:>10 created:2019-01-01..2019-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:20..120 forks:>5 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:121..500 forks:>10 created:2020-01-01..2020-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:20..120 forks:>5 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:121..500 forks:>10 created:2021-01-01..2021-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:20..120 forks:>5 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:121..500 forks:>10 created:2022-01-01..2022-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:20..120 forks:>5 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
+    },
+    {
+      "query": "language:Ruby stars:121..500 forks:>10 created:2023-01-01..2023-12-31 archived:false mirror:false fork:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc"
     }
   ]
 }

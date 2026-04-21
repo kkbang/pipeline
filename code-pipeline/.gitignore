@@ -11,3 +11,4 @@ airflow/logs/
 airflow/.env
 ../.DS_Store
 tests/
+docs/

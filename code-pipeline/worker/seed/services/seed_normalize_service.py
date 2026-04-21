@@ -10,6 +10,18 @@ def _load_candidate_urls(source: dict) -> list[str]:
     return []
 
 
+def _is_repo_already_registered(
+    store: OpenSearchStore,
+    owner: str,
+    repo: str,
+) -> bool:
+    existing = store.get_document(
+        collection_name="repo_registry_index",
+        doc_id=f"github:{owner}/{repo}",
+    )
+    return bool(existing)
+
+
 def run_seed_normalization() -> None:
     store = OpenSearchStore()
 
@@ -44,14 +56,33 @@ def run_seed_normalization() -> None:
             )
             continue
 
+        normalized_owner = str(owner or "").strip().lower()
+        normalized_repo = str(repo or "").strip().lower()
+        normalized_canonical_url = f"https://github.com/{normalized_owner}/{normalized_repo}"
+
+        if _is_repo_already_registered(store, normalized_owner, normalized_repo):
+            store.update_document(
+                collection_name="seed_item_index",
+                doc_id=doc_id,
+                body={
+                    "status": "already_registered",
+                    "reason": "repo_already_registered",
+                    "selected_repository_url": selected_url,
+                    "owner": normalized_owner,
+                    "repo": normalized_repo,
+                    "canonical_repo_url": normalized_canonical_url,
+                },
+            )
+            continue
+
         store.update_document(
             collection_name="seed_item_index",
             doc_id=doc_id,
             body={
                 "status": "normalized",
                 "selected_repository_url": selected_url,
-                "owner": owner,
-                "repo": repo,
-                "canonical_repo_url": canonical_url,
+                "owner": normalized_owner,
+                "repo": normalized_repo,
+                "canonical_repo_url": normalized_canonical_url,
             },
         )

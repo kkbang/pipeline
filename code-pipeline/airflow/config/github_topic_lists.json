@@ -2,620 +2,500 @@
   "llm_license_focus_topics_v1": [
     {
       "topic": "machine-learning",
-      "max_repos": 60,
       "query": "stars:>200"
     },
     {
       "topic": "llm",
-      "max_repos": 60,
       "query": "stars:>150"
     },
     {
       "topic": "nlp",
-      "max_repos": 50,
       "query": "stars:>150"
     },
     {
       "topic": "generative-ai",
-      "max_repos": 50,
       "query": "stars:>100"
     },
     {
       "topic": "prompt-engineering",
-      "max_repos": 40,
       "query": "stars:>50"
     },
     {
       "topic": "rag",
-      "max_repos": 40,
       "query": "stars:>50"
     },
     {
       "topic": "vector-database",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "inference",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "fine-tuning",
-      "max_repos": 35,
       "query": "stars:>50"
     },
     {
       "topic": "diffusion",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "transformer",
-      "max_repos": 40,
       "query": "stars:>100"
     },
     {
       "topic": "agents",
-      "max_repos": 35,
       "query": "stars:>50"
     }
   ],
   "backend_platform_topics_v1": [
     {
       "topic": "python",
-      "max_repos": 35,
       "query": "stars:>500"
     },
     {
       "topic": "django-rest-framework",
-      "max_repos": 35,
       "query": "stars:>200"
     },
     {
       "topic": "asgi",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "wsgi",
-      "max_repos": 35,
       "query": "stars:>200"
     },
     {
       "topic": "go",
-      "max_repos": 35,
       "query": "stars:>500"
     },
     {
       "topic": "golang",
-      "max_repos": 35,
       "query": "stars:>500"
     },
     {
       "topic": "java",
-      "max_repos": 35,
       "query": "stars:>500"
     },
     {
       "topic": "spring-boot",
-      "max_repos": 35,
       "query": "stars:>150"
     },
     {
       "topic": "nodejs",
-      "max_repos": 35,
       "query": "stars:>300"
     },
     {
       "topic": "expressjs",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "graph-api",
-      "max_repos": 35,
       "query": "stars:>150"
     },
     {
       "topic": "rest-api",
-      "max_repos": 35,
       "query": "stars:>100"
     }
   ],
   "frontend_web_topics_v1": [
     {
       "topic": "javascript",
-      "max_repos": 35,
       "query": "stars:>500"
     },
     {
       "topic": "typed-javascript",
-      "max_repos": 35,
       "query": "stars:>400"
     },
     {
       "topic": "reactjs",
-      "max_repos": 40,
       "query": "stars:>300"
     },
     {
       "topic": "nextjs",
-      "max_repos": 35,
       "query": "stars:>200"
     },
     {
       "topic": "vuejs",
-      "max_repos": 35,
       "query": "stars:>200"
     },
     {
       "topic": "nuxtjs",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "sveltekit",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "angular",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "utility-css",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "modern-build-tool",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "bundler",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "web-components",
-      "max_repos": 25,
       "query": "stars:>50"
     }
   ],
   "data_ml_topics_v1": [
     {
       "topic": "data-engineering",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "data-science",
-      "max_repos": 35,
       "query": "stars:>150"
     },
     {
       "topic": "deep-learning",
-      "max_repos": 40,
       "query": "stars:>150"
     },
     {
       "topic": "pytorch",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "neural-networks",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "computer-vision",
-      "max_repos": 35,
       "query": "stars:>150"
     },
     {
       "topic": "time-series",
-      "max_repos": 25,
       "query": "stars:>50"
     },
     {
       "topic": "feature-engineering",
-      "max_repos": 20,
       "query": "stars:>30"
     },
     {
       "topic": "data-pipeline",
-      "max_repos": 30,
       "query": "stars:>50"
     },
     {
       "topic": "airflow",
-      "max_repos": 30,
       "query": "stars:>50"
     },
     {
       "topic": "spark",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "etl",
-      "max_repos": 30,
       "query": "stars:>50"
     }
   ],
   "devops_infra_topics_v1": [
     {
       "topic": "devops",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "kubernetes",
-      "max_repos": 40,
       "query": "stars:>200"
     },
     {
       "topic": "docker",
-      "max_repos": 35,
       "query": "stars:>200"
     },
     {
       "topic": "terraform",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "ansible",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "observability",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "prometheus",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "grafana",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "ci-cd",
-      "max_repos": 30,
       "query": "stars:>80"
     },
     {
       "topic": "github-actions",
-      "max_repos": 30,
       "query": "stars:>50"
     },
     {
       "topic": "helm",
-      "max_repos": 25,
       "query": "stars:>50"
     },
     {
       "topic": "serverless",
-      "max_repos": 30,
       "query": "stars:>100"
     }
   ],
   "mobile_game_topics_v1": [
     {
       "topic": "android",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "ios",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "flutter",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "react-native",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "swift",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "kotlin",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "unity",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "unreal-engine",
-      "max_repos": 25,
       "query": "stars:>80"
     },
     {
       "topic": "godot",
-      "max_repos": 25,
       "query": "stars:>80"
     },
     {
       "topic": "game-development",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "gamedev",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "game-engine",
-      "max_repos": 20,
       "query": "stars:>50"
     }
   ],
   "security_topics_v1": [
     {
       "topic": "security",
-      "max_repos": 35,
       "query": "stars:>150"
     },
     {
       "topic": "cybersecurity",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "application-security",
-      "max_repos": 25,
       "query": "stars:>50"
     },
     {
       "topic": "secure-coding",
-      "max_repos": 20,
       "query": "stars:>30"
     },
     {
       "topic": "vulnerability-scanner",
-      "max_repos": 25,
       "query": "stars:>80"
     },
     {
       "topic": "sast",
-      "max_repos": 20,
       "query": "stars:>30"
     },
     {
       "topic": "dast",
-      "max_repos": 20,
       "query": "stars:>30"
     },
     {
       "topic": "dependency-scanning",
-      "max_repos": 20,
       "query": "stars:>30"
     },
     {
       "topic": "malware-analysis",
-      "max_repos": 20,
       "query": "stars:>50"
     },
     {
       "topic": "reverse-engineering",
-      "max_repos": 25,
       "query": "stars:>80"
     },
     {
       "topic": "cryptography",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "pentesting",
-      "max_repos": 25,
       "query": "stars:>80"
     }
   ],
   "systems_programming_topics_v1": [
     {
       "topic": "c",
-      "max_repos": 30,
       "query": "stars:>300"
     },
     {
       "topic": "cpp",
-      "max_repos": 30,
       "query": "stars:>300"
     },
     {
       "topic": "rust",
-      "max_repos": 35,
       "query": "stars:>200"
     },
     {
       "topic": "systems-programming",
-      "max_repos": 25,
       "query": "stars:>80"
     },
     {
       "topic": "operating-system",
-      "max_repos": 25,
       "query": "stars:>100"
     },
     {
       "topic": "linux",
-      "max_repos": 30,
       "query": "stars:>200"
     },
     {
       "topic": "kernel",
-      "max_repos": 25,
       "query": "stars:>100"
     },
     {
       "topic": "compilers",
-      "max_repos": 25,
       "query": "stars:>80"
     },
     {
       "topic": "llvm",
-      "max_repos": 25,
       "query": "stars:>80"
     },
     {
       "topic": "wasm",
-      "max_repos": 25,
       "query": "stars:>100"
     },
     {
       "topic": "embedded",
-      "max_repos": 25,
       "query": "stars:>80"
     },
     {
       "topic": "network-programming",
-      "max_repos": 20,
       "query": "stars:>50"
     }
   ],
   "dev_tooling_topics_v1": [
     {
       "topic": "developer-tools",
-      "max_repos": 35,
       "query": "stars:>100"
     },
     {
       "topic": "code-quality",
-      "max_repos": 25,
       "query": "stars:>50"
     },
     {
       "topic": "linter",
-      "max_repos": 25,
       "query": "stars:>80"
     },
     {
       "topic": "formatter",
-      "max_repos": 25,
       "query": "stars:>50"
     },
     {
       "topic": "testing",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "unit-testing",
-      "max_repos": 25,
       "query": "stars:>50"
     },
     {
       "topic": "integration-testing",
-      "max_repos": 20,
       "query": "stars:>30"
     },
     {
       "topic": "benchmark",
-      "max_repos": 20,
       "query": "stars:>50"
     },
     {
       "topic": "performance",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "profiling",
-      "max_repos": 20,
       "query": "stars:>50"
     },
     {
       "topic": "sdk",
-      "max_repos": 30,
       "query": "stars:>100"
     },
     {
       "topic": "api-client",
-      "max_repos": 20,
       "query": "stars:>50"
     }
   ],
   "learning_resources_topics_v1": [
     {
       "topic": "awesome-list",
-      "max_repos": 25,
       "query": "stars:>1000"
     },
     {
       "topic": "tutorial",
-      "max_repos": 25,
       "query": "stars:>200"
     },
     {
       "topic": "example-project",
-      "max_repos": 25,
       "query": "stars:>100"
     },
     {
       "topic": "boilerplate",
-      "max_repos": 25,
       "query": "stars:>100"
     },
     {
       "topic": "starter-kit",
-      "max_repos": 25,
       "query": "stars:>100"
     },
     {
       "topic": "reference-implementation",
-      "max_repos": 20,
       "query": "stars:>50"
     },
     {
       "topic": "coding-interview",
-      "max_repos": 20,
       "query": "stars:>100"
     },
     {
       "topic": "algorithms",
-      "max_repos": 25,
       "query": "stars:>300"
     },
     {
       "topic": "data-structures",
-      "max_repos": 25,
       "query": "stars:>300"
     },
     {
       "topic": "leetcode",
-      "max_repos": 25,
       "query": "stars:>200"
     },
     {
       "topic": "design-patterns",
-      "max_repos": 25,
       "query": "stars:>200"
     },
     {
       "topic": "system-design",
-      "max_repos": 20,
       "query": "stars:>100"
     }
   ]
