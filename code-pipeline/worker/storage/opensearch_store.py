@@ -32,10 +32,14 @@ class OpenSearchStore:
             ssl_show_warn=False,
             timeout=settings.request_timeout_seconds,
         )
+        self._ensured_indices: set[str] = set()
 
     def _ensure_index(self, index_name: str) -> None:
+        if index_name in self._ensured_indices:
+            return
         if not self.client.indices.exists(index=index_name):
             self.client.indices.create(index=index_name)
+        self._ensured_indices.add(index_name)
 
     def refresh_index(self, collection_name: str) -> None:
         self._ensure_index(collection_name)

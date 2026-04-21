@@ -47,6 +47,78 @@
       "sort": "stars",
       "order": "desc",
       "max_repos": 40
+    },
+    {
+      "query": "language:Python topic:machine-learning stars:>300 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 60
+    },
+    {
+      "query": "language:TypeScript topic:llm stars:>150 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 60
+    },
+    {
+      "query": "language:Jupyter Notebook topic:llm stars:>200 archived:false mirror:false pushed:>=2023-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 50
+    },
+    {
+      "query": "topic:generative-ai stars:>150 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 50
+    },
+    {
+      "query": "topic:prompt-engineering stars:>80 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "topic:rag stars:>80 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "topic:vector-database stars:>150 archived:false mirror:false pushed:>=2023-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "topic:fine-tuning stars:>80 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:inference stars:>100 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "license:mit topic:llm stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "license:apache-2.0 topic:machine-learning stars:>150 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "license:gpl-3.0 language:Python topic:nlp stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
     }
   ],
   "backend_services_search_v1": [
@@ -97,6 +169,78 @@
       "sort": "stars",
       "order": "desc",
       "max_repos": 35
+    },
+    {
+      "query": "language:Python topic:fastapi stars:>120 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "language:Python topic:django stars:>200 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "language:Python topic:flask stars:>200 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "language:Go topic:microservices stars:>150 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "language:Java topic:spring-boot stars:>150 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "language:Kotlin topic:spring-boot stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "language:TypeScript topic:nodejs stars:>200 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "language:JavaScript topic:express stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:graphql language:TypeScript stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:rest-api stars:>120 archived:false mirror:false pushed:>=2023-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:websocket stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:grpc stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
     }
   ],
   "frontend_web_search_v1": [
@@ -147,6 +291,78 @@
       "sort": "stars",
       "order": "desc",
       "max_repos": 30
+    },
+    {
+      "query": "language:TypeScript topic:react stars:>250 archived:false mirror:false pushed:>=2024-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 45
+    },
+    {
+      "query": "language:TypeScript topic:nextjs stars:>180 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "language:JavaScript topic:vue stars:>180 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "topic:nuxt stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:svelte stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:angular stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:tailwindcss stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:vite stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:webpack stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:web-components stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "language:CSS topic:ui-components stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:frontend stars:>200 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
     }
   ],
   "data_ml_search_v1": [
@@ -194,6 +410,78 @@
     },
     {
       "query": "language:Julia stars:80..2200 forks:>10 size:>200 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:data-engineering stars:>120 archived:false mirror:false pushed:>=2023-01-01",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:data-science stars:>150 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:deep-learning stars:>150 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:pytorch stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:tensorflow stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:computer-vision stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:time-series stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:airflow stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:spark stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:etl stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:feature-store stars:>60 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:mlops stars:>120 archived:false mirror:false",
       "sort": "stars",
       "order": "desc",
       "max_repos": 30
@@ -247,6 +535,78 @@
       "sort": "stars",
       "order": "desc",
       "max_repos": 25
+    },
+    {
+      "query": "topic:devops stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:kubernetes stars:>200 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 40
+    },
+    {
+      "query": "topic:docker stars:>150 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:terraform stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:ansible stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:observability stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:prometheus stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:grafana stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:ci-cd stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:github-actions stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:helm stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:serverless stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
     }
   ],
   "mobile_game_search_v1": [
@@ -297,6 +657,78 @@
       "sort": "stars",
       "order": "desc",
       "max_repos": 30
+    },
+    {
+      "query": "topic:android stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:ios stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:flutter stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:react-native stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:swift stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:kotlin stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:unity stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:unreal-engine stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:godot stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:game-development stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:gamedev stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:game-engine stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
     }
   ],
   "security_search_v1": [
@@ -344,6 +776,78 @@
     },
     {
       "query": "language:PowerShell stars:100..2400 forks:>15 size:>100 archived:false mirror:false -org:apache -org:hashicorp -org:kubernetes -org:pallets -org:pytorch -org:huggingface -org:vercel -org:grafana",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:security stars:>150 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:cybersecurity stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:application-security stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:secure-coding stars:>50 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:vulnerability-scanner stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:sast stars:>50 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:dast stars:>50 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:dependency-scanning stars:>50 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:reverse-engineering stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:cryptography stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:pentesting stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:ctf stars:>80 archived:false mirror:false",
       "sort": "stars",
       "order": "desc",
       "max_repos": 25
@@ -397,6 +901,78 @@
       "sort": "stars",
       "order": "desc",
       "max_repos": 30
+    },
+    {
+      "query": "language:C stars:>400 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "language:C++ stars:>400 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "language:Rust stars:>250 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:systems-programming stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:operating-system stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:linux stars:>200 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:kernel stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:compilers stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:llvm stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:wasm stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:embedded stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:network-programming stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
     }
   ],
   "dev_tooling_search_v1": [
@@ -447,6 +1023,78 @@
       "sort": "stars",
       "order": "desc",
       "max_repos": 25
+    },
+    {
+      "query": "topic:developer-tools stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 35
+    },
+    {
+      "query": "topic:code-quality stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:linter stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:formatter stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:testing stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:unit-testing stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:integration-testing stars:>60 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:benchmark stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:performance stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:profiling stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:sdk stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 30
+    },
+    {
+      "query": "topic:api-client stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
     }
   ],
   "learning_examples_search_v1": [
@@ -497,6 +1145,78 @@
       "sort": "stars",
       "order": "desc",
       "max_repos": 30
+    },
+    {
+      "query": "topic:awesome-list stars:>1000 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:tutorial stars:>200 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:example-project stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:boilerplate stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:starter-kit stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:reference-implementation stars:>80 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:coding-interview stars:>100 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
+    },
+    {
+      "query": "topic:algorithms stars:>200 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:data-structures stars:>200 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:leetcode stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:design-patterns stars:>150 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 25
+    },
+    {
+      "query": "topic:system-design stars:>120 archived:false mirror:false",
+      "sort": "stars",
+      "order": "desc",
+      "max_repos": 20
     }
   ]
 }

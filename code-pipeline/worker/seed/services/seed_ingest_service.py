@@ -97,7 +97,7 @@ async def _fetch_github_seed_batch(
     items: list[tuple[str, str, object]],
     fetcher,
 ) -> list[GitHubSeedFetchResult]:
-    semaphore = asyncio.Semaphore(max(1, settings.seed_github_ingestion_concurrency))
+    semaphore = asyncio.Semaphore(max(1, settings.seed_github_global_concurrency))
 
     async def _fetch(key: str, label: str, payload: object) -> GitHubSeedFetchResult:
         async with semaphore:
@@ -114,6 +114,62 @@ def _raise_first_fetch_error(results: list[GitHubSeedFetchResult]) -> None:
     for result in results:
         if result.error is not None:
             raise result.error
+
+
+def _finalize_fetch_results(
+    results: list[GitHubSeedFetchResult],
+    *,
+    batch_type: str,
+    source_name: str,
+) -> None:
+    total_requests = len(results)
+    failed_requests = sum(1 for result in results if result.error is not None)
+    successful_requests = total_requests - failed_requests
+    emitted_items = sum(len(result.metadatas) for result in results)
+    success_ratio = (successful_requests / total_requests) if total_requests > 0 else 1.0
+
+    logger.info(
+        (
+            "GitHub ingestion batch summary: type=%s source=%s total_requests=%s "
+            "successful_requests=%s failed_requests=%s success_ratio=%.3f emitted_items=%s"
+        ),
+        batch_type,
+        source_name,
+        total_requests,
+        successful_requests,
+        failed_requests,
+        success_ratio,
+        emitted_items,
+    )
+
+    if failed_requests == 0:
+        return
+
+    # Fail-soft policy:
+    # - hard fail only when every fetch request failed.
+    # - otherwise continue but emit degraded warnings if quality thresholds are not met.
+    if successful_requests == 0:
+        _raise_first_fetch_error(results)
+        return
+
+    if (
+        successful_requests < settings.seed_fail_soft_min_success_count
+        or success_ratio < settings.seed_fail_soft_min_success_ratio
+    ):
+        logger.warning(
+            (
+                "GitHub ingestion batch degraded: type=%s source=%s "
+                "successful_requests=%s/%s success_ratio=%.3f "
+                "min_success_count=%s min_success_ratio=%.3f"
+            ),
+            batch_type,
+            source_name,
+            successful_requests,
+            total_requests,
+            success_ratio,
+            settings.seed_fail_soft_min_success_count,
+            settings.seed_fail_soft_min_success_ratio,
+        )
 
 
 def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None = None) -> None:
@@ -293,7 +349,7 @@ def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None)
         return
 
     async def _run() -> list[GitHubSeedFetchResult]:
-        async with GitHubApiAdapter(concurrency=settings.seed_github_ingestion_concurrency) as api_adapter:
+        async with GitHubApiAdapter(concurrency=settings.seed_github_global_concurrency) as api_adapter:
             adapter = GitHubOrgAdapter(api_adapter)
             return await _fetch_github_seed_batch(
                 [(org_name, org_name, org_name) for org_name in org_names],
@@ -327,7 +383,11 @@ def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None)
                 candidate_repo_urls=metadata.candidate_repo_urls,
             )
 
-    _raise_first_fetch_error(fetch_results)
+    _finalize_fetch_results(
+        fetch_results,
+        batch_type="github_org",
+        source_name=list_name,
+    )
 
 
 def run_github_search_ingestion(
@@ -349,7 +409,7 @@ def run_github_search_ingestion(
         if isinstance(search_query, dict) and str(search_query.get("query") or "").strip()
     ]
     async def _run() -> list[GitHubSeedFetchResult]:
-        async with GitHubApiAdapter(concurrency=settings.seed_github_ingestion_concurrency) as api_adapter:
+        async with GitHubApiAdapter(concurrency=settings.seed_github_global_concurrency) as api_adapter:
             adapter = GitHubSearchAdapter(api_adapter)
             return await _fetch_github_seed_batch(
                 keyed_queries,
@@ -393,7 +453,11 @@ def run_github_search_ingestion(
                 },
             )
 
-    _raise_first_fetch_error(fetch_results)
+    _finalize_fetch_results(
+        fetch_results,
+        batch_type="github_search",
+        source_name=list_name,
+    )
 
 
 def run_github_topic_ingestion(
@@ -415,7 +479,7 @@ def run_github_topic_ingestion(
         if isinstance(topic_entry, dict) and str(topic_entry.get("topic") or "").strip()
     ]
     async def _run() -> list[GitHubSeedFetchResult]:
-        async with GitHubApiAdapter(concurrency=settings.seed_github_ingestion_concurrency) as api_adapter:
+        async with GitHubApiAdapter(concurrency=settings.seed_github_global_concurrency) as api_adapter:
             adapter = GitHubTopicAdapter(api_adapter)
             return await _fetch_github_seed_batch(
                 keyed_topics,
@@ -459,4 +523,8 @@ def run_github_topic_ingestion(
                 },
             )
 
-    _raise_first_fetch_error(fetch_results)
+    _finalize_fetch_results(
+        fetch_results,
+        batch_type="github_topic",
+        source_name=list_name,
+    )

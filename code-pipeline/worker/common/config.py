@@ -32,8 +32,43 @@ class Settings:
     github_org_repo_limit: int = int(os.getenv("GITHUB_ORG_REPO_LIMIT", "100"))
     github_search_repo_limit: int = int(os.getenv("GITHUB_SEARCH_REPO_LIMIT", "100"))
     github_topic_repo_limit: int = int(os.getenv("GITHUB_TOPIC_REPO_LIMIT", "100"))
+    seed_github_global_concurrency: int = int(
+        os.getenv(
+            "SEED_GITHUB_GLOBAL_CONCURRENCY",
+            os.getenv("SEED_GITHUB_INGESTION_CONCURRENCY", "4"),
+        )
+    )
+    # Legacy alias. Keep reading for backward compatibility.
     seed_github_ingestion_concurrency: int = int(
-        os.getenv("SEED_GITHUB_INGESTION_CONCURRENCY", "4")
+        os.getenv(
+            "SEED_GITHUB_INGESTION_CONCURRENCY",
+            str(seed_github_global_concurrency),
+        )
+    )
+    seed_github_search_concurrency: int = int(
+        os.getenv(
+            "SEED_GITHUB_SEARCH_CONCURRENCY",
+            str(seed_github_global_concurrency),
+        )
+    )
+    seed_github_core_concurrency: int = int(
+        os.getenv(
+            "SEED_GITHUB_CORE_CONCURRENCY",
+            str(seed_github_global_concurrency),
+        )
+    )
+    github_secondary_limit_base_backoff_sec: int = int(
+        os.getenv("GITHUB_SECONDARY_LIMIT_BASE_BACKOFF_SEC", "4")
+    )
+    github_max_backoff_sec: int = int(os.getenv("GITHUB_MAX_BACKOFF_SEC", "120"))
+    github_bucket_cooldown_jitter_sec: float = float(
+        os.getenv("GITHUB_BUCKET_COOLDOWN_JITTER_SEC", "1.5")
+    )
+    seed_fail_soft_min_success_count: int = int(
+        os.getenv("SEED_FAIL_SOFT_MIN_SUCCESS_COUNT", "1")
+    )
+    seed_fail_soft_min_success_ratio: float = float(
+        os.getenv("SEED_FAIL_SOFT_MIN_SUCCESS_RATIO", "0.25")
     )
     benchmark_data_dir: str = os.getenv("BENCHMARK_DATA_DIR", "/opt/airflow/benchmark_data")
     keep_full_package_registry_raw: bool = (

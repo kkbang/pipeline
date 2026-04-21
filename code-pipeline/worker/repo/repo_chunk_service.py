@@ -209,6 +209,8 @@ def _claim_repo_docs_for_chunking(
     store: OpenSearchStore,
     repo_docs: list[dict],
     started_at: str,
+    *,
+    refresh_writes: bool = True,
 ) -> dict[str, dict]:
     claimed_docs = {}
     for hit in repo_docs:
@@ -243,6 +245,7 @@ def _claim_repo_docs_for_chunking(
             collection_name=REPO_REGISTRY_INDEX,
             doc_id=doc_id,
             source=claimed_source,
+            refresh=refresh_writes,
         )
         claimed_docs[doc_id] = {"_id": doc_id, "_source": claimed_source}
     return claimed_docs
@@ -519,6 +522,7 @@ def _chunk_single_repo(
     repo_id: str,
     source: dict,
     chunked_at: str,
+    refresh_writes: bool = True,
 ) -> RepoChunkStats:
     snapshot_root = Path(str(source.get("snapshot_root_path") or "")).resolve()
     if not snapshot_root.exists() or not snapshot_root.is_dir():
@@ -529,7 +533,7 @@ def _chunk_single_repo(
         collection_name=REPO_CHUNK_INDEX,
         field_name="repo_id",
         value=repo_id,
-        refresh=True,
+        refresh=refresh_writes,
     )
 
     owner = str(source.get("owner") or "").strip().lower()
@@ -631,7 +635,7 @@ def _chunk_single_repo(
                 )
             )
             if len(pending_docs) >= bulk_flush_docs:
-                store.bulk_upsert_documents(
+                store.bulk_index_documents(
                     collection_name=REPO_CHUNK_INDEX,
                     documents=pending_docs,
                     refresh=False,
@@ -649,14 +653,15 @@ def _chunk_single_repo(
             stats.parser_failed_files += 1
 
     if pending_docs:
-        store.bulk_upsert_documents(
+        store.bulk_index_documents(
             collection_name=REPO_CHUNK_INDEX,
             documents=pending_docs,
             refresh=False,
             chunk_size=bulk_flush_docs,
         )
 
-    store.refresh_index(REPO_CHUNK_INDEX)
+    if refresh_writes:
+        store.refresh_index(REPO_CHUNK_INDEX)
     return stats
 
 
@@ -673,6 +678,7 @@ def run_repo_code_chunking_for_repo(
     repo_id: str,
     *,
     store: OpenSearchStore | None = None,
+    refresh_writes: bool = True,
 ) -> dict:
     if store is None:
         store = OpenSearchStore()
@@ -721,6 +727,7 @@ def run_repo_code_chunking_for_repo(
             store=store,
             repo_docs=[repo_doc],
             started_at=chunk_started_at,
+            refresh_writes=refresh_writes,
         )
         claimed_source = dict(claimed_docs[repo_id]["_source"])
         chunk_finished_at = datetime.now(timezone.utc).isoformat()
@@ -729,6 +736,7 @@ def run_repo_code_chunking_for_repo(
             repo_id=repo_id,
             source=claimed_source,
             chunked_at=chunk_finished_at,
+            refresh_writes=refresh_writes,
         )
 
         chunk_error_message = None
@@ -763,6 +771,7 @@ def run_repo_code_chunking_for_repo(
             collection_name=REPO_REGISTRY_INDEX,
             doc_id=repo_id,
             source=updated_source,
+            refresh=refresh_writes,
         )
 
         return {
@@ -791,6 +800,7 @@ def run_repo_code_chunking_for_repo(
             collection_name=REPO_REGISTRY_INDEX,
             doc_id=repo_id,
             source=failed_source,
+            refresh=refresh_writes,
         )
         return {
             "repo_id": repo_id,
@@ -824,7 +834,11 @@ def run_repo_code_chunking_for_shard(
     skipped_count = 0
     for repo_id in repo_ids:
         processed_count += 1
-        result = run_repo_code_chunking_for_repo(repo_id, store=store)
+        result = run_repo_code_chunking_for_repo(
+            repo_id,
+            store=store,
+            refresh_writes=False,
+        )
         stage_status = str(result.get("stage_status") or "")
         if stage_status == "chunked":
             chunked_count += 1
@@ -832,6 +846,10 @@ def run_repo_code_chunking_for_shard(
             failed_count += 1
         else:
             skipped_count += 1
+
+    if processed_count > 0:
+        store.refresh_index(REPO_CHUNK_INDEX)
+        store.refresh_index(REPO_REGISTRY_INDEX)
 
     return {
         "stage": "chunk",
@@ -855,6 +873,7 @@ def run_repo_code_chunking() -> None:
         store=store,
         repo_docs=repo_docs,
         started_at=chunk_started_at.isoformat(),
+        refresh_writes=False,
     )
 
     max_lines, overlap_lines = _chunk_parameters()
@@ -867,6 +886,7 @@ def run_repo_code_chunking() -> None:
                 repo_id=doc_id,
                 source=source,
                 chunked_at=chunk_finished_at,
+                refresh_writes=False,
             )
 
             chunk_error_message = None
@@ -901,6 +921,7 @@ def run_repo_code_chunking() -> None:
                 collection_name=REPO_REGISTRY_INDEX,
                 doc_id=doc_id,
                 source=updated_source,
+                refresh=False,
             )
             claimed_docs[doc_id]["_source"] = updated_source
         except Exception as exc:  # noqa: BLE001 - repo별 실패를 이어서 처리해야 함
@@ -918,5 +939,9 @@ def run_repo_code_chunking() -> None:
                 collection_name=REPO_REGISTRY_INDEX,
                 doc_id=doc_id,
                 source=failed_source,
+                refresh=False,
             )
             claimed_docs[doc_id]["_source"] = failed_source
+
+    store.refresh_index(REPO_CHUNK_INDEX)
+    store.refresh_index(REPO_REGISTRY_INDEX)
