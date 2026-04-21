@@ -148,6 +148,8 @@ class GitHubApiAdapter:
     RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
     MAX_RETRY_COUNT = 3
     _shared_rate_limit_state = _SharedRateLimitState()
+    _tor_rotation_lock = threading.Lock()
+    _tor_last_rotation_epoch = 0.0
 
     def __init__(self, concurrency: int = 1) -> None:
         self.global_concurrency = max(1, concurrency)
@@ -205,6 +207,73 @@ class GitHubApiAdapter:
             return "search"
         return "core"
 
+    def _is_primary_limit_response(self, headers: httpx.Headers) -> bool:
+        now = time.time()
+        remaining = _parse_int(headers.get("X-RateLimit-Remaining"))
+        reset_at = _parse_int(headers.get("X-RateLimit-Reset"))
+        return remaining == 0 and reset_at is not None and float(reset_at) > now
+
+    def _rotate_tor_ip(self, *, reason: str) -> bool:
+        if settings.github_tor_rotation_enabled is not True:
+            return False
+
+        now = time.time()
+        min_interval_seconds = max(0, settings.github_tor_rotation_min_interval_sec)
+        wait_seconds = max(0.0, settings.github_tor_newnym_wait_sec)
+
+        with self._tor_rotation_lock:
+            since_last = now - self.__class__._tor_last_rotation_epoch
+            if since_last < min_interval_seconds:
+                logger.info(
+                    (
+                        "Tor rotation skipped by cooldown: reason=%s "
+                        "since_last=%.2fs min_interval=%ss"
+                    ),
+                    reason,
+                    since_last,
+                    min_interval_seconds,
+                )
+                return False
+
+            try:
+                import socket
+                from stem import Signal
+                from stem.control import Controller
+            except Exception as exc:
+                logger.warning("Tor rotation unavailable: reason=%s error=%s", reason, exc)
+                return False
+
+            host = settings.github_tor_control_host.strip() or "tor-proxy"
+            port = max(1, int(settings.github_tor_control_port))
+            password = settings.github_tor_control_password
+
+            try:
+                tor_control_ip = socket.gethostbyname(host)
+                with Controller.from_port(address=tor_control_ip, port=port) as controller:
+                    if password:
+                        controller.authenticate(password=password)
+                    else:
+                        controller.authenticate()
+                    controller.signal(Signal.NEWNYM)
+                self.__class__._tor_last_rotation_epoch = now
+                logger.info(
+                    "Tor identity rotated: reason=%s host=%s port=%s wait=%.1fs",
+                    reason,
+                    host,
+                    port,
+                    wait_seconds,
+                )
+            except Exception as exc:
+                logger.warning("Tor rotation failed: reason=%s error=%s", reason, exc)
+                return False
+
+        if wait_seconds > 0:
+            time.sleep(wait_seconds)
+        return True
+
+    async def _rotate_tor_ip_async(self, *, reason: str) -> bool:
+        return await asyncio.to_thread(self._rotate_tor_ip, reason=reason)
+
     async def _wait_for_bucket_availability(self, bucket: str) -> None:
         while True:
             delay_seconds = self._shared_rate_limit_state.next_delay_seconds(bucket)
@@ -255,6 +324,18 @@ class GitHubApiAdapter:
                     response.headers,
                     retry_count=retry_count,
                 )
+                should_try_rotation = (
+                    settings.github_tor_rotation_enabled is True
+                    and (
+                        settings.github_tor_rotate_only_on_search is not True
+                        or bucket == "search"
+                    )
+                    and not self._is_primary_limit_response(response.headers)
+                )
+                if should_try_rotation:
+                    await self._rotate_tor_ip_async(
+                        reason=f"rate_limit:{bucket}:{response.status_code}",
+                    )
                 if retry_count < self.MAX_RETRY_COUNT:
                     continue
                 logger.warning(

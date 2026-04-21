@@ -64,6 +64,21 @@ class Settings:
     github_bucket_cooldown_jitter_sec: float = float(
         os.getenv("GITHUB_BUCKET_COOLDOWN_JITTER_SEC", "1.5")
     )
+    github_tor_rotation_enabled: bool = (
+        os.getenv("GITHUB_TOR_ROTATION_ENABLED", "false").lower() == "true"
+    )
+    github_tor_rotate_only_on_search: bool = (
+        os.getenv("GITHUB_TOR_ROTATE_ONLY_ON_SEARCH", "true").lower() == "true"
+    )
+    github_tor_control_host: str = os.getenv("GITHUB_TOR_CONTROL_HOST", "tor-proxy")
+    github_tor_control_port: int = int(os.getenv("GITHUB_TOR_CONTROL_PORT", "9051"))
+    github_tor_control_password: str = os.getenv("GITHUB_TOR_CONTROL_PASSWORD", "")
+    github_tor_rotation_min_interval_sec: int = int(
+        os.getenv("GITHUB_TOR_ROTATION_MIN_INTERVAL_SEC", "45")
+    )
+    github_tor_newnym_wait_sec: float = float(
+        os.getenv("GITHUB_TOR_NEWNYM_WAIT_SEC", "8")
+    )
     seed_fail_soft_min_success_count: int = int(
         os.getenv("SEED_FAIL_SOFT_MIN_SUCCESS_COUNT", "1")
     )
