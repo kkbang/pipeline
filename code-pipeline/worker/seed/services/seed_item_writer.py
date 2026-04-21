@@ -23,11 +23,21 @@ def write_seed_item(
     candidate_repo_urls: list[str],
     extra_body: dict | None = None,
 ) -> None:
+    # NOTE:
+    # We intentionally do not persist `raw_metadata` into seed_item_index.
+    # `raw_metadata` contained highly dynamic nested structures by registry/source,
+    # which caused:
+    # - mapper_parsing_exception (object vs concrete value conflicts)
+    # - field explosion (index.mapping.total_fields.limit exceeded)
+    #
+    # Seed normalization only relies on candidate_repo_urls, so omitting
+    # raw_metadata here keeps pipeline behavior while stabilizing mappings.
+    _ = raw_metadata
+
     body = {
         "source_type": source_type,
         "source_name": source_name,
         "source_item_id": source_item_id,
-        "raw_metadata": raw_metadata,
         "candidate_repo_urls": candidate_repo_urls,
         "status": "ingested",
     }
