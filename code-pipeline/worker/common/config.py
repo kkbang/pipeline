@@ -85,6 +85,15 @@ class Settings:
     seed_fail_soft_min_success_ratio: float = float(
         os.getenv("SEED_FAIL_SOFT_MIN_SUCCESS_RATIO", "0.25")
     )
+    seed_incremental_enabled: bool = (
+        os.getenv("SEED_INCREMENTAL_ENABLED", "true").lower() == "true"
+    )
+    seed_incremental_min_interval_minutes: int = int(
+        os.getenv("SEED_INCREMENTAL_MIN_INTERVAL_MINUTES", "180")
+    )
+    seed_incremental_overlap_days: int = int(
+        os.getenv("SEED_INCREMENTAL_OVERLAP_DAYS", "2")
+    )
     benchmark_data_dir: str = os.getenv("BENCHMARK_DATA_DIR", "/opt/airflow/benchmark_data")
     keep_full_package_registry_raw: bool = (
         os.getenv("KEEP_FULL_PACKAGE_REGISTRY_RAW", "false").lower() == "true"

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 
 from worker.common.config import settings
@@ -32,15 +33,61 @@ from worker.seed.services.seed_item_writer import (
     stable_digest,
     write_seed_item,
 )
+from worker.seed.services.seed_incremental_cursor_service import (
+    CursorUpdatePayload,
+    build_incremental_pushed_filter_date,
+    extract_max_timestamp,
+    load_cursor,
+    should_skip_by_min_interval,
+    upsert_cursor,
+)
 from worker.storage.opensearch_store import OpenSearchStore
 
 logger = logging.getLogger(__name__)
+TIME_QUALIFIER_PATTERN = re.compile(r"\b(?:pushed|updated|created)\s*:", re.IGNORECASE)
+
+
+def _normalize_whitespace(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _has_time_qualifier(query: str) -> bool:
+    return bool(TIME_QUALIFIER_PATTERN.search(query))
+
+
+def _append_incremental_pushed_filter(query: str, pushed_since_date: str | None) -> str:
+    normalized_query = _normalize_whitespace(query)
+    if not pushed_since_date:
+        return normalized_query
+    if _has_time_qualifier(normalized_query):
+        return normalized_query
+    return f"{normalized_query} pushed:>={pushed_since_date}"
+
+
+def _build_search_request_key(search_query: dict) -> tuple[str, str]:
+    base_query = _normalize_whitespace(str(search_query.get("query") or ""))
+    sort = _normalize_whitespace(str(search_query.get("sort") or "stars")) or "stars"
+    order = _normalize_whitespace(str(search_query.get("order") or "desc")) or "desc"
+    stable_key = stable_digest(f"search:{base_query}|sort:{sort}|order:{order}")
+    return stable_key, base_query
+
+
+def _build_topic_request_key(topic_entry: dict) -> tuple[str, str]:
+    topic = _normalize_whitespace(str(topic_entry.get("topic") or ""))
+    extra_query = _normalize_whitespace(str(topic_entry.get("query") or ""))
+    sort = _normalize_whitespace(str(topic_entry.get("sort") or "stars")) or "stars"
+    order = _normalize_whitespace(str(topic_entry.get("order") or "desc")) or "desc"
+    stable_key = stable_digest(
+        f"topic:{topic}|query:{extra_query}|sort:{sort}|order:{order}"
+    )
+    return stable_key, topic
 
 
 @dataclass(slots=True)
 class GitHubSeedFetchResult:
     key: str
     label: str
+    request_query: str
     metadatas: list
     error: Exception | None = None
 
@@ -94,20 +141,41 @@ def _get_package_registry_adapter(
 
 
 async def _fetch_github_seed_batch(
-    items: list[tuple[str, str, object]],
+    items: list[tuple[str, str, str, object]],
     fetcher,
 ) -> list[GitHubSeedFetchResult]:
     semaphore = asyncio.Semaphore(max(1, settings.seed_github_global_concurrency))
 
-    async def _fetch(key: str, label: str, payload: object) -> GitHubSeedFetchResult:
+    async def _fetch(
+        key: str,
+        label: str,
+        request_query: str,
+        payload: object,
+    ) -> GitHubSeedFetchResult:
         async with semaphore:
             try:
                 metadatas = await fetcher(payload)
-                return GitHubSeedFetchResult(key=key, label=label, metadatas=metadatas)
+                return GitHubSeedFetchResult(
+                    key=key,
+                    label=label,
+                    request_query=request_query,
+                    metadatas=metadatas,
+                )
             except Exception as exc:
-                return GitHubSeedFetchResult(key=key, label=label, metadatas=[], error=exc)
+                return GitHubSeedFetchResult(
+                    key=key,
+                    label=label,
+                    request_query=request_query,
+                    metadatas=[],
+                    error=exc,
+                )
 
-    return await asyncio.gather(*(_fetch(key, label, payload) for key, label, payload in items))
+    return await asyncio.gather(
+        *(
+            _fetch(key, label, request_query, payload)
+            for key, label, request_query, payload in items
+        )
+    )
 
 
 def _raise_first_fetch_error(results: list[GitHubSeedFetchResult]) -> None:
@@ -260,27 +328,62 @@ def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None =
     success_count = 0
     first_error: Exception | None = None
     for package_name in package_names:
+        normalized_package_name = str(package_name or "").strip()
+        if not normalized_package_name:
+            continue
+        source_key = stable_digest(f"package:{registry}:{normalized_package_name}")
+        if settings.seed_incremental_enabled:
+            cursor = load_cursor(
+                store,
+                source_type="package_registry",
+                source_name=registry,
+                source_key=source_key,
+            )
+            if should_skip_by_min_interval(
+                cursor,
+                min_interval_minutes=settings.seed_incremental_min_interval_minutes,
+            ):
+                logger.info(
+                    "Skip package registry by incremental interval: registry=%s package=%s",
+                    registry,
+                    normalized_package_name,
+                )
+                continue
+
         try:
-            metadata = adapter.fetch_package_metadata(package_name)
+            metadata = adapter.fetch_package_metadata(normalized_package_name)
         except Exception as exc:
             if first_error is None:
                 first_error = exc
             logger.warning(
                 "Package registry seed ingestion failed for registry=%s package=%s error=%s",
                 registry,
-                package_name,
+                normalized_package_name,
                 str(exc),
+            )
+            upsert_cursor(
+                store,
+                CursorUpdatePayload(
+                    source_type="package_registry",
+                    source_name=registry,
+                    source_key=source_key,
+                    request_label=normalized_package_name,
+                    request_query=normalized_package_name,
+                    emitted_count=0,
+                    status="error",
+                    error_message=str(exc),
+                ),
             )
             continue
 
-        doc_id = f"{registry}:{package_name}"
+        doc_id = f"{registry}:{normalized_package_name}"
         if settings.keep_full_package_registry_raw and metadata.full_raw_metadata is not None:
             store.upsert_document(
                 collection_name="package_registry_full_metadata_index",
                 doc_id=doc_id,
                 body={
                     "registry_name": registry,
-                    "package_name": package_name,
+                    "package_name": normalized_package_name,
                     "full_raw_metadata": metadata.full_raw_metadata,
                 },
             )
@@ -293,6 +396,18 @@ def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None =
             source_item_id=doc_id,
             raw_metadata=metadata.raw_metadata,
             candidate_repo_urls=metadata.candidate_repo_urls,
+        )
+        upsert_cursor(
+            store,
+            CursorUpdatePayload(
+                source_type="package_registry",
+                source_name=registry,
+                source_key=source_key,
+                request_label=normalized_package_name,
+                request_query=normalized_package_name,
+                emitted_count=1,
+                status="success",
+            ),
         )
         success_count += 1
 
@@ -348,11 +463,47 @@ def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None)
     if not org_names:
         return
 
+    keyed_orgs: list[tuple[str, str, str, str]] = []
+    for org_name in org_names:
+        normalized_org = _normalize_whitespace(str(org_name))
+        if not normalized_org:
+            continue
+        source_key = stable_digest(f"org:{normalized_org}")
+        if settings.seed_incremental_enabled:
+            cursor = load_cursor(
+                store,
+                source_type="github_org",
+                source_name=list_name,
+                source_key=source_key,
+            )
+            if should_skip_by_min_interval(
+                cursor,
+                min_interval_minutes=settings.seed_incremental_min_interval_minutes,
+            ):
+                logger.info(
+                    "Skip github org by incremental interval: list=%s org=%s",
+                    list_name,
+                    normalized_org,
+                )
+                continue
+        keyed_orgs.append(
+            (
+                source_key,
+                normalized_org,
+                f"org:{normalized_org}",
+                normalized_org,
+            )
+        )
+
+    if not keyed_orgs:
+        logger.info("No github org entries to request after incremental filtering: list=%s", list_name)
+        return
+
     async def _run() -> list[GitHubSeedFetchResult]:
         async with GitHubApiAdapter(concurrency=settings.seed_github_global_concurrency) as api_adapter:
             adapter = GitHubOrgAdapter(api_adapter)
             return await _fetch_github_seed_batch(
-                [(org_name, org_name, org_name) for org_name in org_names],
+                keyed_orgs,
                 lambda org_name: adapter.fetch_org_repositories(
                     list_name=list_name,
                     org_name=org_name,
@@ -362,6 +513,49 @@ def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None)
     fetch_results = asyncio.run(_run())
 
     for result in fetch_results:
+        max_pushed_at = extract_max_timestamp(
+            [
+                (metadata.raw_metadata or {}).get("pushed_at")
+                for metadata in result.metadatas
+            ]
+        )
+        max_updated_at = extract_max_timestamp(
+            [
+                (metadata.raw_metadata or {}).get("updated_at")
+                for metadata in result.metadatas
+            ]
+        )
+
+        if result.error is not None:
+            upsert_cursor(
+                store,
+                CursorUpdatePayload(
+                    source_type="github_org",
+                    source_name=list_name,
+                    source_key=result.key,
+                    request_label=result.label,
+                    request_query=result.request_query,
+                    emitted_count=0,
+                    status="error",
+                    error_message=str(result.error),
+                ),
+            )
+        else:
+            upsert_cursor(
+                store,
+                CursorUpdatePayload(
+                    source_type="github_org",
+                    source_name=list_name,
+                    source_key=result.key,
+                    request_label=result.label,
+                    request_query=result.request_query,
+                    emitted_count=len(result.metadatas),
+                    status="success",
+                    last_max_pushed_at=max_pushed_at,
+                    last_max_updated_at=max_updated_at,
+                ),
+            )
+
         if result.error is not None:
             logger.warning(
                 "GitHub org seed ingestion failed for list=%s org=%s error=%s",
@@ -399,15 +593,57 @@ def run_github_search_ingestion(
     if not search_queries:
         return
 
-    keyed_queries = [
-        (
-            f"query_{index}",
-            str(search_query.get("query") or "").strip(),
-            search_query,
+    keyed_queries: list[tuple[str, str, str, dict]] = []
+    for search_query in search_queries:
+        if not isinstance(search_query, dict):
+            continue
+
+        source_key, base_query = _build_search_request_key(search_query)
+        if not base_query:
+            continue
+
+        effective_query = base_query
+        if settings.seed_incremental_enabled:
+            cursor = load_cursor(
+                store,
+                source_type="github_search",
+                source_name=list_name,
+                source_key=source_key,
+            )
+            if should_skip_by_min_interval(
+                cursor,
+                min_interval_minutes=settings.seed_incremental_min_interval_minutes,
+            ):
+                logger.info(
+                    "Skip github search by incremental interval: list=%s key=%s query=%s",
+                    list_name,
+                    source_key,
+                    base_query,
+                )
+                continue
+
+            pushed_since_date = build_incremental_pushed_filter_date(
+                cursor,
+                overlap_days=settings.seed_incremental_overlap_days,
+            )
+            effective_query = _append_incremental_pushed_filter(
+                base_query,
+                pushed_since_date,
+            )
+
+        keyed_queries.append(
+            (
+                source_key,
+                base_query,
+                effective_query,
+                {**search_query, "query": effective_query},
+            )
         )
-        for index, search_query in enumerate(search_queries)
-        if isinstance(search_query, dict) and str(search_query.get("query") or "").strip()
-    ]
+
+    if not keyed_queries:
+        logger.info("No github search queries to request after incremental filtering: list=%s", list_name)
+        return
+
     async def _run() -> list[GitHubSeedFetchResult]:
         async with GitHubApiAdapter(concurrency=settings.seed_github_global_concurrency) as api_adapter:
             adapter = GitHubSearchAdapter(api_adapter)
@@ -422,6 +658,49 @@ def run_github_search_ingestion(
     fetch_results = asyncio.run(_run())
 
     for result in fetch_results:
+        max_pushed_at = extract_max_timestamp(
+            [
+                (metadata.raw_metadata or {}).get("pushed_at")
+                for metadata in result.metadatas
+            ]
+        )
+        max_updated_at = extract_max_timestamp(
+            [
+                (metadata.raw_metadata or {}).get("updated_at")
+                for metadata in result.metadatas
+            ]
+        )
+
+        if result.error is not None:
+            upsert_cursor(
+                store,
+                CursorUpdatePayload(
+                    source_type="github_search",
+                    source_name=list_name,
+                    source_key=result.key,
+                    request_label=result.label,
+                    request_query=result.request_query,
+                    emitted_count=0,
+                    status="error",
+                    error_message=str(result.error),
+                ),
+            )
+        else:
+            upsert_cursor(
+                store,
+                CursorUpdatePayload(
+                    source_type="github_search",
+                    source_name=list_name,
+                    source_key=result.key,
+                    request_label=result.label,
+                    request_query=result.request_query,
+                    emitted_count=len(result.metadatas),
+                    status="success",
+                    last_max_pushed_at=max_pushed_at,
+                    last_max_updated_at=max_updated_at,
+                ),
+            )
+
         if result.error is not None:
             logger.warning(
                 "GitHub search seed ingestion failed for list=%s query=%s error=%s",
@@ -431,8 +710,7 @@ def run_github_search_ingestion(
             )
             continue
 
-        query_value = result.label
-        query_digest = stable_digest(f"{result.key}:{query_value or list_name}")
+        query_digest = result.key
 
         for metadata in result.metadatas:
             doc_id = (
@@ -469,15 +747,61 @@ def run_github_topic_ingestion(
     if not topic_entries:
         return
 
-    keyed_topics = [
-        (
-            f"topic_{index}",
-            str(topic_entry.get("topic") or "").strip(),
-            topic_entry,
+    keyed_topics: list[tuple[str, str, str, dict]] = []
+    for topic_entry in topic_entries:
+        if not isinstance(topic_entry, dict):
+            continue
+
+        source_key, topic_name = _build_topic_request_key(topic_entry)
+        if not topic_name:
+            continue
+
+        effective_extra_query = _normalize_whitespace(str(topic_entry.get("query") or ""))
+        if settings.seed_incremental_enabled:
+            cursor = load_cursor(
+                store,
+                source_type="github_topic",
+                source_name=list_name,
+                source_key=source_key,
+            )
+            if should_skip_by_min_interval(
+                cursor,
+                min_interval_minutes=settings.seed_incremental_min_interval_minutes,
+            ):
+                logger.info(
+                    "Skip github topic by incremental interval: list=%s key=%s topic=%s",
+                    list_name,
+                    source_key,
+                    topic_name,
+                )
+                continue
+
+            pushed_since_date = build_incremental_pushed_filter_date(
+                cursor,
+                overlap_days=settings.seed_incremental_overlap_days,
+            )
+            effective_extra_query = _append_incremental_pushed_filter(
+                effective_extra_query,
+                pushed_since_date,
+            )
+
+        requested_topic_entry = {**topic_entry, "query": effective_extra_query}
+        requested_query_label = (
+            f"topic:{topic_name} archived:false {effective_extra_query}".strip()
         )
-        for index, topic_entry in enumerate(topic_entries)
-        if isinstance(topic_entry, dict) and str(topic_entry.get("topic") or "").strip()
-    ]
+        keyed_topics.append(
+            (
+                source_key,
+                topic_name,
+                requested_query_label,
+                requested_topic_entry,
+            )
+        )
+
+    if not keyed_topics:
+        logger.info("No github topic entries to request after incremental filtering: list=%s", list_name)
+        return
+
     async def _run() -> list[GitHubSeedFetchResult]:
         async with GitHubApiAdapter(concurrency=settings.seed_github_global_concurrency) as api_adapter:
             adapter = GitHubTopicAdapter(api_adapter)
@@ -492,6 +816,49 @@ def run_github_topic_ingestion(
     fetch_results = asyncio.run(_run())
 
     for result in fetch_results:
+        max_pushed_at = extract_max_timestamp(
+            [
+                (metadata.raw_metadata or {}).get("pushed_at")
+                for metadata in result.metadatas
+            ]
+        )
+        max_updated_at = extract_max_timestamp(
+            [
+                (metadata.raw_metadata or {}).get("updated_at")
+                for metadata in result.metadatas
+            ]
+        )
+
+        if result.error is not None:
+            upsert_cursor(
+                store,
+                CursorUpdatePayload(
+                    source_type="github_topic",
+                    source_name=list_name,
+                    source_key=result.key,
+                    request_label=result.label,
+                    request_query=result.request_query,
+                    emitted_count=0,
+                    status="error",
+                    error_message=str(result.error),
+                ),
+            )
+        else:
+            upsert_cursor(
+                store,
+                CursorUpdatePayload(
+                    source_type="github_topic",
+                    source_name=list_name,
+                    source_key=result.key,
+                    request_label=result.label,
+                    request_query=result.request_query,
+                    emitted_count=len(result.metadatas),
+                    status="success",
+                    last_max_pushed_at=max_pushed_at,
+                    last_max_updated_at=max_updated_at,
+                ),
+            )
+
         if result.error is not None:
             logger.warning(
                 "GitHub topic seed ingestion failed for list=%s topic=%s error=%s",
@@ -501,8 +868,7 @@ def run_github_topic_ingestion(
             )
             continue
 
-        topic_name = result.label
-        topic_digest = stable_digest(f"{result.key}:{topic_name or list_name}")
+        topic_digest = result.key
 
         for metadata in result.metadatas:
             doc_id = (

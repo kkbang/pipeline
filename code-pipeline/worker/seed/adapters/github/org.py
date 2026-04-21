@@ -60,6 +60,9 @@ class GitHubOrgAdapter:
                 "stars": item.get("stargazers_count"),
                 "forks_count": item.get("forks_count"),
                 "source_reference_url": f"https://api.github.com/repos/{full_name}",
+                "created_at": item.get("created_at"),
+                "updated_at": item.get("updated_at"),
+                "pushed_at": item.get("pushed_at"),
             }
 
             candidate_repo_urls = []
