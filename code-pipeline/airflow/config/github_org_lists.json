@@ -197,7 +197,7 @@
     "scipy",
     "scrapy",
     "semgrep",
-    "sentry",
+    "getsentry",
     "shopify",
     "sigstore",
     "sinatra",

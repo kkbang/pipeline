@@ -3,6 +3,9 @@ import logging
 import re
 from dataclasses import dataclass
 
+import httpx
+import requests
+
 from worker.common.config import settings
 from worker.seed.adapters.benchmark import BenchmarkDatasetAdapter
 from worker.seed.adapters.curated import CuratedRepoListAdapter
@@ -62,6 +65,21 @@ def _append_incremental_pushed_filter(query: str, pushed_since_date: str | None)
     if _has_time_qualifier(normalized_query):
         return normalized_query
     return f"{normalized_query} pushed:>={pushed_since_date}"
+
+
+def _is_http_status_error(exc: Exception | None, status_code: int) -> bool:
+    if exc is None:
+        return False
+
+    if isinstance(exc, requests.HTTPError):
+        response = exc.response
+        return response is not None and response.status_code == status_code
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        return response is not None and response.status_code == status_code
+
+    return False
 
 
 def _build_search_request_key(search_query: dict) -> tuple[str, str]:
@@ -353,6 +371,27 @@ def run_seed_ingestion(registry: str = "pypi", package_names: list[str] | None =
         try:
             metadata = adapter.fetch_package_metadata(normalized_package_name)
         except Exception as exc:
+            if _is_http_status_error(exc, 404):
+                logger.info(
+                    "Skip package registry seed (not found): registry=%s package=%s",
+                    registry,
+                    normalized_package_name,
+                )
+                upsert_cursor(
+                    store,
+                    CursorUpdatePayload(
+                        source_type="package_registry",
+                        source_name=registry,
+                        source_key=source_key,
+                        request_label=normalized_package_name,
+                        request_query=normalized_package_name,
+                        emitted_count=0,
+                        status="success",
+                        error_message="not_found",
+                    ),
+                )
+                continue
+
             if first_error is None:
                 first_error = exc
             logger.warning(
@@ -527,6 +566,28 @@ def run_github_org_ingestion(list_name: str, org_names: list[str] | None = None)
         )
 
         if result.error is not None:
+            if _is_http_status_error(result.error, 404):
+                upsert_cursor(
+                    store,
+                    CursorUpdatePayload(
+                        source_type="github_org",
+                        source_name=list_name,
+                        source_key=result.key,
+                        request_label=result.label,
+                        request_query=result.request_query,
+                        emitted_count=0,
+                        status="success",
+                        error_message="not_found",
+                    ),
+                )
+                logger.info(
+                    "Skip github org seed (not found): list=%s org=%s",
+                    list_name,
+                    result.label,
+                )
+                result.error = None
+                continue
+
             upsert_cursor(
                 store,
                 CursorUpdatePayload(
