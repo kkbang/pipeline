@@ -2,6 +2,27 @@ from worker.seed.resolvers.github_url_canonicalizer import canonicalize_github_r
 from worker.storage.opensearch_store import OpenSearchStore
 
 
+def _status_query(status: str) -> dict:
+    return {
+        "bool": {
+            "should": [
+                {"term": {"status.keyword": status}},
+                {"term": {"status": status}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
+def _iter_seed_docs_by_status(store: OpenSearchStore, status: str):
+    yield from store.iterate_documents_by_query(
+        collection_name="seed_item_index",
+        query=_status_query(status),
+        size=1000,
+        sort=[{"_id": "asc"}],
+    )
+
+
 def _load_candidate_urls(source: dict) -> list[str]:
     candidate_urls = source.get("candidate_repo_urls")
     if isinstance(candidate_urls, list):
@@ -25,9 +46,7 @@ def _is_repo_already_registered(
 def run_seed_normalization() -> None:
     store = OpenSearchStore()
 
-    seed_docs = store.find_documents_by_status(collection_name="seed_item_index", status="ingested")
-
-    for hit in seed_docs:
+    for hit in _iter_seed_docs_by_status(store, "ingested"):
         doc_id = hit["_id"]
         source = hit["_source"]
 

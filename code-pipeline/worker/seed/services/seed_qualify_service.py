@@ -2,6 +2,7 @@ import asyncio
 import httpx
 import logging
 from datetime import datetime, timezone
+from typing import Iterable
 
 from worker.seed.adapters.github import (
     GitHubRepoMetadataAdapter,
@@ -13,6 +14,27 @@ from worker.storage.opensearch_store import OpenSearchStore
 logger = logging.getLogger(__name__)
 
 QUALIFICATION_FAILURE_COLLECTION = "seed_qualification_failure_index"
+
+
+def _status_query(status: str) -> dict:
+    return {
+        "bool": {
+            "should": [
+                {"term": {"status.keyword": status}},
+                {"term": {"status": status}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
+def _iter_seed_docs_by_status(store: OpenSearchStore, status: str):
+    yield from store.iterate_documents_by_query(
+        collection_name="seed_item_index",
+        query=_status_query(status),
+        size=1000,
+        sort=[{"_id": "asc"}],
+    )
 
 
 def _collect_source_types(hits: list[dict]) -> list[str]:
@@ -72,7 +94,7 @@ def _clear_qualification_failure(
     )
 
 
-def _group_by_repo(seed_docs: list[dict]) -> dict[tuple[str, str], list[dict]]:
+def _group_by_repo(seed_docs: Iterable[dict]) -> dict[tuple[str, str], list[dict]]:
     grouped = {}
     for hit in seed_docs:
         source = hit["_source"]
@@ -154,11 +176,7 @@ def _fetch_repo_metadata_results(
 def run_seed_qualification() -> None:
     store = OpenSearchStore()
     metadata_adapter = GitHubRepoMetadataAdapter()
-    seed_docs = store.find_documents_by_status(
-        collection_name="seed_item_index",
-        status="normalized",
-    )
-    grouped_seed_docs = _group_by_repo(seed_docs)
+    grouped_seed_docs = _group_by_repo(_iter_seed_docs_by_status(store, "normalized"))
 
     existing_repo_groups: dict[tuple[str, str], list[dict]] = {}
     to_qualify_groups: dict[tuple[str, str], list[dict]] = {}

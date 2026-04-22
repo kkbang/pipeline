@@ -2,6 +2,31 @@ import os
 from dataclasses import dataclass
 
 
+def _parse_github_tokens_from_env() -> tuple[str, ...]:
+    raw_values = []
+    primary = os.getenv("GITHUB_TOKEN", "")
+    if isinstance(primary, str) and primary.strip():
+        raw_values.append(primary.strip())
+
+    token_bundle = os.getenv("GITHUB_TOKENS", "")
+    if isinstance(token_bundle, str) and token_bundle.strip():
+        normalized_bundle = token_bundle.replace("\r", "\n")
+        for chunk in normalized_bundle.replace(",", "\n").split("\n"):
+            token = chunk.strip()
+            if token:
+                raw_values.append(token)
+
+    deduped = []
+    seen = set()
+    for token in raw_values:
+        if token in seen:
+            continue
+        seen.add(token)
+        deduped.append(token)
+
+    return tuple(deduped)
+
+
 @dataclass
 class Settings:
     app_env: str = os.getenv("APP_ENV", "local")
@@ -28,6 +53,7 @@ class Settings:
     opensearch_bulk_flush_docs: int = int(os.getenv("OPENSEARCH_BULK_FLUSH_DOCS", "500"))
 
     github_token: str = os.getenv("GITHUB_TOKEN", "")
+    github_tokens: tuple[str, ...] = _parse_github_tokens_from_env()
     request_timeout_seconds: int = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
     github_org_repo_limit: int = int(os.getenv("GITHUB_ORG_REPO_LIMIT", "100"))
     github_search_repo_limit: int = int(os.getenv("GITHUB_SEARCH_REPO_LIMIT", "100"))

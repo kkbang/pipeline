@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import random
 import threading
@@ -58,15 +59,21 @@ class _BucketRateLimitState:
     recent_rate_limited_count: int = 0
 
 
+@dataclass(slots=True)
+class _TokenCredential:
+    key: str
+    token: str | None = None
+
+
 class _SharedRateLimitState:
     def __init__(self) -> None:
         self._states: dict[str, _BucketRateLimitState] = defaultdict(_BucketRateLimitState)
         self._lock = threading.Lock()
 
-    def next_delay_seconds(self, bucket: str) -> float:
+    def next_delay_seconds(self, state_key: str) -> float:
         now = time.time()
         with self._lock:
-            state = self._states[bucket]
+            state = self._states[state_key]
             blocked_until = max(
                 state.retry_after_until,
                 state.primary_exhausted_until,
@@ -74,14 +81,14 @@ class _SharedRateLimitState:
             )
             return max(0.0, blocked_until - now)
 
-    def apply_headers(self, bucket: str, headers: httpx.Headers) -> None:
+    def apply_headers(self, state_key: str, headers: httpx.Headers) -> None:
         now = time.time()
         remaining = _parse_int(headers.get("X-RateLimit-Remaining"))
         reset_at = _parse_int(headers.get("X-RateLimit-Reset"))
         retry_after_seconds = _parse_retry_after_seconds(headers.get("Retry-After"))
 
         with self._lock:
-            state = self._states[bucket]
+            state = self._states[state_key]
             if remaining is not None:
                 state.remaining = remaining
             if reset_at is not None:
@@ -101,8 +108,8 @@ class _SharedRateLimitState:
                     state.reset_at_epoch,
                 )
 
-    def mark_rate_limited(self, bucket: str, headers: httpx.Headers, retry_count: int) -> None:
-        self.apply_headers(bucket, headers)
+    def mark_rate_limited(self, state_key: str, headers: httpx.Headers, retry_count: int) -> None:
+        self.apply_headers(state_key, headers)
         now = time.time()
         jitter_seconds = random.uniform(
             0.0,
@@ -110,7 +117,7 @@ class _SharedRateLimitState:
         )
 
         with self._lock:
-            state = self._states[bucket]
+            state = self._states[state_key]
             state.recent_rate_limited_count = min(1000, state.recent_rate_limited_count + 1)
 
             is_primary_exhausted = (
@@ -131,10 +138,10 @@ class _SharedRateLimitState:
                 now + exponential_seconds + jitter_seconds,
             )
 
-    def mark_success(self, bucket: str) -> None:
+    def mark_success(self, state_key: str) -> None:
         now = time.time()
         with self._lock:
-            state = self._states[bucket]
+            state = self._states[state_key]
             state.recent_rate_limited_count = max(0, state.recent_rate_limited_count - 1)
             if state.secondary_cooldown_until <= now:
                 state.secondary_cooldown_until = 0.0
@@ -161,15 +168,15 @@ class GitHubApiAdapter:
             1,
             min(self.global_concurrency, settings.seed_github_core_concurrency),
         )
-        self.headers = {
+        self._base_headers = {
             "Accept": "application/vnd.github+json",
             "User-Agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             ),
         }
-        if settings.github_token:
-            self.headers["Authorization"] = f"Bearer {settings.github_token}"
+        self._token_credentials = self._build_token_credentials()
+        self._token_rr_counter: dict[str, int] = defaultdict(int)
 
         self.proxy = "socks5://tor-proxy:9050"
         self._client: httpx.AsyncClient | None = None
@@ -181,7 +188,7 @@ class GitHubApiAdapter:
 
     def _build_async_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
-            headers=self.headers,
+            headers=self._base_headers,
             proxy=self.proxy,
             timeout=httpx.Timeout(settings.request_timeout_seconds),
             limits=httpx.Limits(
@@ -190,6 +197,59 @@ class GitHubApiAdapter:
             ),
             trust_env=False,
         )
+
+    def _build_token_credentials(self) -> list[_TokenCredential]:
+        raw_tokens = []
+        for token in settings.github_tokens:
+            if isinstance(token, str) and token.strip():
+                raw_tokens.append(token.strip())
+
+        if not raw_tokens and settings.github_token.strip():
+            raw_tokens.append(settings.github_token.strip())
+
+        if not raw_tokens:
+            return [_TokenCredential(key="anon", token=None)]
+
+        credentials: list[_TokenCredential] = []
+        for index, token in enumerate(raw_tokens, start=1):
+            token_digest = hashlib.sha1(token.encode("utf-8")).hexdigest()[:8]
+            credentials.append(
+                _TokenCredential(
+                    key=f"token_{index}_{token_digest}",
+                    token=token,
+                )
+            )
+        return credentials
+
+    def _build_request_headers(self, credential: _TokenCredential) -> dict[str, str]:
+        headers = dict(self._base_headers)
+        if credential.token:
+            headers["Authorization"] = f"Bearer {credential.token}"
+        return headers
+
+    def _credential_state_key(self, credential: _TokenCredential, bucket: str) -> str:
+        return f"{credential.key}:{bucket}"
+
+    def _select_token_for_bucket(self, bucket: str) -> tuple[_TokenCredential, float]:
+        candidates: list[_TokenCredential] = []
+        best_delay: float | None = None
+
+        for credential in self._token_credentials:
+            state_key = self._credential_state_key(credential, bucket)
+            delay_seconds = self._shared_rate_limit_state.next_delay_seconds(state_key)
+
+            if best_delay is None or delay_seconds < (best_delay - 1e-9):
+                best_delay = delay_seconds
+                candidates = [credential]
+            elif abs(delay_seconds - best_delay) <= 1e-9:
+                candidates.append(credential)
+
+        if best_delay is None or not candidates:
+            return self._token_credentials[0], 0.0
+
+        rr_index = self._token_rr_counter[bucket] % len(candidates)
+        self._token_rr_counter[bucket] += 1
+        return candidates[rr_index], best_delay
 
     async def __aenter__(self) -> "GitHubApiAdapter":
         self._client = self._build_async_client()
@@ -274,16 +334,17 @@ class GitHubApiAdapter:
     async def _rotate_tor_ip_async(self, *, reason: str) -> bool:
         return await asyncio.to_thread(self._rotate_tor_ip, reason=reason)
 
-    async def _wait_for_bucket_availability(self, bucket: str) -> None:
+    async def _wait_for_bucket_availability(self, bucket: str) -> _TokenCredential:
         while True:
-            delay_seconds = self._shared_rate_limit_state.next_delay_seconds(bucket)
+            credential, delay_seconds = self._select_token_for_bucket(bucket)
             if delay_seconds <= 0:
-                return
+                return credential
 
             sleep_seconds = min(delay_seconds, 30.0)
             logger.info(
-                "Rate limit admission hold: bucket=%s sleep=%.2fs",
+                "Rate limit admission hold: bucket=%s token=%s sleep=%.2fs",
                 bucket,
+                credential.key,
                 sleep_seconds,
             )
             await asyncio.sleep(sleep_seconds)
@@ -302,13 +363,20 @@ class GitHubApiAdapter:
         bucket = self._classify_bucket(url)
 
         for retry_count in range(self.MAX_RETRY_COUNT + 1):
-            await self._wait_for_bucket_availability(bucket)
+            credential = await self._wait_for_bucket_availability(bucket)
+            state_key = self._credential_state_key(credential, bucket)
+            request_headers = self._build_request_headers(credential)
             await asyncio.sleep(random.uniform(0.05, 0.20))
 
             try:
                 async with self._global_semaphore:
                     async with self._bucket_semaphores[bucket]:
-                        response = await self._client.request(method, url, params=params)
+                        response = await self._client.request(
+                            method,
+                            url,
+                            params=params,
+                            headers=request_headers,
+                        )
             except httpx.RequestError as exc:
                 if retry_count < self.MAX_RETRY_COUNT:
                     await asyncio.sleep(min(2 ** retry_count, settings.github_max_backoff_sec))
@@ -316,11 +384,11 @@ class GitHubApiAdapter:
                 raise exc
 
             # Response accounting happens for all statuses, not only error statuses.
-            self._shared_rate_limit_state.apply_headers(bucket, response.headers)
+            self._shared_rate_limit_state.apply_headers(state_key, response.headers)
 
             if response.status_code in self.RATE_LIMIT_STATUS_CODES:
                 self._shared_rate_limit_state.mark_rate_limited(
-                    bucket,
+                    state_key,
                     response.headers,
                     retry_count=retry_count,
                 )
@@ -339,8 +407,9 @@ class GitHubApiAdapter:
                 if retry_count < self.MAX_RETRY_COUNT:
                     continue
                 logger.warning(
-                    "Rate-limited after retries: bucket=%s status=%s path=%s",
+                    "Rate-limited after retries: bucket=%s token=%s status=%s path=%s",
                     bucket,
+                    credential.key,
                     response.status_code,
                     path,
                 )
@@ -352,7 +421,7 @@ class GitHubApiAdapter:
                 await asyncio.sleep(min(2 ** retry_count, settings.github_max_backoff_sec))
                 continue
 
-            self._shared_rate_limit_state.mark_success(bucket)
+            self._shared_rate_limit_state.mark_success(state_key)
             return response
 
         raise RuntimeError("unreachable")
