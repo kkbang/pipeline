@@ -177,6 +177,7 @@ class GitHubApiAdapter:
         }
         self._token_credentials = self._build_token_credentials()
         self._token_rr_counter: dict[str, int] = defaultdict(int)
+        self._last_selected_token_key_by_bucket: dict[str, str] = {}
 
         self.proxy = "socks5://tor-proxy:9050"
         self._client: httpx.AsyncClient | None = None
@@ -337,6 +338,19 @@ class GitHubApiAdapter:
     async def _wait_for_bucket_availability(self, bucket: str) -> _TokenCredential:
         while True:
             credential, delay_seconds = self._select_token_for_bucket(bucket)
+            previous_key = self._last_selected_token_key_by_bucket.get(bucket)
+            if previous_key != credential.key:
+                logger.info(
+                    (
+                        "GitHub token switched: bucket=%s previous_token=%s "
+                        "selected_token=%s selected_delay=%.2fs"
+                    ),
+                    bucket,
+                    previous_key,
+                    credential.key,
+                    delay_seconds,
+                )
+                self._last_selected_token_key_by_bucket[bucket] = credential.key
             if delay_seconds <= 0:
                 return credential
 
@@ -399,14 +413,49 @@ class GitHubApiAdapter:
                     or bucket == "search"
                     or len(self._token_credentials) <= 1
                 )
+                is_primary_limited = self._is_primary_limit_response(response.headers)
                 should_try_rotation = (
                     settings.github_tor_rotation_enabled is True
                     and allow_rotation_for_bucket
-                    and not self._is_primary_limit_response(response.headers)
+                    and not is_primary_limited
                 )
                 if should_try_rotation:
+                    logger.info(
+                        (
+                            "Tor rotation decision: action=attempt bucket=%s token=%s "
+                            "status=%s remaining=%s retry_after=%s path=%s"
+                        ),
+                        bucket,
+                        credential.key,
+                        response.status_code,
+                        response.headers.get("X-RateLimit-Remaining"),
+                        response.headers.get("Retry-After"),
+                        path,
+                    )
                     await self._rotate_tor_ip_async(
                         reason=f"rate_limit:{bucket}:{response.status_code}",
+                    )
+                else:
+                    if settings.github_tor_rotation_enabled is not True:
+                        skip_reason = "rotation_disabled"
+                    elif not allow_rotation_for_bucket:
+                        skip_reason = "bucket_not_allowed"
+                    elif is_primary_limited:
+                        skip_reason = "primary_limit_exhausted"
+                    else:
+                        skip_reason = "unknown"
+                    logger.info(
+                        (
+                            "Tor rotation decision: action=skip reason=%s bucket=%s token=%s "
+                            "status=%s remaining=%s retry_after=%s path=%s"
+                        ),
+                        skip_reason,
+                        bucket,
+                        credential.key,
+                        response.status_code,
+                        response.headers.get("X-RateLimit-Remaining"),
+                        response.headers.get("Retry-After"),
+                        path,
                     )
                 if retry_count < self.MAX_RETRY_COUNT:
                     continue
