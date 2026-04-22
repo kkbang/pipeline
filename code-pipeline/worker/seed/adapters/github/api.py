@@ -392,12 +392,16 @@ class GitHubApiAdapter:
                     response.headers,
                     retry_count=retry_count,
                 )
+                # If only a single usable credential exists, allow Tor rotation for
+                # core endpoints too; otherwise repeated 403s can stall on one token.
+                allow_rotation_for_bucket = (
+                    settings.github_tor_rotate_only_on_search is not True
+                    or bucket == "search"
+                    or len(self._token_credentials) <= 1
+                )
                 should_try_rotation = (
                     settings.github_tor_rotation_enabled is True
-                    and (
-                        settings.github_tor_rotate_only_on_search is not True
-                        or bucket == "search"
-                    )
+                    and allow_rotation_for_bucket
                     and not self._is_primary_limit_response(response.headers)
                 )
                 if should_try_rotation:

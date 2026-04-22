@@ -182,6 +182,48 @@ class OpenSearchStore:
             raise_on_error=True,
         )
 
+    def bulk_delete_documents(
+        self,
+        collection_name: str,
+        doc_ids: list[str],
+        *,
+        refresh: bool = False,
+        chunk_size: int = 500,
+    ) -> None:
+        if not doc_ids:
+            return
+        self._ensure_index(collection_name)
+        safe_chunk_size = max(1, chunk_size)
+        actions = (
+            {
+                "_op_type": "delete",
+                "_index": collection_name,
+                "_id": doc_id,
+            }
+            for doc_id in doc_ids
+        )
+        _success_count, errors = opensearch_bulk(
+            self.client,
+            actions,
+            chunk_size=safe_chunk_size,
+            refresh=refresh,
+            raise_on_error=False,
+        )
+        unresolved_errors = []
+        for error in errors:
+            if not isinstance(error, dict):
+                unresolved_errors.append(error)
+                continue
+            delete_error = error.get("delete") or {}
+            if delete_error.get("status") == 404:
+                # Delete is idempotent for our usage.
+                continue
+            unresolved_errors.append(error)
+        if unresolved_errors:
+            raise RuntimeError(
+                f"Bulk delete failed in {collection_name}: sample={unresolved_errors[:3]}"
+            )
+
     def delete_document(
         self,
         collection_name: str,

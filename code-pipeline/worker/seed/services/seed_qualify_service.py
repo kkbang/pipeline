@@ -3,7 +3,7 @@ import hashlib
 import httpx
 import logging
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Iterable, TypeVar
 
 from worker.common.config import settings
 from worker.seed.adapters.github import (
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 QUALIFICATION_FAILURE_COLLECTION = "seed_qualification_failure_index"
 BULK_FLUSH_SIZE = max(100, settings.opensearch_bulk_flush_docs)
+T = TypeVar("T")
 
 
 def _status_query(status: str) -> dict:
@@ -50,17 +51,20 @@ def _collect_source_types(hits: list[dict]) -> list[str]:
     )
 
 
-def _record_qualification_failure(
-    store: OpenSearchStore,
+def _failure_doc_id(owner: str, repo: str) -> str:
+    return f"github:{owner}/{repo}"
+
+
+def _build_qualification_failure_document(
     owner: str,
     repo: str,
     hits: list[dict],
     reason: str,
     error: Exception | None = None,
     status_code: int | None = None,
-) -> None:
+) -> tuple[str, dict]:
     source = hits[0]["_source"]
-    repo_doc_id = f"github:{owner}/{repo}"
+    repo_doc_id = _failure_doc_id(owner, repo)
     body = {
         "owner": owner,
         "repo": repo,
@@ -79,24 +83,7 @@ def _record_qualification_failure(
     if error is not None:
         body["error_message"] = str(error)
 
-    store.upsert_document(
-        collection_name=QUALIFICATION_FAILURE_COLLECTION,
-        doc_id=repo_doc_id,
-        body=body,
-        refresh=False,
-    )
-
-
-def _clear_qualification_failure(
-    store: OpenSearchStore,
-    owner: str,
-    repo: str,
-) -> None:
-    store.delete_document(
-        collection_name=QUALIFICATION_FAILURE_COLLECTION,
-        doc_id=f"github:{owner}/{repo}",
-        refresh=False,
-    )
+    return repo_doc_id, body
 
 
 def _value_shard_index(value: str, shard_count: int) -> int:
@@ -193,6 +180,57 @@ def _flush_seed_updates(store: OpenSearchStore, pending_updates: list[tuple[str,
     pending_updates.clear()
 
 
+def _flush_repo_registry_updates(
+    store: OpenSearchStore,
+    pending_updates: list[tuple[str, dict]],
+) -> None:
+    if not pending_updates:
+        return
+    store.bulk_upsert_documents(
+        collection_name="repo_registry_index",
+        documents=pending_updates,
+        refresh=False,
+        chunk_size=BULK_FLUSH_SIZE,
+    )
+    pending_updates.clear()
+
+
+def _flush_failure_updates(
+    store: OpenSearchStore,
+    pending_updates: list[tuple[str, dict]],
+) -> None:
+    if not pending_updates:
+        return
+    store.bulk_upsert_documents(
+        collection_name=QUALIFICATION_FAILURE_COLLECTION,
+        documents=pending_updates,
+        refresh=False,
+        chunk_size=BULK_FLUSH_SIZE,
+    )
+    pending_updates.clear()
+
+
+def _flush_failure_deletes(
+    store: OpenSearchStore,
+    pending_doc_ids: list[str],
+) -> None:
+    if not pending_doc_ids:
+        return
+    store.bulk_delete_documents(
+        collection_name=QUALIFICATION_FAILURE_COLLECTION,
+        doc_ids=pending_doc_ids,
+        refresh=False,
+        chunk_size=BULK_FLUSH_SIZE,
+    )
+    pending_doc_ids.clear()
+
+
+def _iter_chunked(items: list[T], chunk_size: int) -> Iterable[list[T]]:
+    safe_chunk_size = max(1, chunk_size)
+    for start in range(0, len(items), safe_chunk_size):
+        yield items[start : start + safe_chunk_size]
+
+
 def _build_repo_registry_body(
     source: dict,
     hits: list[dict],
@@ -265,6 +303,9 @@ def run_seed_qualification_for_shard(
     )
     registered_repo_ids = _load_registered_repo_ids(store)
     pending_seed_updates: list[tuple[str, dict]] = []
+    pending_repo_registry_updates: list[tuple[str, dict]] = []
+    pending_failure_updates: list[tuple[str, dict]] = []
+    pending_failure_deletes: list[str] = []
 
     touched_seed_item_index = False
     touched_repo_registry_index = False
@@ -287,8 +328,10 @@ def run_seed_qualification_for_shard(
         )
 
     for (owner, repo), hits in existing_repo_groups.items():
-        _clear_qualification_failure(store, owner, repo)
+        pending_failure_deletes.append(_failure_doc_id(owner, repo))
         touched_failure_index = True
+        if len(pending_failure_deletes) >= BULK_FLUSH_SIZE:
+            _flush_failure_deletes(store, pending_failure_deletes)
         _append_group_status_updates(
             pending_seed_updates,
             hits,
@@ -301,8 +344,13 @@ def run_seed_qualification_for_shard(
 
     if not to_qualify_groups:
         _flush_seed_updates(store, pending_seed_updates)
+        _flush_repo_registry_updates(store, pending_repo_registry_updates)
+        _flush_failure_updates(store, pending_failure_updates)
+        _flush_failure_deletes(store, pending_failure_deletes)
         if touched_seed_item_index:
             store.refresh_index("seed_item_index")
+        if touched_repo_registry_index:
+            store.refresh_index("repo_registry_index")
         if touched_failure_index:
             store.refresh_index(QUALIFICATION_FAILURE_COLLECTION)
         return {
@@ -318,161 +366,182 @@ def run_seed_qualification_for_shard(
             "qualification_failed_group_count": 0,
         }
 
-    # GitHub 메타데이터 병렬로 수집
-    fetch_results = _fetch_repo_metadata_results(
-        metadata_adapter,
-        list(to_qualify_groups.keys()),
-    )
+    to_qualify_items = list(to_qualify_groups.items())
 
     registered_group_count = 0
     rejected_group_count = 0
     qualification_failed_group_count = 0
 
-    # 저장/업데이트는 그대로 순차 처리해서 충돌 가능성을 줄임
-    for (owner, repo), hits in to_qualify_groups.items():
-        source = hits[0]["_source"]
-        repo_doc_id = f"github:{owner}/{repo}"
-        fetch_result = fetch_results[(owner, repo)]
-        exc = fetch_result.error
-
-        if isinstance(exc, httpx.HTTPStatusError):
-            status_code = exc.response.status_code if exc.response is not None else None
-            reason = "github_rate_limited" if status_code == 403 else "github_api_error"
-            logger.warning(
-                "GitHub qualification failed for %s/%s: reason=%s status_code=%s group_size=%s error=%s",
-                owner,
-                repo,
-                reason,
-                status_code,
-                len(hits),
-                str(exc),
-            )
-            _record_qualification_failure(
-                store=store,
-                owner=owner,
-                repo=repo,
-                hits=hits,
-                reason=reason,
-                error=exc,
-                status_code=status_code,
-            )
-            touched_failure_index = True
-            _append_group_status_updates(
-                pending_seed_updates,
-                hits,
-                status="qualification_failed",
-                reason=reason,
-            )
-            qualification_failed_group_count += 1
-            touched_seed_item_index = True
-            if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
-                _flush_seed_updates(store, pending_seed_updates)
-            continue
-
-        if isinstance(exc, httpx.RequestError):
-            logger.warning(
-                "GitHub request failed for %s/%s: group_size=%s error=%s",
-                owner,
-                repo,
-                len(hits),
-                str(exc),
-            )
-            _record_qualification_failure(
-                store=store,
-                owner=owner,
-                repo=repo,
-                hits=hits,
-                reason="github_request_failed",
-                error=exc,
-            )
-            touched_failure_index = True
-            _append_group_status_updates(
-                pending_seed_updates,
-                hits,
-                status="qualification_failed",
-                reason="github_request_failed",
-            )
-            qualification_failed_group_count += 1
-            touched_seed_item_index = True
-            if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
-                _flush_seed_updates(store, pending_seed_updates)
-            continue
-
-        if exc is not None:
-            logger.warning(
-                "Unexpected GitHub qualification failure for %s/%s: group_size=%s error=%s",
-                owner,
-                repo,
-                len(hits),
-                str(exc),
-            )
-            _record_qualification_failure(
-                store=store,
-                owner=owner,
-                repo=repo,
-                hits=hits,
-                reason="github_unknown_error",
-                error=exc,
-            )
-            touched_failure_index = True
-            _append_group_status_updates(
-                pending_seed_updates,
-                hits,
-                status="qualification_failed",
-                reason="github_unknown_error",
-            )
-            qualification_failed_group_count += 1
-            touched_seed_item_index = True
-            if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
-                _flush_seed_updates(store, pending_seed_updates)
-            continue
-
-        repo_metadata = fetch_result.metadata
-        is_eligible, reason, _score = qualify_repo(repo_metadata)
-
-        if not is_eligible:
-            _clear_qualification_failure(store, owner, repo)
-            touched_failure_index = True
-            _append_group_status_updates(
-                pending_seed_updates,
-                hits,
-                status="rejected",
-                reason=reason,
-            )
-            rejected_group_count += 1
-            touched_seed_item_index = True
-            if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
-                _flush_seed_updates(store, pending_seed_updates)
-            continue
-
-        _clear_qualification_failure(store, owner, repo)
-        touched_failure_index = True
-
-        repo_body = _build_repo_registry_body(
-            source=source,
-            hits=hits,
-            repo_metadata=repo_metadata,
+    # 메타데이터 fetch 및 OpenSearch 쓰기를 chunk 단위로 반복해
+    # "끝에 한 번에 쓰기" 대신 중간중간 밀어 넣는다.
+    for chunk_items in _iter_chunked(to_qualify_items, BULK_FLUSH_SIZE):
+        fetch_results = _fetch_repo_metadata_results(
+            metadata_adapter,
+            [repo_key for repo_key, _ in chunk_items],
         )
 
-        store.upsert_document(
-            collection_name="repo_registry_index",
-            doc_id=repo_doc_id,
-            body=repo_body,
-            refresh=False,
-        )
-        touched_repo_registry_index = True
+        for (owner, repo), hits in chunk_items:
+            source = hits[0]["_source"]
+            repo_doc_id = _repo_id(owner, repo)
+            fetch_result = fetch_results[(owner, repo)]
+            exc = fetch_result.error
 
-        _append_group_status_updates(
-            pending_seed_updates,
-            hits,
-            status="registered",
-        )
-        registered_group_count += 1
-        touched_seed_item_index = True
-        if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
-            _flush_seed_updates(store, pending_seed_updates)
+            if isinstance(exc, httpx.HTTPStatusError):
+                status_code = exc.response.status_code if exc.response is not None else None
+                reason = "github_rate_limited" if status_code == 403 else "github_api_error"
+                logger.warning(
+                    "GitHub qualification failed for %s/%s: reason=%s status_code=%s group_size=%s error=%s",
+                    owner,
+                    repo,
+                    reason,
+                    status_code,
+                    len(hits),
+                    str(exc),
+                )
+                pending_failure_updates.append(
+                    _build_qualification_failure_document(
+                        owner=owner,
+                        repo=repo,
+                        hits=hits,
+                        reason=reason,
+                        error=exc,
+                        status_code=status_code,
+                    )
+                )
+                touched_failure_index = True
+                if len(pending_failure_updates) >= BULK_FLUSH_SIZE:
+                    _flush_failure_updates(store, pending_failure_updates)
+                _append_group_status_updates(
+                    pending_seed_updates,
+                    hits,
+                    status="qualification_failed",
+                    reason=reason,
+                )
+                qualification_failed_group_count += 1
+                touched_seed_item_index = True
+                if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+                    _flush_seed_updates(store, pending_seed_updates)
+                continue
+
+            if isinstance(exc, httpx.RequestError):
+                logger.warning(
+                    "GitHub request failed for %s/%s: group_size=%s error=%s",
+                    owner,
+                    repo,
+                    len(hits),
+                    str(exc),
+                )
+                pending_failure_updates.append(
+                    _build_qualification_failure_document(
+                        owner=owner,
+                        repo=repo,
+                        hits=hits,
+                        reason="github_request_failed",
+                        error=exc,
+                    )
+                )
+                touched_failure_index = True
+                if len(pending_failure_updates) >= BULK_FLUSH_SIZE:
+                    _flush_failure_updates(store, pending_failure_updates)
+                _append_group_status_updates(
+                    pending_seed_updates,
+                    hits,
+                    status="qualification_failed",
+                    reason="github_request_failed",
+                )
+                qualification_failed_group_count += 1
+                touched_seed_item_index = True
+                if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+                    _flush_seed_updates(store, pending_seed_updates)
+                continue
+
+            if exc is not None:
+                logger.warning(
+                    "Unexpected GitHub qualification failure for %s/%s: group_size=%s error=%s",
+                    owner,
+                    repo,
+                    len(hits),
+                    str(exc),
+                )
+                pending_failure_updates.append(
+                    _build_qualification_failure_document(
+                        owner=owner,
+                        repo=repo,
+                        hits=hits,
+                        reason="github_unknown_error",
+                        error=exc,
+                    )
+                )
+                touched_failure_index = True
+                if len(pending_failure_updates) >= BULK_FLUSH_SIZE:
+                    _flush_failure_updates(store, pending_failure_updates)
+                _append_group_status_updates(
+                    pending_seed_updates,
+                    hits,
+                    status="qualification_failed",
+                    reason="github_unknown_error",
+                )
+                qualification_failed_group_count += 1
+                touched_seed_item_index = True
+                if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+                    _flush_seed_updates(store, pending_seed_updates)
+                continue
+
+            repo_metadata = fetch_result.metadata
+            is_eligible, reason, _score = qualify_repo(repo_metadata)
+
+            if not is_eligible:
+                pending_failure_deletes.append(_failure_doc_id(owner, repo))
+                touched_failure_index = True
+                if len(pending_failure_deletes) >= BULK_FLUSH_SIZE:
+                    _flush_failure_deletes(store, pending_failure_deletes)
+                _append_group_status_updates(
+                    pending_seed_updates,
+                    hits,
+                    status="rejected",
+                    reason=reason,
+                )
+                rejected_group_count += 1
+                touched_seed_item_index = True
+                if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+                    _flush_seed_updates(store, pending_seed_updates)
+                continue
+
+            pending_failure_deletes.append(_failure_doc_id(owner, repo))
+            touched_failure_index = True
+            if len(pending_failure_deletes) >= BULK_FLUSH_SIZE:
+                _flush_failure_deletes(store, pending_failure_deletes)
+
+            repo_body = _build_repo_registry_body(
+                source=source,
+                hits=hits,
+                repo_metadata=repo_metadata,
+            )
+            pending_repo_registry_updates.append((repo_doc_id, repo_body))
+            touched_repo_registry_index = True
+            if len(pending_repo_registry_updates) >= BULK_FLUSH_SIZE:
+                _flush_repo_registry_updates(store, pending_repo_registry_updates)
+
+            _append_group_status_updates(
+                pending_seed_updates,
+                hits,
+                status="registered",
+            )
+            registered_group_count += 1
+            touched_seed_item_index = True
+            if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+                _flush_seed_updates(store, pending_seed_updates)
+
+        # chunk 경계에서 남은 pending을 밀어내어 long tail을 줄인다.
+        _flush_seed_updates(store, pending_seed_updates)
+        _flush_repo_registry_updates(store, pending_repo_registry_updates)
+        _flush_failure_updates(store, pending_failure_updates)
+        _flush_failure_deletes(store, pending_failure_deletes)
 
     _flush_seed_updates(store, pending_seed_updates)
+    _flush_repo_registry_updates(store, pending_repo_registry_updates)
+    _flush_failure_updates(store, pending_failure_updates)
+    _flush_failure_deletes(store, pending_failure_deletes)
 
     if touched_seed_item_index:
         store.refresh_index("seed_item_index")
