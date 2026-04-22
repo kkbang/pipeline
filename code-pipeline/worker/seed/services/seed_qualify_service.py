@@ -1,9 +1,11 @@
 import asyncio
+import hashlib
 import httpx
 import logging
 from datetime import datetime, timezone
 from typing import Iterable
 
+from worker.common.config import settings
 from worker.seed.adapters.github import (
     GitHubRepoMetadataAdapter,
     RepoMetadataFetchResult,
@@ -14,6 +16,7 @@ from worker.storage.opensearch_store import OpenSearchStore
 logger = logging.getLogger(__name__)
 
 QUALIFICATION_FAILURE_COLLECTION = "seed_qualification_failure_index"
+BULK_FLUSH_SIZE = max(100, settings.opensearch_bulk_flush_docs)
 
 
 def _status_query(status: str) -> dict:
@@ -80,6 +83,7 @@ def _record_qualification_failure(
         collection_name=QUALIFICATION_FAILURE_COLLECTION,
         doc_id=repo_doc_id,
         body=body,
+        refresh=False,
     )
 
 
@@ -91,15 +95,39 @@ def _clear_qualification_failure(
     store.delete_document(
         collection_name=QUALIFICATION_FAILURE_COLLECTION,
         doc_id=f"github:{owner}/{repo}",
+        refresh=False,
     )
 
 
-def _group_by_repo(seed_docs: Iterable[dict]) -> dict[tuple[str, str], list[dict]]:
-    grouped = {}
+def _value_shard_index(value: str, shard_count: int) -> int:
+    digest = hashlib.sha1(value.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % shard_count
+
+
+def _is_repo_in_shard(owner: str, repo: str, shard_index: int, shard_count: int) -> bool:
+    if shard_count <= 1:
+        return True
+    return _value_shard_index(_repo_id(owner, repo), shard_count) == (shard_index % shard_count)
+
+
+def _group_by_repo(
+    seed_docs: Iterable[dict],
+    *,
+    shard_index: int,
+    shard_count: int,
+) -> tuple[dict[tuple[str, str], list[dict]], int]:
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    scanned_count = 0
     for hit in seed_docs:
-        source = hit["_source"]
-        owner = source["owner"].lower()
-        repo = source["repo"].lower()
+        scanned_count += 1
+        source = hit.get("_source", {})
+        owner = str(source.get("owner") or "").strip().lower()
+        repo = str(source.get("repo") or "").strip().lower()
+        if not owner or not repo:
+            continue
+        if not _is_repo_in_shard(owner, repo, shard_index, shard_count):
+            continue
+
         repo_key = (owner, repo)
 
         if repo_key not in grouped:
@@ -107,19 +135,62 @@ def _group_by_repo(seed_docs: Iterable[dict]) -> dict[tuple[str, str], list[dict
 
         grouped[repo_key].append(hit)
 
-    return grouped
+    return grouped, scanned_count
 
 
-def _is_repo_already_registered(
+def _repo_id(owner: str, repo: str) -> str:
+    return f"github:{owner.lower()}/{repo.lower()}"
+
+
+def _load_registered_repo_ids(
     store: OpenSearchStore,
-    owner: str,
-    repo: str,
-) -> bool:
-    existing = store.get_document(
+) -> set[str]:
+    repo_ids: set[str] = set()
+    for hit in store.iterate_documents_by_query(
         collection_name="repo_registry_index",
-        doc_id=f"github:{owner}/{repo}",
+        size=1000,
+        sort=[{"_id": "asc"}],
+        source_includes=["owner", "repo_name"],
+    ):
+        source = hit.get("_source") or {}
+        owner = str(source.get("owner") or "").strip().lower()
+        repo = str(source.get("repo_name") or "").strip().lower()
+        if owner and repo:
+            repo_ids.add(_repo_id(owner, repo))
+            continue
+
+        doc_id = str(hit.get("_id") or "").strip().lower()
+        if doc_id.startswith("github:"):
+            repo_ids.add(doc_id)
+
+    return repo_ids
+
+
+def _append_group_status_updates(
+    pending_updates: list[tuple[str, dict]],
+    hits: list[dict],
+    *,
+    status: str,
+    reason: str | None = None,
+) -> None:
+    body = {"status": status}
+    if reason is not None:
+        body["reason"] = reason
+
+    for group_hit in hits:
+        pending_updates.append((group_hit["_id"], dict(body)))
+
+
+def _flush_seed_updates(store: OpenSearchStore, pending_updates: list[tuple[str, dict]]) -> None:
+    if not pending_updates:
+        return
+    store.bulk_upsert_documents(
+        collection_name="seed_item_index",
+        documents=pending_updates,
+        refresh=False,
+        chunk_size=BULK_FLUSH_SIZE,
     )
-    return bool(existing)
+    pending_updates.clear()
 
 
 def _build_repo_registry_body(
@@ -173,16 +244,37 @@ def _fetch_repo_metadata_results(
     return asyncio.run(metadata_adapter.fetch_repo_metadata_batch(repo_keys))
 
 
-def run_seed_qualification() -> None:
+def run_seed_qualification_for_shard(
+    shard_index: int,
+    *,
+    shard_count: int | None = None,
+) -> dict:
+    resolved_shard_count = (
+        shard_count
+        if isinstance(shard_count, int) and shard_count > 0
+        else max(1, settings.seed_qualify_parallelism)
+    )
+    normalized_shard_index = shard_index % resolved_shard_count
+
     store = OpenSearchStore()
     metadata_adapter = GitHubRepoMetadataAdapter()
-    grouped_seed_docs = _group_by_repo(_iter_seed_docs_by_status(store, "normalized"))
+    grouped_seed_docs, scanned_seed_docs = _group_by_repo(
+        _iter_seed_docs_by_status(store, "normalized"),
+        shard_index=normalized_shard_index,
+        shard_count=resolved_shard_count,
+    )
+    registered_repo_ids = _load_registered_repo_ids(store)
+    pending_seed_updates: list[tuple[str, dict]] = []
+
+    touched_seed_item_index = False
+    touched_repo_registry_index = False
+    touched_failure_index = False
 
     existing_repo_groups: dict[tuple[str, str], list[dict]] = {}
     to_qualify_groups: dict[tuple[str, str], list[dict]] = {}
     for repo_key, hits in grouped_seed_docs.items():
         owner, repo = repo_key
-        if _is_repo_already_registered(store, owner, repo):
+        if _repo_id(owner, repo) in registered_repo_ids:
             existing_repo_groups[repo_key] = hits
         else:
             to_qualify_groups[repo_key] = hits
@@ -196,24 +288,45 @@ def run_seed_qualification() -> None:
 
     for (owner, repo), hits in existing_repo_groups.items():
         _clear_qualification_failure(store, owner, repo)
-        for group_hit in hits:
-            store.update_document(
-                collection_name="seed_item_index",
-                doc_id=group_hit["_id"],
-                body={
-                    "status": "already_registered",
-                    "reason": "repo_already_registered",
-                },
-            )
+        touched_failure_index = True
+        _append_group_status_updates(
+            pending_seed_updates,
+            hits,
+            status="already_registered",
+            reason="repo_already_registered",
+        )
+        touched_seed_item_index = True
+        if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+            _flush_seed_updates(store, pending_seed_updates)
 
     if not to_qualify_groups:
-        return
+        _flush_seed_updates(store, pending_seed_updates)
+        if touched_seed_item_index:
+            store.refresh_index("seed_item_index")
+        if touched_failure_index:
+            store.refresh_index(QUALIFICATION_FAILURE_COLLECTION)
+        return {
+            "stage": "seed_qualification",
+            "shard_index": normalized_shard_index,
+            "shard_count": resolved_shard_count,
+            "scanned_seed_docs": scanned_seed_docs,
+            "repo_group_count": len(grouped_seed_docs),
+            "existing_repo_group_count": len(existing_repo_groups),
+            "to_qualify_group_count": 0,
+            "registered_group_count": 0,
+            "rejected_group_count": 0,
+            "qualification_failed_group_count": 0,
+        }
 
     # GitHub 메타데이터 병렬로 수집
     fetch_results = _fetch_repo_metadata_results(
         metadata_adapter,
         list(to_qualify_groups.keys()),
     )
+
+    registered_group_count = 0
+    rejected_group_count = 0
+    qualification_failed_group_count = 0
 
     # 저장/업데이트는 그대로 순차 처리해서 충돌 가능성을 줄임
     for (owner, repo), hits in to_qualify_groups.items():
@@ -243,15 +356,17 @@ def run_seed_qualification() -> None:
                 error=exc,
                 status_code=status_code,
             )
-            for group_hit in hits:
-                store.update_document(
-                    collection_name="seed_item_index",
-                    doc_id=group_hit["_id"],
-                    body={
-                        "status": "qualification_failed",
-                        "reason": reason,
-                    },
-                )
+            touched_failure_index = True
+            _append_group_status_updates(
+                pending_seed_updates,
+                hits,
+                status="qualification_failed",
+                reason=reason,
+            )
+            qualification_failed_group_count += 1
+            touched_seed_item_index = True
+            if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+                _flush_seed_updates(store, pending_seed_updates)
             continue
 
         if isinstance(exc, httpx.RequestError):
@@ -270,15 +385,17 @@ def run_seed_qualification() -> None:
                 reason="github_request_failed",
                 error=exc,
             )
-            for group_hit in hits:
-                store.update_document(
-                    collection_name="seed_item_index",
-                    doc_id=group_hit["_id"],
-                    body={
-                        "status": "qualification_failed",
-                        "reason": "github_request_failed",
-                    },
-                )
+            touched_failure_index = True
+            _append_group_status_updates(
+                pending_seed_updates,
+                hits,
+                status="qualification_failed",
+                reason="github_request_failed",
+            )
+            qualification_failed_group_count += 1
+            touched_seed_item_index = True
+            if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+                _flush_seed_updates(store, pending_seed_updates)
             continue
 
         if exc is not None:
@@ -297,15 +414,17 @@ def run_seed_qualification() -> None:
                 reason="github_unknown_error",
                 error=exc,
             )
-            for group_hit in hits:
-                store.update_document(
-                    collection_name="seed_item_index",
-                    doc_id=group_hit["_id"],
-                    body={
-                        "status": "qualification_failed",
-                        "reason": "github_unknown_error",
-                    },
-                )
+            touched_failure_index = True
+            _append_group_status_updates(
+                pending_seed_updates,
+                hits,
+                status="qualification_failed",
+                reason="github_unknown_error",
+            )
+            qualification_failed_group_count += 1
+            touched_seed_item_index = True
+            if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+                _flush_seed_updates(store, pending_seed_updates)
             continue
 
         repo_metadata = fetch_result.metadata
@@ -313,18 +432,21 @@ def run_seed_qualification() -> None:
 
         if not is_eligible:
             _clear_qualification_failure(store, owner, repo)
-            for group_hit in hits:
-                store.update_document(
-                    collection_name="seed_item_index",
-                    doc_id=group_hit["_id"],
-                    body={
-                        "status": "rejected",
-                        "reason": reason,
-                    },
-                )
+            touched_failure_index = True
+            _append_group_status_updates(
+                pending_seed_updates,
+                hits,
+                status="rejected",
+                reason=reason,
+            )
+            rejected_group_count += 1
+            touched_seed_item_index = True
+            if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+                _flush_seed_updates(store, pending_seed_updates)
             continue
 
         _clear_qualification_failure(store, owner, repo)
+        touched_failure_index = True
 
         repo_body = _build_repo_registry_body(
             source=source,
@@ -336,13 +458,58 @@ def run_seed_qualification() -> None:
             collection_name="repo_registry_index",
             doc_id=repo_doc_id,
             body=repo_body,
+            refresh=False,
         )
+        touched_repo_registry_index = True
 
-        for group_hit in hits:
-            store.update_document(
-                collection_name="seed_item_index",
-                doc_id=group_hit["_id"],
-                body={
-                    "status": "registered",
-                },
-            )
+        _append_group_status_updates(
+            pending_seed_updates,
+            hits,
+            status="registered",
+        )
+        registered_group_count += 1
+        touched_seed_item_index = True
+        if len(pending_seed_updates) >= BULK_FLUSH_SIZE:
+            _flush_seed_updates(store, pending_seed_updates)
+
+    _flush_seed_updates(store, pending_seed_updates)
+
+    if touched_seed_item_index:
+        store.refresh_index("seed_item_index")
+    if touched_repo_registry_index:
+        store.refresh_index("repo_registry_index")
+    if touched_failure_index:
+        store.refresh_index(QUALIFICATION_FAILURE_COLLECTION)
+
+    logger.info(
+        (
+            "Seed qualification shard completed: shard=%s/%s scanned_seed_docs=%s "
+            "repo_group_count=%s existing_group_count=%s to_qualify_group_count=%s "
+            "registered_group_count=%s rejected_group_count=%s failed_group_count=%s"
+        ),
+        normalized_shard_index,
+        resolved_shard_count,
+        scanned_seed_docs,
+        len(grouped_seed_docs),
+        len(existing_repo_groups),
+        len(to_qualify_groups),
+        registered_group_count,
+        rejected_group_count,
+        qualification_failed_group_count,
+    )
+    return {
+        "stage": "seed_qualification",
+        "shard_index": normalized_shard_index,
+        "shard_count": resolved_shard_count,
+        "scanned_seed_docs": scanned_seed_docs,
+        "repo_group_count": len(grouped_seed_docs),
+        "existing_repo_group_count": len(existing_repo_groups),
+        "to_qualify_group_count": len(to_qualify_groups),
+        "registered_group_count": registered_group_count,
+        "rejected_group_count": rejected_group_count,
+        "qualification_failed_group_count": qualification_failed_group_count,
+    }
+
+
+def run_seed_qualification() -> None:
+    run_seed_qualification_for_shard(0, shard_count=1)

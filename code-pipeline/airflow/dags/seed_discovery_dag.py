@@ -1,4 +1,5 @@
 from airflow import DAG
+from airflow.decorators import task
 from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
@@ -15,6 +16,7 @@ from seed_dag_support import (
     load_seed_packages,
     slugify_task_suffix,
 )
+from worker.common.config import settings
 from worker.seed.services.benchmark_artifact_fetch_service import run_benchmark_artifact_fetch
 from worker.seed.services.seed_ingest_service import (
     run_benchmark_dataset_ingestion,
@@ -24,8 +26,8 @@ from worker.seed.services.seed_ingest_service import (
     run_github_topic_ingestion,
     run_seed_ingestion,
 )
-from worker.seed.services.seed_normalize_service import run_seed_normalization
-from worker.seed.services.seed_qualify_service import run_seed_qualification
+from worker.seed.services.seed_normalize_service import run_seed_normalization_for_shard
+from worker.seed.services.seed_qualify_service import run_seed_qualification_for_shard
 
 
 with DAG(
@@ -35,6 +37,7 @@ with DAG(
     start_date=SEED_DAG_START_DATE,
     schedule_interval=None,
     catchup=False,
+    max_active_runs=1,
     tags=["seed", "discovery"],
 ) as dag:
     package_registries = [
@@ -144,14 +147,34 @@ with DAG(
             )
             fetch_task >> ingest_task
 
-    normalize_task = PythonOperator(
-        task_id="seed_normalization",
-        python_callable=run_seed_normalization,
-    )
+    normalize_shard_count = max(1, settings.seed_normalize_parallelism)
+    qualify_shard_count = max(1, settings.seed_qualify_parallelism)
 
-    qualify_task = PythonOperator(
-        task_id="seed_qualification",
-        python_callable=run_seed_qualification,
+    @task(
+        task_id="seed_normalization_shard",
+        max_active_tis_per_dag=max(1, settings.seed_normalize_parallelism),
+    )
+    def seed_normalization_shard(shard_index: int) -> dict:
+        return run_seed_normalization_for_shard(
+            shard_index=shard_index,
+            shard_count=normalize_shard_count,
+        )
+
+    @task(
+        task_id="seed_qualification_shard",
+        max_active_tis_per_dag=max(1, settings.seed_qualify_parallelism),
+    )
+    def seed_qualification_shard(shard_index: int) -> dict:
+        return run_seed_qualification_for_shard(
+            shard_index=shard_index,
+            shard_count=qualify_shard_count,
+        )
+
+    normalize_results = seed_normalization_shard.expand(
+        shard_index=list(range(normalize_shard_count))
+    )
+    qualify_results = seed_qualification_shard.expand(
+        shard_index=list(range(qualify_shard_count))
     )
 
     base_ingest_tasks = [
@@ -162,19 +185,19 @@ with DAG(
         *github_topic_ingest_tasks,
         *benchmark_ingest_tasks,
     ]
-    base_ingest_tasks >> normalize_task >> qualify_task
+    base_ingest_tasks >> normalize_results >> qualify_results
 
     content_rules = load_seed_expansion_rules("repo_content_expansion")
     relation_rules = load_seed_expansion_rules("repo_relation_enrichment")
 
     if content_rules:
-        qualify_task >> TriggerDagRunOperator(
+        qualify_results >> TriggerDagRunOperator(
             task_id="trigger_seed_expansion_dag",
             trigger_dag_id="seed_expansion_dag",
             wait_for_completion=False,
         )
     elif relation_rules:
-        qualify_task >> TriggerDagRunOperator(
+        qualify_results >> TriggerDagRunOperator(
             task_id="trigger_repo_relation_dag",
             trigger_dag_id="repo_relation_dag",
             wait_for_completion=False,

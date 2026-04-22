@@ -120,6 +120,15 @@ class Settings:
     seed_incremental_overlap_days: int = int(
         os.getenv("SEED_INCREMENTAL_OVERLAP_DAYS", "2")
     )
+    seed_normalize_parallelism: int = int(
+        os.getenv(
+            "SEED_NORMALIZE_PARALLELISM",
+            os.getenv("SEED_NORMALIZATION_PARALLELISM", "8"),
+        )
+    )
+    seed_qualify_parallelism: int = int(
+        os.getenv("SEED_QUALIFY_PARALLELISM", "2")
+    )
     benchmark_data_dir: str = os.getenv("BENCHMARK_DATA_DIR", "/opt/airflow/benchmark_data")
     keep_full_package_registry_raw: bool = (
         os.getenv("KEEP_FULL_PACKAGE_REGISTRY_RAW", "false").lower() == "true"
