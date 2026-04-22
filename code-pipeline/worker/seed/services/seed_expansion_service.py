@@ -65,10 +65,34 @@ def _iter_target_repos(
     *,
     expansion_version: str,
 ) -> list[dict]:
+    safe_limit = max(1, int(max_registered_repos))
     rule_status_field = _rule_field("content_expansion_status", rule_name)
     version_field = _rule_field("content_expansion_version", rule_name)
     repo_docs = []
-    for hit in store.list_documents("repo_registry_index", size=max_registered_repos * 5):
+
+    for hit in store.iterate_documents_by_query(
+        collection_name="repo_registry_index",
+        query={
+            "bool": {
+                "should": [
+                    {"term": {"hosting_platform.keyword": "github"}},
+                    {"term": {"hosting_platform": "github"}},
+                ],
+                "minimum_should_match": 1,
+            }
+        },
+        size=min(2000, max(200, safe_limit)),
+        source_includes=[
+            "hosting_platform",
+            rule_status_field,
+            version_field,
+            "discovery_source_count",
+            "owner",
+            "repo_name",
+            "canonical_repo_url",
+            "default_branch",
+        ],
+    ):
         source = hit.get("_source", {})
         if source.get("hosting_platform") != "github":
             continue
@@ -86,7 +110,7 @@ def _iter_target_repos(
             hit.get("_source", {}).get("repo_name") or "",
         )
     )
-    return repo_docs[:max_registered_repos]
+    return repo_docs[:safe_limit]
 
 
 async def _fetch_repo_content_batch(
