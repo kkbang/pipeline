@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -257,6 +258,66 @@ def _chunk_parameters() -> tuple[int, int]:
     if overlap_lines >= max_lines:
         overlap_lines = max(0, max_lines - 1)
     return max_lines, overlap_lines
+
+
+def _is_path_within(path: Path, base_dir: Path) -> bool:
+    try:
+        path.relative_to(base_dir)
+        return True
+    except ValueError:
+        return False
+
+
+def _prune_local_snapshot_extract_dir(*, base_dir: Path, source: dict) -> tuple[bool, str | None]:
+    extract_dir_raw = str(source.get("snapshot_extract_dir") or "").strip()
+    if not extract_dir_raw:
+        return False, "snapshot_extract_dir_missing"
+
+    extract_dir = Path(extract_dir_raw).resolve()
+    resolved_base_dir = base_dir.resolve()
+    if not _is_path_within(extract_dir, resolved_base_dir):
+        raise ValueError(
+            f"Refusing to prune snapshot_extract_dir outside local data dir: {extract_dir}"
+        )
+    if extract_dir.exists() and not extract_dir.is_dir():
+        raise ValueError(f"snapshot_extract_dir is not a directory: {extract_dir}")
+
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir)
+
+    return True, None
+
+
+def _maybe_prune_local_snapshot_extract_dir(
+    *,
+    store: OpenSearchStore,
+    source: dict,
+    chunk_status: str,
+) -> tuple[dict, str | None, str | None, str | None]:
+    updated_source = dict(source)
+    if chunk_status != "chunked":
+        return updated_source, None, None, None
+
+    cleanup_finished_at = datetime.now(timezone.utc).isoformat()
+    try:
+        pruned, cleanup_error = _prune_local_snapshot_extract_dir(
+            base_dir=store.base_dir,
+            source=source,
+        )
+    except Exception as exc:  # noqa: BLE001 - cleanup 실패가 chunk 성공 자체를 뒤집지 않도록 함
+        logger.warning(
+            "Local snapshot extract cleanup failed for repo_id=%s error=%s",
+            str(source.get("repo_id") or ""),
+            str(exc),
+        )
+        return updated_source, "cleanup_failed", cleanup_finished_at, str(exc)
+
+    cleanup_status = "pruned" if pruned else "skipped"
+    if pruned or cleanup_error == "snapshot_extract_dir_missing":
+        updated_source["snapshot_extract_dir"] = None
+        updated_source["snapshot_root_path"] = None
+
+    return updated_source, cleanup_status, cleanup_finished_at, cleanup_error
 
 
 def _resolve_parser_key(language: object) -> str | None:
@@ -767,6 +828,16 @@ def run_repo_code_chunking_for_repo(
             "chunk_overlap_lines": overlap_lines,
             "chunk_strategy": "function_first_with_fallback",
         }
+        updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
+            _maybe_prune_local_snapshot_extract_dir(
+                store=store,
+                source=updated_source,
+                chunk_status=chunk_status,
+            )
+        )
+        updated_source["snapshot_local_cleanup_status"] = cleanup_status
+        updated_source["snapshot_local_cleanup_at"] = cleanup_finished_at
+        updated_source["snapshot_local_cleanup_error"] = cleanup_error
         store.replace_document(
             collection_name=REPO_REGISTRY_INDEX,
             doc_id=repo_id,
@@ -783,6 +854,8 @@ def run_repo_code_chunking_for_repo(
             "line_window_chunks_count": stats.line_window_chunks_created,
             "code_files_seen": stats.code_files_seen,
             "error_message": chunk_error_message,
+            "snapshot_cleanup_status": cleanup_status,
+            "snapshot_cleanup_error": cleanup_error,
         }
     except Exception as exc:  # noqa: BLE001 - repo 단위 파이프라인 실패를 상위로 전달하기 위함
         logger.warning("Code chunking failed for repo_id=%s error=%s", repo_id, str(exc))
@@ -917,6 +990,16 @@ def run_repo_code_chunking() -> None:
                 "chunk_overlap_lines": overlap_lines,
                 "chunk_strategy": "function_first_with_fallback",
             }
+            updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
+                _maybe_prune_local_snapshot_extract_dir(
+                    store=store,
+                    source=updated_source,
+                    chunk_status=chunk_status,
+                )
+            )
+            updated_source["snapshot_local_cleanup_status"] = cleanup_status
+            updated_source["snapshot_local_cleanup_at"] = cleanup_finished_at
+            updated_source["snapshot_local_cleanup_error"] = cleanup_error
             store.replace_document(
                 collection_name=REPO_REGISTRY_INDEX,
                 doc_id=doc_id,
