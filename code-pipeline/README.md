@@ -320,17 +320,7 @@ ingested -> normalized -> registered
   - Airflow executor, timezone, metadata DB 설정
   - 기본값: `LocalExecutor` + `PostgreSQL` (`postgres` 서비스)
 - [.env](/Users/xxuchan/Desktop/kkbang/code-pipeline/.env)
-  - 앱 환경변수, OpenSearch/B2 연결, timeout 등
-
-Backblaze B2 연결에 쓰는 주요 키:
-
-- `B2_ENDPOINT_URL` (예: `https://s3.us-west-004.backblazeb2.com`)
-- `B2_REGION` (예: `us-west-004`)
-- `B2_BUCKET`
-- `B2_KEY_ID`
-- `B2_APPLICATION_KEY`
-- `REPO_SNAPSHOT_UPLOAD_ENABLED` (`true/false`)
-- `REPO_SNAPSHOT_B2_PREFIX` (예: `repo_snapshot_archive`)
+  - 앱 환경변수, OpenSearch 연결, timeout 등
 
 benchmark dataset 파일은 기본적으로 아래 경로에 마운트해서 읽습니다.
 

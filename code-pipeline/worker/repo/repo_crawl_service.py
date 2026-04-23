@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,7 +10,6 @@ import httpx
 
 from worker.common.config import settings
 from worker.seed.services.benchmark_artifact_fetch_service import _extract_tar
-from worker.storage.b2_store import B2Store
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -27,7 +25,6 @@ class RepoSnapshotCrawlResult:
     owner: str
     repo: str
     snapshot_metadata: dict | None = None
-    upload_metadata: dict | None = None
     error: Exception | None = None
 
 
@@ -93,95 +90,6 @@ def _resolve_extracted_root(extract_dir: Path) -> Path:
     if len(children) == 1 and children[0].is_dir():
         return children[0]
     return extract_dir
-
-
-def _safe_snapshot_segment(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_") or "unknown"
-
-
-def _build_b2_snapshot_key(owner: str, repo: str, ref: str, uploaded_at: datetime) -> str:
-    uploaded_stamp = uploaded_at.strftime("%Y%m%dT%H%M%SZ")
-    prefix = str(settings.repo_snapshot_b2_prefix or "").strip().strip("/")
-    owner_fragment = _safe_snapshot_segment(owner)
-    repo_fragment = _safe_snapshot_segment(repo)
-    ref_fragment = _safe_snapshot_segment(ref)
-    suffix = f"{owner_fragment}/{repo_fragment}/{ref_fragment}/{uploaded_stamp}.tar.gz"
-
-    if not prefix:
-        return suffix
-
-    return f"{prefix}/{suffix}"
-
-
-def _resolve_b2_store() -> B2Store | None:
-    if settings.repo_snapshot_upload_enabled is not True:
-        return None
-
-    required_settings = {
-        "B2_ENDPOINT_URL": settings.b2_endpoint_url,
-        "B2_BUCKET": settings.b2_bucket,
-        "B2_KEY_ID": settings.b2_key_id,
-        "B2_APPLICATION_KEY": settings.b2_application_key,
-    }
-    missing_keys = [key for key, value in required_settings.items() if not str(value or "").strip()]
-    if missing_keys:
-        logger.warning(
-            "Snapshot B2 upload is disabled because required settings are missing: %s",
-            ", ".join(sorted(missing_keys)),
-        )
-        return None
-
-    return B2Store()
-
-
-def _upload_snapshot_archive(
-    b2_store: B2Store,
-    *,
-    owner: str,
-    repo: str,
-    snapshot_metadata: dict,
-    uploaded_at: datetime,
-) -> dict:
-    download_path = Path(str(snapshot_metadata.get("download_path") or "")).resolve()
-    if not download_path.exists():
-        raise FileNotFoundError(f"Snapshot archive file does not exist: {download_path}")
-
-    snapshot_ref = str(snapshot_metadata.get("ref") or "").strip() or "unknown"
-    object_key = _build_b2_snapshot_key(owner, repo, snapshot_ref, uploaded_at)
-
-    b2_store.upload_file(
-        local_path=download_path,
-        key=object_key,
-        content_type="application/gzip",
-    )
-
-    return {
-        "status": "uploaded",
-        "provider": "backblaze_b2",
-        "bucket": b2_store.bucket,
-        "key": object_key,
-        "url": b2_store.build_object_url(object_key),
-        "uploaded_at": uploaded_at.isoformat(),
-        "size_bytes": download_path.stat().st_size,
-    }
-
-
-async def _upload_snapshot_archive_async(
-    b2_store: B2Store,
-    *,
-    owner: str,
-    repo: str,
-    snapshot_metadata: dict,
-) -> dict:
-    uploaded_at = datetime.now(timezone.utc)
-    return await asyncio.to_thread(
-        _upload_snapshot_archive,
-        b2_store,
-        owner=owner,
-        repo=repo,
-        snapshot_metadata=snapshot_metadata,
-        uploaded_at=uploaded_at,
-    )
 
 
 def _build_async_client(concurrency: int) -> httpx.AsyncClient:
@@ -306,14 +214,6 @@ def _claim_repo_docs(
             "snapshot_download_path": None,
             "snapshot_extract_dir": None,
             "snapshot_root_path": None,
-            "snapshot_b2_upload_status": None,
-            "snapshot_b2_upload_error": None,
-            "snapshot_b2_provider": None,
-            "snapshot_b2_bucket": None,
-            "snapshot_b2_key": None,
-            "snapshot_b2_url": None,
-            "snapshot_b2_uploaded_at": None,
-            "snapshot_archive_size_bytes": None,
         }
 
         store.replace_document(
@@ -380,7 +280,6 @@ async def _crawl_single_repo(
     base_dir: Path,
     hit: dict,
     semaphore: asyncio.Semaphore,
-    b2_store: B2Store | None,
 ) -> RepoSnapshotCrawlResult:
     doc_id = hit["_id"]
     source = hit["_source"]
@@ -391,30 +290,11 @@ async def _crawl_single_repo(
         try:
             snapshot_metadata = await _download_repo_snapshot(client, base_dir, source)
 
-            upload_metadata = {
-                "status": "skipped",
-                "reason": "b2_upload_disabled_or_not_configured",
-            }
-            if b2_store is not None:
-                upload_metadata = await _upload_snapshot_archive_async(
-                    b2_store,
-                    owner=owner,
-                    repo=repo,
-                    snapshot_metadata=snapshot_metadata,
-                )
-                logger.info(
-                    "Uploaded snapshot archive to B2: repo=%s/%s key=%s",
-                    owner,
-                    repo,
-                    upload_metadata.get("key"),
-                )
-
             return RepoSnapshotCrawlResult(
                 doc_id=doc_id,
                 owner=owner,
                 repo=repo,
                 snapshot_metadata=snapshot_metadata,
-                upload_metadata=upload_metadata,
             )
         except Exception as exc:  # noqa: BLE001 - repo별 실패를 결과로 모아야 함
             logger.warning("Snapshot crawl failed for repo=%s/%s error=%s", owner, repo, str(exc))
@@ -431,7 +311,6 @@ async def _crawl_repo_batch(
     repo_docs: list[dict],
     base_dir: Path,
     result_handler: Callable[[RepoSnapshotCrawlResult], None],
-    b2_store: B2Store | None,
 ) -> None:
     concurrency = max(1, settings.repo_crawl_concurrency)
     semaphore = asyncio.Semaphore(concurrency)
@@ -444,7 +323,6 @@ async def _crawl_repo_batch(
                     base_dir=base_dir,
                     hit=hit,
                     semaphore=semaphore,
-                    b2_store=b2_store,
                 )
             )
             for hit in repo_docs
@@ -457,16 +335,10 @@ async def _crawl_repo_batch(
 
 def repo_crawler() -> None:
     store = OpenSearchStore()
-    b2_store = _resolve_b2_store()
     crawl_started_at = datetime.now(timezone.utc)
     repo_docs = _load_repo_docs_for_crawl(store, crawl_started_at)
     if not repo_docs:
         return
-
-    if b2_store is None:
-        logger.info("Repository snapshot B2 upload is skipped for this run")
-    else:
-        logger.info("Repository snapshot B2 upload is enabled")
 
     claimed_docs = _claim_repo_docs(
         store=store,
@@ -492,14 +364,8 @@ def repo_crawler() -> None:
         current_source = dict(claimed_docs[doc_id]["_source"])
         crawl_finished_at = datetime.now(timezone.utc).isoformat()
         snapshot_metadata = crawl_result.snapshot_metadata or {}
-        upload_metadata = crawl_result.upload_metadata or {}
-        upload_status = str(upload_metadata.get("status") or "").strip() or None
 
         if crawl_result.error is not None:
-            upload_error = None
-            if snapshot_metadata:
-                upload_error = str(crawl_result.error)
-
             updated_source = {
                 **current_source,
                 "crawl_status": "crawl_failed",
@@ -510,9 +376,6 @@ def repo_crawler() -> None:
                 "snapshot_download_path": snapshot_metadata.get("download_path"),
                 "snapshot_extract_dir": snapshot_metadata.get("extract_dir"),
                 "snapshot_root_path": snapshot_metadata.get("extracted_root"),
-                "snapshot_b2_upload_status": "failed" if snapshot_metadata else None,
-                "snapshot_b2_upload_error": upload_error,
-                "snapshot_b2_provider": "backblaze_b2" if snapshot_metadata else None,
             }
             claimed_docs[doc_id]["_source"] = updated_source
             pending_registry_docs.append((doc_id, updated_source))
@@ -530,14 +393,6 @@ def repo_crawler() -> None:
             "snapshot_download_path": snapshot_metadata.get("download_path"),
             "snapshot_extract_dir": snapshot_metadata.get("extract_dir"),
             "snapshot_root_path": snapshot_metadata.get("extracted_root"),
-            "snapshot_b2_upload_status": upload_status,
-            "snapshot_b2_upload_error": upload_metadata.get("error") or upload_metadata.get("reason"),
-            "snapshot_b2_provider": upload_metadata.get("provider"),
-            "snapshot_b2_bucket": upload_metadata.get("bucket"),
-            "snapshot_b2_key": upload_metadata.get("key"),
-            "snapshot_b2_url": upload_metadata.get("url"),
-            "snapshot_b2_uploaded_at": upload_metadata.get("uploaded_at"),
-            "snapshot_archive_size_bytes": upload_metadata.get("size_bytes"),
             "crawl_error_message": None,
         }
         claimed_docs[doc_id]["_source"] = updated_source
@@ -550,7 +405,6 @@ def repo_crawler() -> None:
             repo_docs=list(claimed_docs.values()),
             base_dir=store.base_dir,
             result_handler=_handle_crawl_result,
-            b2_store=b2_store,
         )
     )
     _flush_registry_docs(refresh=False)

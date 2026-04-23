@@ -32,19 +32,6 @@ class Settings:
     app_env: str = os.getenv("APP_ENV", "local")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
-    b2_endpoint_url: str = os.getenv("B2_ENDPOINT_URL", "")
-    b2_region: str = os.getenv("B2_REGION", "us-west-004")
-    b2_bucket: str = os.getenv("B2_BUCKET", "")
-    b2_key_id: str = os.getenv("B2_KEY_ID", "")
-    b2_application_key: str = os.getenv("B2_APPLICATION_KEY", "")
-    repo_snapshot_upload_enabled: bool = (
-        os.getenv("REPO_SNAPSHOT_UPLOAD_ENABLED", "true").lower() == "true"
-    )
-    repo_snapshot_b2_prefix: str = os.getenv(
-        "REPO_SNAPSHOT_B2_PREFIX",
-        "repo_snapshot_archive",
-    )
-
     opensearch_host: str = os.getenv("OPENSEARCH_HOST", "")
     opensearch_port: int = int(os.getenv("OPENSEARCH_PORT", "9200"))
     opensearch_user: str = os.getenv("OPENSEARCH_USER", "")
