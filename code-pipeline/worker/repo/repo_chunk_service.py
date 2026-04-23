@@ -573,7 +573,10 @@ def _iter_code_file_docs(store: OpenSearchStore, repo_id: str):
         collection_name=REPO_FILE_INDEX,
         query=query,
         size=1000,
-        sort=[{"_id": "asc"}],
+        # `_id` 정렬은 fielddata 메모리를 크게 사용해 circuit breaker를 유발할 수 있다.
+        # repo 단위 query에서는 file_path가 사실상 유일 키이므로 doc_values 기반 정렬을 사용한다.
+        sort=[{"file_path.keyword": {"order": "asc", "unmapped_type": "keyword"}}],
+        source_includes=["file_path", "language"],
     )
 
 
@@ -746,6 +749,7 @@ def run_repo_code_chunking_for_repo(
 
     chunk_started_at = datetime.now(timezone.utc).isoformat()
     max_lines, overlap_lines = _chunk_parameters()
+    current_source: dict = {}
     try:
         repo_doc = _load_repo_doc_for_chunking(store, repo_id)
         if repo_doc is None:
@@ -757,6 +761,7 @@ def run_repo_code_chunking_for_repo(
             }
 
         source = dict(repo_doc.get("_source", {}))
+        current_source = dict(source)
         if source.get("file_extract_status") != "extracted":
             return {
                 "repo_id": repo_id,
@@ -791,6 +796,7 @@ def run_repo_code_chunking_for_repo(
             refresh_writes=refresh_writes,
         )
         claimed_source = dict(claimed_docs[repo_id]["_source"])
+        current_source = dict(claimed_source)
         chunk_finished_at = datetime.now(timezone.utc).isoformat()
         stats = _chunk_single_repo(
             store,
@@ -859,9 +865,8 @@ def run_repo_code_chunking_for_repo(
         }
     except Exception as exc:  # noqa: BLE001 - repo 단위 파이프라인 실패를 상위로 전달하기 위함
         logger.warning("Code chunking failed for repo_id=%s error=%s", repo_id, str(exc))
-        repo_doc = _load_repo_doc_for_chunking(store, repo_id) or {"_source": {}}
         failed_source = {
-            **dict(repo_doc.get("_source", {})),
+            **dict(current_source),
             "chunk_status": "chunk_failed",
             "chunk_finished_at": datetime.now(timezone.utc).isoformat(),
             "chunk_error_message": str(exc),
