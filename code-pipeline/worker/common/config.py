@@ -148,6 +148,7 @@ class Settings:
     repo_relation_repo_limit: int = int(os.getenv("REPO_RELATION_REPO_LIMIT", "200"))
     repo_crawl_concurrency: int = int(os.getenv("REPO_CRAWL_CONCURRENCY", "8"))
     repo_crawl_lease_seconds: int = int(os.getenv("REPO_CRAWL_LEASE_SECONDS", "1800"))
+    repo_crawl_repo_limit: int = int(os.getenv("REPO_CRAWL_REPO_LIMIT", "0"))
     repo_file_extract_repo_limit: int = int(os.getenv("REPO_FILE_EXTRACT_REPO_LIMIT", "1000"))
     repo_file_extract_max_file_size_bytes: int = int(
         os.getenv("REPO_FILE_EXTRACT_MAX_FILE_SIZE_BYTES", "1048576")

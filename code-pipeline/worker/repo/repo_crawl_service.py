@@ -268,7 +268,19 @@ def _load_repo_docs_for_crawl(
             settings.repo_crawl_lease_seconds,
         )
 
-    return list(repo_docs_by_id.values())
+    repo_docs = list(repo_docs_by_id.values())
+    repo_limit = max(0, int(settings.repo_crawl_repo_limit))
+    if repo_limit > 0:
+        if len(repo_docs) > repo_limit:
+            logger.info(
+                "Limiting repo crawl batch: selected=%s total_candidates=%s repo_limit=%s",
+                repo_limit,
+                len(repo_docs),
+                repo_limit,
+            )
+        return repo_docs[:repo_limit]
+
+    return repo_docs
 
 
 def _claim_repo_docs(
