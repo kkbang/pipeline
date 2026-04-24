@@ -145,5 +145,5 @@ class Settings:
     repo_chunk_overlap_lines: int = int(os.getenv("REPO_CHUNK_OVERLAP_LINES", "20"))
     repo_validation_repo_limit: int = int(os.getenv("REPO_VALIDATION_REPO_LIMIT", "1000"))
     repo_pipeline_batch_size: int = int(os.getenv("REPO_PIPELINE_BATCH_SIZE", "200"))
-    repo_pipeline_parallelism: int = int(os.getenv("REPO_PIPELINE_PARALLELISM", "24"))
+    repo_pipeline_parallelism: int = int(os.getenv("REPO_PIPELINE_PARALLELISM", "36"))
 settings = Settings()

@@ -1,12 +1,19 @@
 import hashlib
 import logging
+import os
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from worker.common.config import settings
+from worker.repo.repo_snapshot_local_paths import (
+    resolve_snapshot_download_path,
+    resolve_snapshot_extract_dir,
+    resolve_snapshot_root_path,
+    strip_local_snapshot_fields,
+)
 from worker.repo.repo_stage_service import list_repo_ids_for_chunking
 from worker.storage.opensearch_store import OpenSearchStore
 
@@ -216,7 +223,7 @@ def _claim_repo_docs_for_chunking(
     claimed_docs = {}
     for hit in repo_docs:
         doc_id = hit["_id"]
-        source = dict(hit.get("_source", {}))
+        source = strip_local_snapshot_fields(dict(hit.get("_source", {})))
         attempt_count = int(source.get("chunk_attempt_count") or 0) + 1
         claimed_source = {
             **source,
@@ -268,29 +275,71 @@ def _is_path_within(path: Path, base_dir: Path) -> bool:
         return False
 
 
-def _prune_local_snapshot_extract_dir(*, base_dir: Path, source: dict) -> tuple[bool, str | None]:
-    extract_dir_raw = str(source.get("snapshot_extract_dir") or "").strip()
-    if not extract_dir_raw:
-        return False, "snapshot_extract_dir_missing"
+def _rmtree_force_writable(
+    func: Callable[..., object],
+    path: str,
+    exc_info: tuple[type[BaseException], BaseException, object],
+) -> None:
+    target = Path(path)
+    try:
+        if target.exists():
+            os.chmod(target, 0o700 if target.is_dir() else 0o600)
+        parent = target.parent
+        if parent.exists():
+            os.chmod(parent, 0o700)
+        func(path)
+    except Exception:
+        raise exc_info[1]
 
-    extract_dir = Path(extract_dir_raw).resolve()
+
+def _unlink_force_writable(target: Path) -> None:
+    if target.exists():
+        os.chmod(target, 0o600)
+    parent = target.parent
+    if parent.exists():
+        os.chmod(parent, 0o700)
+    target.unlink()
+
+
+def _prune_local_snapshot_artifacts(*, base_dir: Path, source: dict) -> tuple[bool, str | None]:
     resolved_base_dir = base_dir.resolve()
+    pruned_any = False
+    missing_artifacts: list[str] = []
+
+    extract_dir = resolve_snapshot_extract_dir(base_dir, source).resolve()
     if not _is_path_within(extract_dir, resolved_base_dir):
         raise ValueError(
             f"Refusing to prune snapshot_extract_dir outside local data dir: {extract_dir}"
         )
     if extract_dir.exists() and not extract_dir.is_dir():
         raise ValueError(f"snapshot_extract_dir is not a directory: {extract_dir}")
-
     if extract_dir.exists():
-        shutil.rmtree(extract_dir)
+        shutil.rmtree(extract_dir, onerror=_rmtree_force_writable)
+        pruned_any = True
+    else:
+        missing_artifacts.append("snapshot_extract_dir_missing")
 
-    return True, None
+    download_path = resolve_snapshot_download_path(base_dir, source).resolve()
+    if not _is_path_within(download_path, resolved_base_dir):
+        raise ValueError(
+            f"Refusing to prune snapshot_download_path outside local data dir: {download_path}"
+        )
+    if download_path.exists() and not download_path.is_file():
+        raise ValueError(f"snapshot_download_path is not a file: {download_path}")
+    if download_path.exists():
+        _unlink_force_writable(download_path)
+        pruned_any = True
+    else:
+        missing_artifacts.append("snapshot_download_path_missing")
+
+    cleanup_error = ",".join(missing_artifacts) if missing_artifacts else None
+    return pruned_any, cleanup_error
 
 
-def _maybe_prune_local_snapshot_extract_dir(
+def _maybe_prune_local_snapshot_artifacts(
     *,
     store: OpenSearchStore,
+    repo_id: str,
     source: dict,
     chunk_status: str,
 ) -> tuple[dict, str | None, str | None, str | None]:
@@ -300,24 +349,48 @@ def _maybe_prune_local_snapshot_extract_dir(
 
     cleanup_finished_at = datetime.now(timezone.utc).isoformat()
     try:
-        pruned, cleanup_error = _prune_local_snapshot_extract_dir(
+        pruned, cleanup_error = _prune_local_snapshot_artifacts(
             base_dir=store.base_dir,
             source=source,
         )
     except Exception as exc:  # noqa: BLE001 - cleanup 실패가 chunk 성공 자체를 뒤집지 않도록 함
         logger.warning(
-            "Local snapshot extract cleanup failed for repo_id=%s error=%s",
-            str(source.get("repo_id") or ""),
+            "Local snapshot cleanup failed for repo_id=%s error=%s",
+            repo_id,
             str(exc),
         )
         return updated_source, "cleanup_failed", cleanup_finished_at, str(exc)
 
     cleanup_status = "pruned" if pruned else "skipped"
-    if pruned or cleanup_error == "snapshot_extract_dir_missing":
-        updated_source["snapshot_extract_dir"] = None
-        updated_source["snapshot_root_path"] = None
+    updated_source.pop("snapshot_extract_dir", None)
+    updated_source.pop("snapshot_root_path", None)
+    updated_source.pop("snapshot_download_path", None)
 
     return updated_source, cleanup_status, cleanup_finished_at, cleanup_error
+
+
+def _best_effort_replace_repo_chunk_doc(
+    *,
+    store: OpenSearchStore,
+    doc_id: str,
+    source: dict,
+    refresh: bool,
+) -> bool:
+    try:
+        store.replace_document(
+            collection_name=REPO_REGISTRY_INDEX,
+            doc_id=doc_id,
+            source=source,
+            refresh=refresh,
+        )
+    except Exception as exc:  # noqa: BLE001 - 원본 실패를 덮는 2차 실패는 경고만 남김
+        logger.warning(
+            "Best-effort repo chunk status write failed for repo_id=%s error=%s",
+            doc_id,
+            str(exc),
+        )
+        return False
+    return True
 
 
 def _resolve_parser_key(language: object) -> str | None:
@@ -527,6 +600,36 @@ def _build_chunk_doc_id(
     return f"{repo_id}:chunk:{digest}"
 
 
+def _repo_id_query(repo_id: str) -> dict:
+    return {
+        "bool": {
+            "should": [
+                {"term": {"repo_id.keyword": repo_id}},
+                {"term": {"repo_id": repo_id}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
+def _iter_existing_repo_chunk_doc_ids(store: OpenSearchStore, repo_id: str):
+    yield from (
+        hit["_id"]
+        for hit in store.iterate_documents_by_query(
+            collection_name=REPO_CHUNK_INDEX,
+            query=_repo_id_query(repo_id),
+            size=1000,
+            sort=[
+                {"file_path.keyword": {"order": "asc", "unmapped_type": "keyword"}},
+                {"line_start": {"order": "asc", "unmapped_type": "long"}},
+                {"line_end": {"order": "asc", "unmapped_type": "long"}},
+                {"chunk_index": {"order": "asc", "unmapped_type": "long"}},
+            ],
+            source_includes=[],
+        )
+    )
+
+
 def _iterate_line_chunks(lines: list[str], max_lines: int, overlap_lines: int):
     if not lines:
         return
@@ -588,17 +691,12 @@ def _chunk_single_repo(
     chunked_at: str,
     refresh_writes: bool = True,
 ) -> RepoChunkStats:
-    snapshot_root = Path(str(source.get("snapshot_root_path") or "")).resolve()
+    snapshot_root = resolve_snapshot_root_path(store.base_dir, source).resolve()
     if not snapshot_root.exists() or not snapshot_root.is_dir():
         raise FileNotFoundError(f"snapshot_root_path is missing or invalid: {snapshot_root}")
 
     max_lines, overlap_lines = _chunk_parameters()
-    deleted_docs = store.delete_documents_by_field(
-        collection_name=REPO_CHUNK_INDEX,
-        field_name="repo_id",
-        value=repo_id,
-        refresh=refresh_writes,
-    )
+    stale_doc_ids = set(_iter_existing_repo_chunk_doc_ids(store, repo_id))
 
     owner = str(source.get("owner") or "").strip().lower()
     repo_name = str(source.get("repo_name") or "").strip().lower()
@@ -606,7 +704,7 @@ def _chunk_single_repo(
     snapshot_ref = source.get("snapshot_ref")
     bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
 
-    stats = RepoChunkStats(deleted_previous_docs=deleted_docs)
+    stats = RepoChunkStats()
     pending_docs: list[tuple[str, dict]] = []
     for file_hit in _iter_code_file_docs(store, repo_id):
         file_source = file_hit.get("_source", {})
@@ -667,15 +765,17 @@ def _chunk_single_repo(
                 elif fallback_reason == "parser_failed":
                     file_parser_failed = True
 
+            chunk_doc_id = _build_chunk_doc_id(
+                repo_id=repo_id,
+                file_path=relative_path,
+                line_start=line_start,
+                line_end=line_end,
+                chunk_index=chunk_index,
+            )
+            stale_doc_ids.discard(chunk_doc_id)
             pending_docs.append(
                 (
-                    _build_chunk_doc_id(
-                        repo_id=repo_id,
-                        file_path=relative_path,
-                        line_start=line_start,
-                        line_end=line_end,
-                        chunk_index=chunk_index,
-                    ),
+                    chunk_doc_id,
                     {
                         "repo_id": repo_id,
                         "owner": owner,
@@ -723,6 +823,15 @@ def _chunk_single_repo(
             refresh=False,
             chunk_size=bulk_flush_docs,
         )
+
+    if stale_doc_ids:
+        store.bulk_delete_documents(
+            collection_name=REPO_CHUNK_INDEX,
+            doc_ids=list(stale_doc_ids),
+            refresh=False,
+            chunk_size=bulk_flush_docs,
+        )
+        stats.deleted_previous_docs = len(stale_doc_ids)
 
     if refresh_writes:
         store.refresh_index(REPO_CHUNK_INDEX)
@@ -813,7 +922,7 @@ def run_repo_code_chunking_for_repo(
             chunk_error_message = "no_chunks_created"
 
         updated_source = {
-            **claimed_source,
+            **strip_local_snapshot_fields(claimed_source),
             "chunk_status": chunk_status,
             "chunk_finished_at": chunk_finished_at,
             "chunk_error_message": chunk_error_message,
@@ -835,8 +944,9 @@ def run_repo_code_chunking_for_repo(
             "chunk_strategy": "function_first_with_fallback",
         }
         updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
-            _maybe_prune_local_snapshot_extract_dir(
+            _maybe_prune_local_snapshot_artifacts(
                 store=store,
+                repo_id=repo_id,
                 source=updated_source,
                 chunk_status=chunk_status,
             )
@@ -866,7 +976,7 @@ def run_repo_code_chunking_for_repo(
     except Exception as exc:  # noqa: BLE001 - repo 단위 파이프라인 실패를 상위로 전달하기 위함
         logger.warning("Code chunking failed for repo_id=%s error=%s", repo_id, str(exc))
         failed_source = {
-            **dict(current_source),
+            **strip_local_snapshot_fields(dict(current_source)),
             "chunk_status": "chunk_failed",
             "chunk_finished_at": datetime.now(timezone.utc).isoformat(),
             "chunk_error_message": str(exc),
@@ -874,8 +984,8 @@ def run_repo_code_chunking_for_repo(
             "chunk_overlap_lines": overlap_lines,
             "chunk_strategy": "function_first_with_fallback",
         }
-        store.replace_document(
-            collection_name=REPO_REGISTRY_INDEX,
+        _best_effort_replace_repo_chunk_doc(
+            store=store,
             doc_id=repo_id,
             source=failed_source,
             refresh=refresh_writes,
@@ -974,7 +1084,7 @@ def run_repo_code_chunking() -> None:
                 chunk_error_message = "no_chunks_created"
 
             updated_source = {
-                **source,
+                **strip_local_snapshot_fields(source),
                 "chunk_status": chunk_status,
                 "chunk_finished_at": chunk_finished_at,
                 "chunk_error_message": chunk_error_message,
@@ -996,8 +1106,9 @@ def run_repo_code_chunking() -> None:
                 "chunk_strategy": "function_first_with_fallback",
             }
             updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
-                _maybe_prune_local_snapshot_extract_dir(
+                _maybe_prune_local_snapshot_artifacts(
                     store=store,
+                    repo_id=doc_id,
                     source=updated_source,
                     chunk_status=chunk_status,
                 )
@@ -1015,7 +1126,7 @@ def run_repo_code_chunking() -> None:
         except Exception as exc:  # noqa: BLE001 - repo별 실패를 이어서 처리해야 함
             logger.warning("Code chunking failed for repo_id=%s error=%s", doc_id, str(exc))
             failed_source = {
-                **source,
+                **strip_local_snapshot_fields(source),
                 "chunk_status": "chunk_failed",
                 "chunk_finished_at": chunk_finished_at,
                 "chunk_error_message": str(exc),
@@ -1023,8 +1134,8 @@ def run_repo_code_chunking() -> None:
                 "chunk_overlap_lines": overlap_lines,
                 "chunk_strategy": "function_first_with_fallback",
             }
-            store.replace_document(
-                collection_name=REPO_REGISTRY_INDEX,
+            _best_effort_replace_repo_chunk_doc(
+                store=store,
                 doc_id=doc_id,
                 source=failed_source,
                 refresh=False,

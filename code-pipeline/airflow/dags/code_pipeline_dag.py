@@ -16,7 +16,7 @@ default_args = {
 with DAG(
     dag_id="code_pipeline_dag",
     default_args=default_args,
-    description="Repository snapshot download pipeline",
+    description="Repository download-to-processing pipeline",
     start_date=datetime(2026, 1, 1),
     schedule_interval=None,
     catchup=False,

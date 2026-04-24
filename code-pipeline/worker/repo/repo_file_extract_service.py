@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from worker.common.config import settings
+from worker.repo.repo_snapshot_local_paths import (
+    resolve_snapshot_root_path,
+    strip_local_snapshot_fields,
+)
 from worker.repo.repo_stage_service import list_repo_ids_for_extraction
 from worker.storage.opensearch_store import OpenSearchStore
 
@@ -185,7 +189,7 @@ def _claim_repo_docs_for_extraction(
     claimed_docs = {}
     for hit in repo_docs:
         doc_id = hit["_id"]
-        source = dict(hit.get("_source", {}))
+        source = strip_local_snapshot_fields(dict(hit.get("_source", {})))
         attempt_count = int(source.get("file_extract_attempt_count") or 0) + 1
         claimed_source = {
             **source,
@@ -250,6 +254,31 @@ def _build_repo_file_doc_id(repo_id: str, file_path: str) -> str:
     return f"{repo_id}:file:{path_digest}"
 
 
+def _repo_id_query(repo_id: str) -> dict:
+    return {
+        "bool": {
+            "should": [
+                {"term": {"repo_id.keyword": repo_id}},
+                {"term": {"repo_id": repo_id}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
+def _iter_existing_repo_file_doc_ids(store: OpenSearchStore, repo_id: str):
+    yield from (
+        hit["_id"]
+        for hit in store.iterate_documents_by_query(
+            collection_name=REPO_FILE_INDEX,
+            query=_repo_id_query(repo_id),
+            size=1000,
+            sort=[{"file_path.keyword": {"order": "asc", "unmapped_type": "keyword"}}],
+            source_includes=[],
+        )
+    )
+
+
 def _max_file_size_bytes() -> int:
     return max(1, int(settings.repo_file_extract_max_file_size_bytes))
 
@@ -262,24 +291,19 @@ def _extract_repo_files(
     extracted_at: str,
     refresh_writes: bool = True,
 ) -> RepoFileExtractStats:
-    snapshot_root = Path(str(source.get("snapshot_root_path") or "")).resolve()
+    snapshot_root = resolve_snapshot_root_path(store.base_dir, source).resolve()
     if not snapshot_root.exists() or not snapshot_root.is_dir():
         raise FileNotFoundError(f"snapshot_root_path is missing or invalid: {snapshot_root}")
 
     max_file_size_bytes = _max_file_size_bytes()
-    deleted_docs = store.delete_documents_by_field(
-        collection_name=REPO_FILE_INDEX,
-        field_name="repo_id",
-        value=repo_id,
-        refresh=refresh_writes,
-    )
+    stale_doc_ids = set(_iter_existing_repo_file_doc_ids(store, repo_id))
 
     owner, repo = _normalize_repo_identity(source)
     snapshot_ref = str(source.get("snapshot_ref") or "").strip() or None
     canonical_repo_url = source.get("canonical_repo_url")
     bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
 
-    stats = RepoFileExtractStats(deleted_previous_docs=deleted_docs)
+    stats = RepoFileExtractStats()
     pending_docs: list[tuple[str, dict]] = []
     for absolute_path in _iter_snapshot_files(snapshot_root):
         if not absolute_path.is_file():
@@ -309,16 +333,17 @@ def _extract_repo_files(
 
         stats.text_files_indexed += 1
         line_count = text.count("\n") + (1 if text else 0)
+        doc_id = _build_repo_file_doc_id(repo_id, relative_path)
+        stale_doc_ids.discard(doc_id)
         pending_docs.append(
             (
-                _build_repo_file_doc_id(repo_id, relative_path),
+                doc_id,
                 {
                     "repo_id": repo_id,
                     "owner": owner,
                     "repo_name": repo,
                     "canonical_repo_url": canonical_repo_url,
                     "snapshot_ref": snapshot_ref,
-                    "snapshot_root_path": str(snapshot_root),
                     "file_path": relative_path,
                     "file_name": PurePosixPath(relative_path).name,
                     "file_extension": PurePosixPath(relative_path).suffix.lower(),
@@ -349,6 +374,15 @@ def _extract_repo_files(
             refresh=False,
             chunk_size=bulk_flush_docs,
         )
+
+    if stale_doc_ids:
+        store.bulk_delete_documents(
+            collection_name=REPO_FILE_INDEX,
+            doc_ids=list(stale_doc_ids),
+            refresh=False,
+            chunk_size=bulk_flush_docs,
+        )
+        stats.deleted_previous_docs = len(stale_doc_ids)
 
     if refresh_writes:
         store.refresh_index(REPO_FILE_INDEX)
@@ -436,7 +470,7 @@ def run_repo_file_extraction_for_repo(
             final_status = "extract_failed"
 
         updated_source = {
-            **claimed_source,
+            **strip_local_snapshot_fields(claimed_source),
             "file_extract_status": final_status,
             "file_extract_finished_at": extract_finished_at,
             "file_extract_error_message": validation_error,
@@ -469,7 +503,7 @@ def run_repo_file_extraction_for_repo(
         if store is not None:
             repo_doc = _load_repo_doc_for_extraction(store, repo_id) or {"_source": {}}
             failed_source = {
-                **dict(repo_doc.get("_source", {})),
+                **strip_local_snapshot_fields(dict(repo_doc.get("_source", {}))),
                 "file_extract_status": "extract_failed",
                 "file_extract_finished_at": datetime.now(timezone.utc).isoformat(),
                 "file_extract_error_message": str(exc),

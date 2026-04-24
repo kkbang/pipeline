@@ -9,12 +9,15 @@ from pathlib import Path
 import httpx
 
 from worker.common.config import settings
+from worker.repo.repo_pipeline_service import run_repo_pipeline_for_repo
+from worker.repo.repo_snapshot_local_paths import (
+    normalize_repo_identity,
+    resolve_extracted_root,
+    resolve_snapshot_paths,
+    strip_local_snapshot_fields,
+)
 from worker.seed.services.benchmark_artifact_fetch_service import _extract_tar
 from worker.storage.opensearch_store import OpenSearchStore
-
-
-RAW_REPO_SNAPSHOT_DOWNLOAD_DIR = "raw/repo_snapshot_download"
-RAW_REPO_SNAPSHOT_DIR = "raw/repo_snapshot"
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +28,8 @@ class RepoSnapshotCrawlResult:
     owner: str
     repo: str
     snapshot_metadata: dict | None = None
+    pipeline_result: dict | None = None
     error: Exception | None = None
-
-
-def _normalize_repo_identity(source: dict) -> tuple[str, str]:
-    owner = str(source.get("owner") or "").strip().lower()
-    repo = str(source.get("repo_name") or "").strip().lower()
-    return owner, repo
-
 
 def _build_ref_candidates(source: dict) -> list[str]:
     candidates = []
@@ -66,31 +63,11 @@ def _parse_datetime(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _resolve_snapshot_paths(base_dir: Path, owner: str, repo: str) -> tuple[Path, Path]:
-    download_path = (
-        base_dir
-        / RAW_REPO_SNAPSHOT_DOWNLOAD_DIR
-        / owner
-        / repo
-        / "snapshot.tar.gz"
-    )
-    extract_dir = base_dir / RAW_REPO_SNAPSHOT_DIR / owner / repo
-    return download_path, extract_dir
-
-
 def _clear_existing_snapshot(download_path: Path, extract_dir: Path) -> None:
     if extract_dir.exists():
         shutil.rmtree(extract_dir)
     if download_path.exists():
         download_path.unlink()
-
-
-def _resolve_extracted_root(extract_dir: Path) -> Path:
-    children = [child for child in extract_dir.iterdir()]
-    if len(children) == 1 and children[0].is_dir():
-        return children[0]
-    return extract_dir
-
 
 def _build_async_client(concurrency: int) -> httpx.AsyncClient:
     return httpx.AsyncClient(
@@ -200,7 +177,7 @@ def _claim_repo_docs(
 
     for hit in repo_docs:
         doc_id = hit["_id"]
-        source = dict(hit.get("_source", {}))
+        source = strip_local_snapshot_fields(dict(hit.get("_source", {})))
         attempt_count = int(source.get("crawl_attempt_count") or 0) + 1
 
         claimed_source = {
@@ -211,9 +188,6 @@ def _claim_repo_docs(
             "crawl_error_message": None,
             "snapshot_ref": None,
             "snapshot_archive_url": None,
-            "snapshot_download_path": None,
-            "snapshot_extract_dir": None,
-            "snapshot_root_path": None,
         }
 
         store.replace_document(
@@ -233,13 +207,13 @@ async def _download_snapshot_for_ref(
     repo: str,
     ref: str,
 ) -> dict:
-    download_path, extract_dir = _resolve_snapshot_paths(base_dir, owner, repo)
+    download_path, extract_dir = resolve_snapshot_paths(base_dir, owner, repo)
     archive_url = _build_archive_url(owner, repo, ref)
 
     await asyncio.to_thread(_clear_existing_snapshot, download_path, extract_dir)
     await _stream_download_async(client, archive_url, download_path)
     await asyncio.to_thread(_extract_tar, download_path, extract_dir, "r:gz")
-    extracted_root = await asyncio.to_thread(_resolve_extracted_root, extract_dir)
+    extracted_root = await asyncio.to_thread(resolve_extracted_root, extract_dir)
 
     return {
         "archive_url": archive_url,
@@ -255,7 +229,7 @@ async def _download_repo_snapshot(
     base_dir: Path,
     source: dict,
 ) -> dict:
-    owner, repo = _normalize_repo_identity(source)
+    owner, repo = normalize_repo_identity(source)
     if not owner or not repo:
         raise ValueError("repo_registry_index document is missing owner or repo_name")
 
@@ -275,6 +249,46 @@ async def _download_repo_snapshot(
     raise ValueError(f"No candidate refs available for {owner}/{repo}")
 
 
+def _process_downloaded_repo(
+    *,
+    base_dir: Path,
+    doc_id: str,
+    claimed_source: dict,
+    snapshot_metadata: dict,
+) -> dict:
+    store = OpenSearchStore(base_dir=base_dir)
+    crawl_finished_at = datetime.now(timezone.utc).isoformat()
+    downloaded_source = {
+        **strip_local_snapshot_fields(claimed_source),
+        "crawl_status": "downloaded",
+        "crawled_at": crawl_finished_at,
+        "crawl_finished_at": crawl_finished_at,
+        "snapshot_ref": snapshot_metadata.get("ref"),
+        "snapshot_archive_url": snapshot_metadata.get("archive_url"),
+        "crawl_error_message": None,
+    }
+    store.replace_document(
+        collection_name="repo_registry_index",
+        doc_id=doc_id,
+        source=downloaded_source,
+        refresh=True,
+    )
+
+    try:
+        return run_repo_pipeline_for_repo(
+            doc_id,
+            store=store,
+            refresh_writes=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - 다운로드 성공 후 후속 처리 실패는 상태를 남기고 반환
+        logger.warning("Repository pipeline failed after download for repo_id=%s error=%s", doc_id, str(exc))
+        return {
+            "repo_id": doc_id,
+            "pipeline_status": "failed_runtime",
+            "error_message": str(exc),
+        }
+
+
 async def _crawl_single_repo(
     client: httpx.AsyncClient,
     base_dir: Path,
@@ -283,18 +297,26 @@ async def _crawl_single_repo(
 ) -> RepoSnapshotCrawlResult:
     doc_id = hit["_id"]
     source = hit["_source"]
-    owner, repo = _normalize_repo_identity(source)
+    owner, repo = normalize_repo_identity(source)
 
     async with semaphore:
         snapshot_metadata: dict | None = None
         try:
             snapshot_metadata = await _download_repo_snapshot(client, base_dir, source)
+            pipeline_result = await asyncio.to_thread(
+                _process_downloaded_repo,
+                base_dir=base_dir,
+                doc_id=doc_id,
+                claimed_source=source,
+                snapshot_metadata=snapshot_metadata,
+            )
 
             return RepoSnapshotCrawlResult(
                 doc_id=doc_id,
                 owner=owner,
                 repo=repo,
                 snapshot_metadata=snapshot_metadata,
+                pipeline_result=pipeline_result,
             )
         except Exception as exc:  # noqa: BLE001 - repo별 실패를 결과로 모아야 함
             logger.warning("Snapshot crawl failed for repo=%s/%s error=%s", owner, repo, str(exc))
@@ -367,15 +389,12 @@ def repo_crawler() -> None:
 
         if crawl_result.error is not None:
             updated_source = {
-                **current_source,
+                **strip_local_snapshot_fields(current_source),
                 "crawl_status": "crawl_failed",
                 "crawl_finished_at": crawl_finished_at,
                 "crawl_error_message": str(crawl_result.error),
                 "snapshot_ref": snapshot_metadata.get("ref"),
                 "snapshot_archive_url": snapshot_metadata.get("archive_url"),
-                "snapshot_download_path": snapshot_metadata.get("download_path"),
-                "snapshot_extract_dir": snapshot_metadata.get("extract_dir"),
-                "snapshot_root_path": snapshot_metadata.get("extracted_root"),
             }
             claimed_docs[doc_id]["_source"] = updated_source
             pending_registry_docs.append((doc_id, updated_source))
@@ -383,22 +402,13 @@ def repo_crawler() -> None:
                 _flush_registry_docs(refresh=False)
             return
 
-        updated_source = {
-            **current_source,
-            "crawl_status": "downloaded",
-            "crawled_at": crawl_finished_at,
-            "crawl_finished_at": crawl_finished_at,
-            "snapshot_ref": snapshot_metadata.get("ref"),
-            "snapshot_archive_url": snapshot_metadata.get("archive_url"),
-            "snapshot_download_path": snapshot_metadata.get("download_path"),
-            "snapshot_extract_dir": snapshot_metadata.get("extract_dir"),
-            "snapshot_root_path": snapshot_metadata.get("extracted_root"),
-            "crawl_error_message": None,
-        }
-        claimed_docs[doc_id]["_source"] = updated_source
-        pending_registry_docs.append((doc_id, updated_source))
-        if len(pending_registry_docs) >= bulk_flush_docs:
-            _flush_registry_docs(refresh=False)
+        pipeline_status = str((crawl_result.pipeline_result or {}).get("pipeline_status") or "processed")
+        logger.info(
+            "Repository lifecycle completed: repo=%s/%s pipeline_status=%s",
+            crawl_result.owner,
+            crawl_result.repo,
+            pipeline_status,
+        )
 
     asyncio.run(
         _crawl_repo_batch(
@@ -407,5 +417,6 @@ def repo_crawler() -> None:
             result_handler=_handle_crawl_result,
         )
     )
-    _flush_registry_docs(refresh=False)
-    store.refresh_index("repo_registry_index")
+    if pending_registry_docs:
+        _flush_registry_docs(refresh=False)
+        store.refresh_index("repo_registry_index")

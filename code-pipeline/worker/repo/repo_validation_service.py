@@ -103,6 +103,8 @@ def _claim_repo_docs_for_validation(
     store: OpenSearchStore,
     repo_docs: list[dict],
     started_at: str,
+    *,
+    refresh_writes: bool = True,
 ) -> dict[str, dict]:
     claimed_docs = {}
     for hit in repo_docs:
@@ -123,6 +125,7 @@ def _claim_repo_docs_for_validation(
             collection_name=REPO_REGISTRY_INDEX,
             doc_id=doc_id,
             source=claimed_source,
+            refresh=refresh_writes,
         )
         claimed_docs[doc_id] = {"_id": doc_id, "_source": claimed_source}
     return claimed_docs
@@ -395,6 +398,7 @@ def run_repo_processing_validation_for_repo(
     repo_id: str,
     *,
     store: OpenSearchStore | None = None,
+    refresh_writes: bool = True,
 ) -> dict:
     if store is None:
         store = OpenSearchStore()
@@ -442,6 +446,7 @@ def run_repo_processing_validation_for_repo(
             store=store,
             repo_docs=[repo_doc],
             started_at=validation_started_at,
+            refresh_writes=refresh_writes,
         )
         claimed_source = dict(claimed_docs[repo_id]["_source"])
         checked_at = datetime.now(timezone.utc).isoformat()
@@ -462,6 +467,7 @@ def run_repo_processing_validation_for_repo(
                 "metrics": metrics,
                 "checked_at": checked_at,
             },
+            refresh=refresh_writes,
         )
 
         updated_source = {
@@ -483,6 +489,7 @@ def run_repo_processing_validation_for_repo(
             collection_name=REPO_REGISTRY_INDEX,
             doc_id=repo_id,
             source=updated_source,
+            refresh=refresh_writes,
         )
 
         return {
@@ -506,6 +513,7 @@ def run_repo_processing_validation_for_repo(
                 "checked_at": checked_at,
                 "error_message": str(exc),
             },
+            refresh=refresh_writes,
         )
         repo_doc = _load_repo_doc_for_validation(store, repo_id) or {"_source": {}}
         failed_source = {
@@ -520,6 +528,7 @@ def run_repo_processing_validation_for_repo(
             collection_name=REPO_REGISTRY_INDEX,
             doc_id=repo_id,
             source=failed_source,
+            refresh=refresh_writes,
         )
         return {
             "repo_id": repo_id,
@@ -554,7 +563,11 @@ def run_repo_processing_validation_for_shard(
     skipped_count = 0
     for repo_id in repo_ids:
         processed_count += 1
-        result = run_repo_processing_validation_for_repo(repo_id, store=store)
+        result = run_repo_processing_validation_for_repo(
+            repo_id,
+            store=store,
+            refresh_writes=False,
+        )
         stage_status = str(result.get("stage_status") or "")
         if stage_status == "validated":
             validated_count += 1
@@ -562,6 +575,10 @@ def run_repo_processing_validation_for_shard(
             failed_count += 1
         else:
             skipped_count += 1
+
+    if processed_count > 0:
+        store.refresh_index(REPO_VALIDATION_INDEX)
+        store.refresh_index(REPO_REGISTRY_INDEX)
 
     return {
         "stage": "validation",

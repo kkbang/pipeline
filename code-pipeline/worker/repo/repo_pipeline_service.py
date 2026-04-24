@@ -73,8 +73,14 @@ def list_repo_ids_for_repo_pipeline() -> list[str]:
     return sorted(set(repo_ids))
 
 
-def run_repo_pipeline_for_repo(repo_id: str) -> dict:
-    store = OpenSearchStore()
+def run_repo_pipeline_for_repo(
+    repo_id: str,
+    *,
+    store: OpenSearchStore | None = None,
+    refresh_writes: bool = True,
+) -> dict:
+    if store is None:
+        store = OpenSearchStore()
     started_at = datetime.now(timezone.utc).isoformat()
     pipeline_result = {
         "repo_id": repo_id,
@@ -83,7 +89,11 @@ def run_repo_pipeline_for_repo(repo_id: str) -> dict:
         "stages": {},
     }
 
-    extract_result = run_repo_file_extraction_for_repo(repo_id, store=store)
+    extract_result = run_repo_file_extraction_for_repo(
+        repo_id,
+        store=store,
+        refresh_writes=refresh_writes,
+    )
     pipeline_result["stages"]["extract"] = extract_result
     extract_stage_status = extract_result.get("stage_status")
     if extract_stage_status not in {"extracted"}:
@@ -94,7 +104,11 @@ def run_repo_pipeline_for_repo(repo_id: str) -> dict:
             pipeline_result["finished_at"] = datetime.now(timezone.utc).isoformat()
             return pipeline_result
 
-    chunk_result = run_repo_code_chunking_for_repo(repo_id, store=store)
+    chunk_result = run_repo_code_chunking_for_repo(
+        repo_id,
+        store=store,
+        refresh_writes=refresh_writes,
+    )
     pipeline_result["stages"]["chunk"] = chunk_result
     chunk_stage_status = chunk_result.get("stage_status")
     if chunk_stage_status not in {"chunked", "chunk_failed"}:
@@ -105,7 +119,11 @@ def run_repo_pipeline_for_repo(repo_id: str) -> dict:
         pipeline_result["finished_at"] = datetime.now(timezone.utc).isoformat()
         return pipeline_result
 
-    validation_result = run_repo_processing_validation_for_repo(repo_id, store=store)
+    validation_result = run_repo_processing_validation_for_repo(
+        repo_id,
+        store=store,
+        refresh_writes=refresh_writes,
+    )
     pipeline_result["stages"]["validation"] = validation_result
 
     validation_stage_status = validation_result.get("stage_status")

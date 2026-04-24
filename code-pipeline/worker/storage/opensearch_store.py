@@ -296,7 +296,7 @@ class OpenSearchStore:
                 "sort": resolved_sort,
                 "query": query or {"match_all": {}},
             }
-            if source_includes:
+            if source_includes is not None:
                 body["_source"] = source_includes
             if search_after is not None:
                 body["search_after"] = search_after
