@@ -2,6 +2,7 @@ from datetime import datetime
 
 from airflow import DAG
 from airflow.decorators import task
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
 from worker.repo.repo_file_extract_service import run_repo_file_extraction_for_shard
@@ -37,4 +38,11 @@ with DAG(
             shard_count=shard_count,
         )
 
-    extract_shard.expand(shard_index=list(range(shard_count)))
+    extract_results = extract_shard.expand(shard_index=list(range(shard_count)))
+
+    trigger_repo_chunk = TriggerDagRunOperator(
+        task_id="trigger_repo_chunk_dag",
+        trigger_dag_id="repo_chunk_dag",
+    )
+
+    extract_results >> trigger_repo_chunk

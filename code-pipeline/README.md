@@ -4,18 +4,18 @@
 
 이 저장소의 최종 목표는 공개 코드 저장소를 대규모로 수집한 뒤, 코드와 라이선스 문맥을 함께 보존하고, 이후 function-level chunking, feature/embedding 생성, 유사도 검색, license-aware 판단까지 이어지는 데이터 파이프라인을 구축하는 것입니다.
 
-현재 구현은 그 전체 그림 중에서도 가장 앞단인 `Seed Source -> Repo Discovery -> Repo Registry` 구간에 집중되어 있습니다.
+현재 구현은 `Seed Source -> Repo Discovery -> Repo Registry`를 넘어, `Repository Snapshot Download -> File Extraction -> Code Chunking -> Validation`까지 기본 동작이 들어와 있습니다.
 
 ## 한눈에 보기
 
 - 최종 목표: 라이선스 리스크가 있는 유사 코드 탐지를 위한 학습/검증 데이터셋 구축
-- 현재 구현 범위: seed source 수집, GitHub 저장소 식별, repo registry 구축
+- 현재 구현 범위: seed source 수집, GitHub 저장소 식별, repo registry 구축, repo snapshot download, file extraction, code chunking, validation
 - 현재 seed source:
   - package registry repo: `PyPI`, `npm`
   - curated repo list: 정적 GitHub repo URL 목록
   - benchmark dataset source: benchmark dataset artifact에서 추출한 공개 repo
 - 현재 기본 저장소: `OpenSearch`
-- 장기 설계 저장소: `OpenSearch`, `Backblaze B2`
+- 장기 설계 저장소: `OpenSearch` 중심, object storage 확장 가능
 - 실행 환경: `Airflow + Docker Compose`
 
 ## 왜 이 프로젝트가 필요한가
@@ -67,7 +67,12 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 5. 등록 가능한 repo만 `repo_registry_index`에 올립니다.
 6. 발견 경로와 provenance를 함께 남깁니다.
 
-즉, 현재 저장소의 직접적인 산출물은 "라이선스 탐지 데이터셋"이 아니라, 그 다음 단계의 입력이 되는 `repo registry`입니다.
+즉, 현재 저장소의 직접적인 산출물은 `repo registry`뿐 아니라, 그 이후 단계의 `repo_file_index`, `repo_chunk_index`, validation 결과까지 포함합니다.
+
+현재 repo 처리 계층의 운영 구조와 문제 해결 내역은 아래 문서를 참고합니다.
+
+- [repo-processing-current-state.md](/Users/xxuchan/Desktop/kkbang/code-pipeline/docs/repo-processing-current-state.md)
+- [large-scale-collection-current-state.md](/Users/xxuchan/Desktop/kkbang/code-pipeline/docs/large-scale-collection-current-state.md)
 
 ## Seed Source 전략
 
@@ -429,9 +434,9 @@ code-pipeline/
 
 ## 현재 한계
 
-- 현재 저장소는 OpenSearch 중심이며, repo snapshot 아카이브는 Backblaze B2 업로드를 지원합니다.
+- 현재 저장소는 OpenSearch 중심이며, repo snapshot은 local scratch 기반으로 처리 후 정리합니다.
 - GitHub qualification은 GitHub REST API 무인증 호출에 의존합니다.
-- repo snapshot, 파일 수집, chunking, embedding, retrieval 단계는 아직 구현되지 않았습니다.
+- repo snapshot download, 파일 수집, chunking, validation은 구현되어 있으나 embedding / retrieval / license-aware judgement 단계는 아직 남아 있습니다.
 - seed source coverage는 아직 초기 단계입니다.
 - 현재 qualification 로직은 단순하며, 장기적으로 더 정교한 정책이 필요합니다.
 
@@ -442,14 +447,12 @@ code-pipeline/
 1. direct repo seed 추가
 2. GitHub search / topic 기반 자동 확장 추가
 3. README / dependency link expansion 추가
-4. snapshot download 계층 구현
-5. file extraction / validation 추가
-6. function-level chunking 추가
-7. feature / embedding 생성 추가
-8. license-aware similarity pipeline 연결
+4. feature / embedding 생성 추가
+5. similarity retrieval 추가
+6. license-aware similarity pipeline 연결
 
 ## 요약
 
 이 저장소는 라이선스 파생 코드 탐지용 전체 시스템의 첫 단계를 구현합니다.
 
-현재는 `PyPI`, `npm`, curated repo list, benchmark dataset source 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만드는 데 초점을 맞추고 있으며, 이 registry는 이후 snapshot 수집, 코드 청크 생성, 유사도 검색, 라이선스 판단 단계의 기반 데이터가 됩니다.
+현재는 `PyPI`, `npm`, curated repo list, benchmark dataset source 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만들고, 이어서 snapshot download, 파일 추출, 코드 청크 생성, validation까지 연결하는 데 초점을 맞추고 있습니다.

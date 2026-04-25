@@ -2,6 +2,7 @@ from datetime import datetime
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.repo.repo_crawl_service import repo_crawler
 
@@ -16,14 +17,21 @@ default_args = {
 with DAG(
     dag_id="code_pipeline_dag",
     default_args=default_args,
-    description="Repository download-to-processing pipeline",
+    description="Repository snapshot download stage",
     start_date=datetime(2026, 1, 1),
     schedule_interval=None,
     catchup=False,
     max_active_runs=1,
-    tags=["repo", "snapshot"],
+    tags=["repo", "snapshot", "download"],
 ) as dag:
     repo_snapshot_download_task = PythonOperator(
         task_id="repo_snapshot_download",
         python_callable=repo_crawler,
     )
+
+    trigger_repo_extract = TriggerDagRunOperator(
+        task_id="trigger_repo_extract_dag",
+        trigger_dag_id="repo_extract_dag",
+    )
+
+    repo_snapshot_download_task >> trigger_repo_extract

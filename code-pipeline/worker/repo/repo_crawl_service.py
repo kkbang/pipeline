@@ -9,7 +9,6 @@ from pathlib import Path
 import httpx
 
 from worker.common.config import settings
-from worker.repo.repo_pipeline_service import run_repo_pipeline_for_repo
 from worker.repo.repo_snapshot_local_paths import (
     normalize_repo_identity,
     resolve_extracted_root,
@@ -28,7 +27,6 @@ class RepoSnapshotCrawlResult:
     owner: str
     repo: str
     snapshot_metadata: dict | None = None
-    pipeline_result: dict | None = None
     error: Exception | None = None
 
 def _build_ref_candidates(source: dict) -> list[str]:
@@ -249,13 +247,13 @@ async def _download_repo_snapshot(
     raise ValueError(f"No candidate refs available for {owner}/{repo}")
 
 
-def _process_downloaded_repo(
+def _mark_repo_downloaded(
     *,
     base_dir: Path,
     doc_id: str,
     claimed_source: dict,
     snapshot_metadata: dict,
-) -> dict:
+) -> None:
     store = OpenSearchStore(base_dir=base_dir)
     crawl_finished_at = datetime.now(timezone.utc).isoformat()
     downloaded_source = {
@@ -274,20 +272,6 @@ def _process_downloaded_repo(
         refresh=True,
     )
 
-    try:
-        return run_repo_pipeline_for_repo(
-            doc_id,
-            store=store,
-            refresh_writes=True,
-        )
-    except Exception as exc:  # noqa: BLE001 - 다운로드 성공 후 후속 처리 실패는 상태를 남기고 반환
-        logger.warning("Repository pipeline failed after download for repo_id=%s error=%s", doc_id, str(exc))
-        return {
-            "repo_id": doc_id,
-            "pipeline_status": "failed_runtime",
-            "error_message": str(exc),
-        }
-
 
 async def _crawl_single_repo(
     client: httpx.AsyncClient,
@@ -303,8 +287,8 @@ async def _crawl_single_repo(
         snapshot_metadata: dict | None = None
         try:
             snapshot_metadata = await _download_repo_snapshot(client, base_dir, source)
-            pipeline_result = await asyncio.to_thread(
-                _process_downloaded_repo,
+            await asyncio.to_thread(
+                _mark_repo_downloaded,
                 base_dir=base_dir,
                 doc_id=doc_id,
                 claimed_source=source,
@@ -316,7 +300,6 @@ async def _crawl_single_repo(
                 owner=owner,
                 repo=repo,
                 snapshot_metadata=snapshot_metadata,
-                pipeline_result=pipeline_result,
             )
         except Exception as exc:  # noqa: BLE001 - repo별 실패를 결과로 모아야 함
             logger.warning("Snapshot crawl failed for repo=%s/%s error=%s", owner, repo, str(exc))
@@ -402,12 +385,11 @@ def repo_crawler() -> None:
                 _flush_registry_docs(refresh=False)
             return
 
-        pipeline_status = str((crawl_result.pipeline_result or {}).get("pipeline_status") or "processed")
         logger.info(
-            "Repository lifecycle completed: repo=%s/%s pipeline_status=%s",
+            "Repository snapshot download completed: repo=%s/%s ref=%s",
             crawl_result.owner,
             crawl_result.repo,
-            pipeline_status,
+            snapshot_metadata.get("ref"),
         )
 
     asyncio.run(

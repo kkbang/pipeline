@@ -2,6 +2,7 @@ from datetime import datetime
 
 from airflow import DAG
 from airflow.decorators import task
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
 from worker.repo.repo_chunk_service import run_repo_code_chunking_for_shard
@@ -37,4 +38,11 @@ with DAG(
             shard_count=shard_count,
         )
 
-    chunk_shard.expand(shard_index=list(range(shard_count)))
+    chunk_results = chunk_shard.expand(shard_index=list(range(shard_count)))
+
+    trigger_repo_validation = TriggerDagRunOperator(
+        task_id="trigger_repo_validation_dag",
+        trigger_dag_id="repo_validation_dag",
+    )
+
+    chunk_results >> trigger_repo_validation
