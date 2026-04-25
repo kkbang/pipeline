@@ -32,17 +32,21 @@ with DAG(
         task_id="extract_shard",
         max_active_tis_per_dag=max(1, settings.repo_pipeline_parallelism),
     )
-    def extract_shard(shard_index: int) -> dict:
+    def extract_shard(shard_index: int, batch_id: str | None = None) -> dict:
         return run_repo_file_extraction_for_shard(
             shard_index=shard_index,
             shard_count=shard_count,
+            batch_id=batch_id,
         )
 
-    extract_results = extract_shard.expand(shard_index=list(range(shard_count)))
+    extract_results = extract_shard.partial(
+        batch_id="{{ dag_run.conf.get('batch_id') if dag_run and dag_run.conf else None }}"
+    ).expand(shard_index=list(range(shard_count)))
 
     trigger_repo_chunk = TriggerDagRunOperator(
         task_id="trigger_repo_chunk_dag",
         trigger_dag_id="repo_chunk_dag",
+        conf={"batch_id": "{{ dag_run.conf.get('batch_id') if dag_run and dag_run.conf else None }}"},
     )
 
     extract_results >> trigger_repo_chunk

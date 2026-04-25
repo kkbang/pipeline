@@ -54,6 +54,12 @@ def _field_term_query(field_name: str, value: str) -> dict:
     }
 
 
+def _matches_batch_id(source: dict, field_name: str, batch_id: str | None) -> bool:
+    if not batch_id:
+        return True
+    return str(source.get(field_name) or "").strip() == batch_id
+
+
 def _iter_repo_docs_by_field(store: OpenSearchStore, field_name: str, value: str):
     yield from store.iterate_documents_by_query(
         collection_name=REPO_REGISTRY_INDEX,
@@ -99,6 +105,7 @@ def _normalized_repo_ids(
 def list_repo_ids_for_extraction(
     batch_size: int | None = None,
     *,
+    batch_id: str | None = None,
     shard_index: int | None = None,
     shard_count: int | None = None,
 ) -> list[str]:
@@ -110,6 +117,8 @@ def list_repo_ids_for_extraction(
     for hit in _iter_repo_docs_by_field(store, "crawl_status", "downloaded"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
+        if not _matches_batch_id(source, "crawl_batch_id", batch_id):
+            continue
         if source.get("file_extract_status") == "extracted":
             continue
         if isinstance(doc_id, str) and doc_id.strip():
@@ -119,6 +128,8 @@ def list_repo_ids_for_extraction(
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if source.get("crawl_status") != "downloaded":
+            continue
+        if not _matches_batch_id(source, "crawl_batch_id", batch_id):
             continue
         if not _is_stale(source.get("file_extract_started_at"), now):
             continue
@@ -136,6 +147,7 @@ def list_repo_ids_for_extraction(
 def list_repo_ids_for_chunking(
     batch_size: int | None = None,
     *,
+    batch_id: str | None = None,
     shard_index: int | None = None,
     shard_count: int | None = None,
 ) -> list[str]:
@@ -147,6 +159,8 @@ def list_repo_ids_for_chunking(
     for hit in _iter_repo_docs_by_field(store, "file_extract_status", "extracted"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
+        if not _matches_batch_id(source, "file_extract_batch_id", batch_id):
+            continue
         if source.get("chunk_status") == "chunked":
             continue
         if isinstance(doc_id, str) and doc_id.strip():
@@ -156,6 +170,8 @@ def list_repo_ids_for_chunking(
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if source.get("file_extract_status") != "extracted":
+            continue
+        if not _matches_batch_id(source, "file_extract_batch_id", batch_id):
             continue
         if not _is_stale(source.get("chunk_started_at"), now):
             continue
@@ -173,6 +189,7 @@ def list_repo_ids_for_chunking(
 def list_repo_ids_for_validation(
     batch_size: int | None = None,
     *,
+    batch_id: str | None = None,
     shard_index: int | None = None,
     shard_count: int | None = None,
 ) -> list[str]:
@@ -184,6 +201,8 @@ def list_repo_ids_for_validation(
     for hit in _iter_repo_docs_by_field(store, "chunk_status", "chunked"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
+        if not _matches_batch_id(source, "chunk_batch_id", batch_id):
+            continue
         if source.get("validation_status") == "validated" and not _has_newer_chunk_than_validation(source):
             continue
         if isinstance(doc_id, str) and doc_id.strip():
@@ -192,6 +211,8 @@ def list_repo_ids_for_validation(
     for hit in _iter_repo_docs_by_field(store, "chunk_status", "chunk_failed"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
+        if not _matches_batch_id(source, "chunk_batch_id", batch_id):
+            continue
         if source.get("validation_status") == "validated" and not _has_newer_chunk_than_validation(source):
             continue
         if isinstance(doc_id, str) and doc_id.strip():
@@ -201,6 +222,8 @@ def list_repo_ids_for_validation(
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if source.get("chunk_status") not in {"chunked", "chunk_failed"}:
+            continue
+        if not _matches_batch_id(source, "chunk_batch_id", batch_id):
             continue
         if not _is_stale(source.get("validation_started_at"), now):
             continue

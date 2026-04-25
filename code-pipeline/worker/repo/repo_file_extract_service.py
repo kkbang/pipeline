@@ -193,6 +193,7 @@ def _claim_repo_docs_for_extraction(
         attempt_count = int(source.get("file_extract_attempt_count") or 0) + 1
         claimed_source = {
             **source,
+            "file_extract_batch_id": source.get("crawl_batch_id"),
             "file_extract_status": "extracting",
             "file_extract_started_at": started_at,
             "file_extract_finished_at": None,
@@ -527,6 +528,7 @@ def run_repo_file_extraction_for_shard(
     *,
     shard_count: int | None = None,
     batch_size: int | None = None,
+    batch_id: str | None = None,
 ) -> dict:
     resolved_shard_count = (
         shard_count
@@ -536,6 +538,7 @@ def run_repo_file_extraction_for_shard(
     store = OpenSearchStore()
     repo_ids = list_repo_ids_for_extraction(
         batch_size=batch_size,
+        batch_id=batch_id,
         shard_index=shard_index,
         shard_count=resolved_shard_count,
     )

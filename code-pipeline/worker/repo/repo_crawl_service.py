@@ -29,6 +29,21 @@ class RepoSnapshotCrawlResult:
     snapshot_metadata: dict | None = None
     error: Exception | None = None
 
+
+def _reset_downstream_processing_fields(source: dict) -> dict:
+    cleaned = {}
+    for key, value in source.items():
+        if key.startswith("file_extract_"):
+            continue
+        if key.startswith("chunk_"):
+            continue
+        if key.startswith("validation_"):
+            continue
+        if key.startswith("snapshot_local_cleanup_"):
+            continue
+        cleaned[key] = value
+    return cleaned
+
 def _build_ref_candidates(source: dict) -> list[str]:
     candidates = []
     default_branch = str(source.get("default_branch") or "").strip()
@@ -170,6 +185,8 @@ def _claim_repo_docs(
     store: OpenSearchStore,
     repo_docs: list[dict],
     started_at: str,
+    *,
+    batch_id: str,
 ) -> dict[str, dict]:
     claimed_docs = {}
 
@@ -180,6 +197,7 @@ def _claim_repo_docs(
 
         claimed_source = {
             **source,
+            "crawl_batch_id": batch_id,
             "crawl_status": "downloading",
             "crawl_started_at": started_at,
             "crawl_attempt_count": attempt_count,
@@ -253,11 +271,16 @@ def _mark_repo_downloaded(
     doc_id: str,
     claimed_source: dict,
     snapshot_metadata: dict,
+    batch_id: str,
 ) -> None:
     store = OpenSearchStore(base_dir=base_dir)
     crawl_finished_at = datetime.now(timezone.utc).isoformat()
+    reset_source = _reset_downstream_processing_fields(
+        strip_local_snapshot_fields(claimed_source)
+    )
     downloaded_source = {
-        **strip_local_snapshot_fields(claimed_source),
+        **reset_source,
+        "crawl_batch_id": batch_id,
         "crawl_status": "downloaded",
         "crawled_at": crawl_finished_at,
         "crawl_finished_at": crawl_finished_at,
@@ -278,6 +301,7 @@ async def _crawl_single_repo(
     base_dir: Path,
     hit: dict,
     semaphore: asyncio.Semaphore,
+    batch_id: str,
 ) -> RepoSnapshotCrawlResult:
     doc_id = hit["_id"]
     source = hit["_source"]
@@ -293,6 +317,7 @@ async def _crawl_single_repo(
                 doc_id=doc_id,
                 claimed_source=source,
                 snapshot_metadata=snapshot_metadata,
+                batch_id=batch_id,
             )
 
             return RepoSnapshotCrawlResult(
@@ -316,6 +341,8 @@ async def _crawl_repo_batch(
     repo_docs: list[dict],
     base_dir: Path,
     result_handler: Callable[[RepoSnapshotCrawlResult], None],
+    *,
+    batch_id: str,
 ) -> None:
     concurrency = max(1, settings.repo_crawl_concurrency)
     semaphore = asyncio.Semaphore(concurrency)
@@ -328,6 +355,7 @@ async def _crawl_repo_batch(
                     base_dir=base_dir,
                     hit=hit,
                     semaphore=semaphore,
+                    batch_id=batch_id,
                 )
             )
             for hit in repo_docs
@@ -338,7 +366,7 @@ async def _crawl_repo_batch(
             result_handler(result)
 
 
-def repo_crawler() -> None:
+def repo_crawler(batch_id: str) -> None:
     store = OpenSearchStore()
     crawl_started_at = datetime.now(timezone.utc)
     repo_docs = _load_repo_docs_for_crawl(store, crawl_started_at)
@@ -349,6 +377,7 @@ def repo_crawler() -> None:
         store=store,
         repo_docs=repo_docs,
         started_at=crawl_started_at.isoformat(),
+        batch_id=batch_id,
     )
     bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
     pending_registry_docs: list[tuple[str, dict]] = []
@@ -397,6 +426,7 @@ def repo_crawler() -> None:
             repo_docs=list(claimed_docs.values()),
             base_dir=store.base_dir,
             result_handler=_handle_crawl_result,
+            batch_id=batch_id,
         )
     )
     if pending_registry_docs:

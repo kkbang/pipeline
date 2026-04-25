@@ -227,6 +227,7 @@ def _claim_repo_docs_for_chunking(
         attempt_count = int(source.get("chunk_attempt_count") or 0) + 1
         claimed_source = {
             **source,
+            "chunk_batch_id": source.get("file_extract_batch_id") or source.get("crawl_batch_id"),
             "chunk_status": "chunking",
             "chunk_started_at": started_at,
             "chunk_finished_at": None,
@@ -1003,6 +1004,7 @@ def run_repo_code_chunking_for_shard(
     *,
     shard_count: int | None = None,
     batch_size: int | None = None,
+    batch_id: str | None = None,
 ) -> dict:
     resolved_shard_count = (
         shard_count
@@ -1012,6 +1014,7 @@ def run_repo_code_chunking_for_shard(
     store = OpenSearchStore()
     repo_ids = list_repo_ids_for_chunking(
         batch_size=batch_size,
+        batch_id=batch_id,
         shard_index=shard_index,
         shard_count=resolved_shard_count,
     )

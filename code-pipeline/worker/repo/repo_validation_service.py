@@ -113,6 +113,7 @@ def _claim_repo_docs_for_validation(
         attempt_count = int(source.get("validation_attempt_count") or 0) + 1
         claimed_source = {
             **source,
+            "validation_batch_id": source.get("chunk_batch_id"),
             "validation_status": "validating",
             "validation_started_at": started_at,
             "validation_checked_at": None,
@@ -544,6 +545,7 @@ def run_repo_processing_validation_for_shard(
     *,
     shard_count: int | None = None,
     batch_size: int | None = None,
+    batch_id: str | None = None,
 ) -> dict:
     resolved_shard_count = (
         shard_count
@@ -553,6 +555,7 @@ def run_repo_processing_validation_for_shard(
     store = OpenSearchStore()
     repo_ids = list_repo_ids_for_validation(
         batch_size=batch_size,
+        batch_id=batch_id,
         shard_index=shard_index,
         shard_count=resolved_shard_count,
     )
