@@ -2,6 +2,7 @@ from datetime import datetime
 
 from airflow import DAG
 from airflow.decorators import task
+from airflow.models.dagrun import DagRun
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
@@ -32,16 +33,15 @@ with DAG(
         task_id="chunk_shard",
         max_active_tis_per_dag=max(1, settings.repo_pipeline_parallelism),
     )
-    def chunk_shard(shard_index: int, batch_id: str | None = None) -> dict:
+    def chunk_shard(shard_index: int, dag_run: DagRun | None = None) -> dict:
+        batch_id = dag_run.conf.get("batch_id") if dag_run and dag_run.conf else None
         return run_repo_code_chunking_for_shard(
             shard_index=shard_index,
             shard_count=shard_count,
             batch_id=batch_id,
         )
 
-    chunk_results = chunk_shard.partial(
-        batch_id="{{ dag_run.conf.get('batch_id') if dag_run and dag_run.conf else None }}"
-    ).expand(shard_index=list(range(shard_count)))
+    chunk_results = chunk_shard.expand(shard_index=list(range(shard_count)))
 
     trigger_repo_validation = TriggerDagRunOperator(
         task_id="trigger_repo_validation_dag",
