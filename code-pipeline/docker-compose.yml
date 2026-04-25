@@ -25,6 +25,11 @@ services:
       - airflow/config/airflow.env
     environment:
       PYTHONPATH: /opt/airflow
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     ports:
       - "8080:8080"
     volumes:
@@ -49,6 +54,7 @@ services:
         sleep 3
       done &&
       echo 'Postgres + Tor-Proxy are UP! Starting Airflow...' &&
+      python /opt/airflow/config/prune_airflow_logs.py &
       airflow db init &&
       airflow db migrate &&
       (

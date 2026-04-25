@@ -104,7 +104,7 @@ def _claim_repo_docs_for_validation(
     repo_docs: list[dict],
     started_at: str,
     *,
-    refresh_writes: bool = True,
+    refresh_writes: bool = False,
 ) -> dict[str, dict]:
     claimed_docs = {}
     for hit in repo_docs:
@@ -399,7 +399,7 @@ def run_repo_processing_validation_for_repo(
     repo_id: str,
     *,
     store: OpenSearchStore | None = None,
-    refresh_writes: bool = True,
+    refresh_writes: bool = False,
 ) -> dict:
     if store is None:
         store = OpenSearchStore()
@@ -579,10 +579,6 @@ def run_repo_processing_validation_for_shard(
         else:
             skipped_count += 1
 
-    if processed_count > 0:
-        store.refresh_index(REPO_VALIDATION_INDEX)
-        store.refresh_index(REPO_REGISTRY_INDEX)
-
     return {
         "stage": "validation",
         "shard_index": shard_index,
@@ -628,6 +624,7 @@ def run_repo_processing_validation() -> None:
                     "metrics": metrics,
                     "checked_at": checked_at,
                 },
+                refresh=False,
             )
 
             updated_source = {
@@ -649,6 +646,7 @@ def run_repo_processing_validation() -> None:
                 collection_name=REPO_REGISTRY_INDEX,
                 doc_id=doc_id,
                 source=updated_source,
+                refresh=False,
             )
             claimed_docs[doc_id]["_source"] = updated_source
         except Exception as exc:  # noqa: BLE001 - repo별 실패를 이어서 처리해야 함
@@ -664,6 +662,7 @@ def run_repo_processing_validation() -> None:
                     "checked_at": checked_at,
                     "error_message": str(exc),
                 },
+                refresh=False,
             )
             failed_source = {
                 **source,
@@ -677,5 +676,6 @@ def run_repo_processing_validation() -> None:
                 collection_name=REPO_REGISTRY_INDEX,
                 doc_id=doc_id,
                 source=failed_source,
+                refresh=False,
             )
             claimed_docs[doc_id]["_source"] = failed_source

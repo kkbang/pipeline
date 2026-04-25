@@ -292,7 +292,7 @@ def _mark_repo_downloaded(
         collection_name="repo_registry_index",
         doc_id=doc_id,
         source=downloaded_source,
-        refresh=True,
+        refresh=False,
     )
 
 
@@ -431,4 +431,3 @@ def repo_crawler(batch_id: str) -> None:
     )
     if pending_registry_docs:
         _flush_registry_docs(refresh=False)
-        store.refresh_index("repo_registry_index")

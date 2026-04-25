@@ -1,4 +1,6 @@
+import logging
 import hashlib
+import time
 from datetime import datetime, timezone
 
 from worker.common.config import settings
@@ -6,6 +8,7 @@ from worker.storage.opensearch_store import OpenSearchStore
 
 
 REPO_REGISTRY_INDEX = "repo_registry_index"
+logger = logging.getLogger(__name__)
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -49,6 +52,16 @@ def _field_term_query(field_name: str, value: str) -> dict:
                 {"term": {f"{field_name}.keyword": value}},
                 {"term": {field_name: value}},
             ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
+def _field_terms_query(field_name: str, values: list[str]) -> dict:
+    normalized_values = [str(value).strip() for value in values if str(value).strip()]
+    return {
+        "bool": {
+            "should": [_field_term_query(field_name, value) for value in normalized_values],
             "minimum_should_match": 1,
         }
     }
@@ -102,6 +115,73 @@ def _normalized_repo_ids(
     return unique_repo_ids[:batch_limit]
 
 
+def _batch_visibility_query(
+    *,
+    status_field: str,
+    status_values: list[str],
+    batch_field: str,
+    batch_id: str,
+) -> dict:
+    return {
+        "bool": {
+            "must": [
+                _field_terms_query(status_field, status_values),
+                _field_term_query(batch_field, batch_id),
+            ]
+        }
+    }
+
+
+def _wait_for_batch_visibility(
+    *,
+    store: OpenSearchStore,
+    stage_name: str,
+    batch_id: str | None,
+    status_field: str,
+    status_values: list[str],
+    batch_field: str,
+) -> None:
+    normalized_batch_id = str(batch_id or "").strip()
+    if not normalized_batch_id:
+        return
+
+    timeout_seconds = max(0.0, float(settings.repo_stage_visibility_wait_seconds))
+    poll_interval_seconds = max(
+        0.1,
+        float(settings.repo_stage_visibility_poll_interval_seconds),
+    )
+    if timeout_seconds <= 0:
+        return
+
+    query = _batch_visibility_query(
+        status_field=status_field,
+        status_values=status_values,
+        batch_field=batch_field,
+        batch_id=normalized_batch_id,
+    )
+    if store.count_documents(REPO_REGISTRY_INDEX, query=query) > 0:
+        return
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        sleep_seconds = min(poll_interval_seconds, max(0.0, deadline - time.monotonic()))
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
+        if store.count_documents(REPO_REGISTRY_INDEX, query=query) > 0:
+            logger.info(
+                "Batch became visible for stage=%s batch_id=%s after polling",
+                stage_name,
+                normalized_batch_id,
+            )
+            return
+
+    logger.info(
+        "Batch visibility polling timed out for stage=%s batch_id=%s",
+        stage_name,
+        normalized_batch_id,
+    )
+
+
 def list_repo_ids_for_extraction(
     batch_size: int | None = None,
     *,
@@ -112,6 +192,14 @@ def list_repo_ids_for_extraction(
     store = OpenSearchStore()
     batch_limit = _resolve_batch_limit(batch_size)
     now = datetime.now(timezone.utc)
+    _wait_for_batch_visibility(
+        store=store,
+        stage_name="extract",
+        batch_id=batch_id,
+        status_field="crawl_status",
+        status_values=["downloaded"],
+        batch_field="crawl_batch_id",
+    )
 
     selected_repo_ids = []
     for hit in _iter_repo_docs_by_field(store, "crawl_status", "downloaded"):
@@ -154,6 +242,14 @@ def list_repo_ids_for_chunking(
     store = OpenSearchStore()
     batch_limit = _resolve_batch_limit(batch_size)
     now = datetime.now(timezone.utc)
+    _wait_for_batch_visibility(
+        store=store,
+        stage_name="chunk",
+        batch_id=batch_id,
+        status_field="file_extract_status",
+        status_values=["extracted"],
+        batch_field="file_extract_batch_id",
+    )
 
     selected_repo_ids = []
     for hit in _iter_repo_docs_by_field(store, "file_extract_status", "extracted"):
@@ -196,6 +292,14 @@ def list_repo_ids_for_validation(
     store = OpenSearchStore()
     batch_limit = _resolve_batch_limit(batch_size)
     now = datetime.now(timezone.utc)
+    _wait_for_batch_visibility(
+        store=store,
+        stage_name="validation",
+        batch_id=batch_id,
+        status_field="chunk_status",
+        status_values=["chunked", "chunk_failed"],
+        batch_field="chunk_batch_id",
+    )
 
     selected_repo_ids = []
     for hit in _iter_repo_docs_by_field(store, "chunk_status", "chunked"):

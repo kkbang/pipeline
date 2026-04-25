@@ -184,7 +184,7 @@ def _claim_repo_docs_for_extraction(
     repo_docs: list[dict],
     started_at: str,
     *,
-    refresh_writes: bool = True,
+    refresh_writes: bool = False,
 ) -> dict[str, dict]:
     claimed_docs = {}
     for hit in repo_docs:
@@ -290,7 +290,7 @@ def _extract_repo_files(
     repo_id: str,
     source: dict,
     extracted_at: str,
-    refresh_writes: bool = True,
+    refresh_writes: bool = False,
 ) -> RepoFileExtractStats:
     snapshot_root = resolve_snapshot_root_path(store.base_dir, source).resolve()
     if not snapshot_root.exists() or not snapshot_root.is_dir():
@@ -385,8 +385,6 @@ def _extract_repo_files(
         )
         stats.deleted_previous_docs = len(stale_doc_ids)
 
-    if refresh_writes:
-        store.refresh_index(REPO_FILE_INDEX)
     return stats
 
 
@@ -403,7 +401,7 @@ def run_repo_file_extraction_for_repo(
     repo_id: str,
     *,
     store: OpenSearchStore | None = None,
-    refresh_writes: bool = True,
+    refresh_writes: bool = False,
 ) -> dict:
     if store is None:
         store = OpenSearchStore()
@@ -562,10 +560,6 @@ def run_repo_file_extraction_for_shard(
         else:
             skipped_count += 1
 
-    if processed_count > 0:
-        store.refresh_index(REPO_FILE_INDEX)
-        store.refresh_index(REPO_REGISTRY_INDEX)
-
     return {
         "stage": "extract",
         "shard_index": shard_index,
@@ -644,6 +638,3 @@ def run_repo_file_extraction() -> None:
                 refresh=False,
             )
             claimed_docs[doc_id]["_source"] = failed_source
-
-    store.refresh_index(REPO_FILE_INDEX)
-    store.refresh_index(REPO_REGISTRY_INDEX)
