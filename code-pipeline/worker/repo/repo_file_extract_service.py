@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from worker.common.config import settings
+from worker.repo.repo_pipeline_manifest_service import (
+    EXTRACT_READY_STAGE,
+    write_stage_manifest,
+)
 from worker.repo.repo_snapshot_local_paths import (
     resolve_snapshot_root_path,
     strip_local_snapshot_fields,
@@ -545,6 +549,7 @@ def run_repo_file_extraction_for_shard(
     extracted_count = 0
     failed_count = 0
     skipped_count = 0
+    manifest_entries: list[dict] = []
     for repo_id in repo_ids:
         processed_count += 1
         result = run_repo_file_extraction_for_repo(
@@ -555,10 +560,27 @@ def run_repo_file_extraction_for_shard(
         stage_status = str(result.get("stage_status") or "")
         if stage_status == "extracted":
             extracted_count += 1
+            manifest_entries.append(
+                {
+                    "batch_id": batch_id,
+                    "repo_id": repo_id,
+                    "stage_status": stage_status,
+                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                    "shard_index": shard_index,
+                }
+            )
         elif stage_status == "extract_failed":
             failed_count += 1
         else:
             skipped_count += 1
+
+    write_stage_manifest(
+        base_dir=store.base_dir,
+        batch_id=batch_id,
+        stage_name=EXTRACT_READY_STAGE,
+        entries=manifest_entries,
+        shard_index=shard_index,
+    )
 
     return {
         "stage": "extract",
@@ -568,6 +590,7 @@ def run_repo_file_extraction_for_shard(
         "extracted_count": extracted_count,
         "failed_count": failed_count,
         "skipped_count": skipped_count,
+        "manifest_count": len(manifest_entries),
     }
 
 

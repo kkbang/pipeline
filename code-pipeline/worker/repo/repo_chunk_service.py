@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from worker.common.config import settings
+from worker.repo.repo_pipeline_manifest_service import (
+    CHUNK_COMPLETED_STAGE,
+    write_stage_manifest,
+)
 from worker.repo.repo_snapshot_local_paths import (
     resolve_snapshot_download_path,
     resolve_snapshot_extract_dir,
@@ -1021,6 +1025,7 @@ def run_repo_code_chunking_for_shard(
     chunked_count = 0
     failed_count = 0
     skipped_count = 0
+    manifest_entries: list[dict] = []
     for repo_id in repo_ids:
         processed_count += 1
         result = run_repo_code_chunking_for_repo(
@@ -1031,10 +1036,36 @@ def run_repo_code_chunking_for_shard(
         stage_status = str(result.get("stage_status") or "")
         if stage_status == "chunked":
             chunked_count += 1
+            manifest_entries.append(
+                {
+                    "batch_id": batch_id,
+                    "repo_id": repo_id,
+                    "stage_status": stage_status,
+                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                    "shard_index": shard_index,
+                }
+            )
         elif stage_status == "chunk_failed":
             failed_count += 1
+            manifest_entries.append(
+                {
+                    "batch_id": batch_id,
+                    "repo_id": repo_id,
+                    "stage_status": stage_status,
+                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                    "shard_index": shard_index,
+                }
+            )
         else:
             skipped_count += 1
+
+    write_stage_manifest(
+        base_dir=store.base_dir,
+        batch_id=batch_id,
+        stage_name=CHUNK_COMPLETED_STAGE,
+        entries=manifest_entries,
+        shard_index=shard_index,
+    )
 
     return {
         "stage": "chunk",
@@ -1044,6 +1075,7 @@ def run_repo_code_chunking_for_shard(
         "chunked_count": chunked_count,
         "failed_count": failed_count,
         "skipped_count": skipped_count,
+        "manifest_count": len(manifest_entries),
     }
 
 

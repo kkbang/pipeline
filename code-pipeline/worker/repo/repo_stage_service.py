@@ -1,14 +1,18 @@
-import logging
-import hashlib
-import time
 from datetime import datetime, timezone
 
 from worker.common.config import settings
+from worker.repo.repo_pipeline_manifest_service import (
+    CRAWL_DOWNLOADED_STAGE,
+    EXTRACT_READY_STAGE,
+    CHUNK_COMPLETED_STAGE,
+    iter_stage_manifest_entries,
+    repo_id_shard_index,
+    resolve_pipeline_base_dir,
+)
 from worker.storage.opensearch_store import OpenSearchStore
 
 
 REPO_REGISTRY_INDEX = "repo_registry_index"
-logger = logging.getLogger(__name__)
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -57,16 +61,6 @@ def _field_term_query(field_name: str, value: str) -> dict:
     }
 
 
-def _field_terms_query(field_name: str, values: list[str]) -> dict:
-    normalized_values = [str(value).strip() for value in values if str(value).strip()]
-    return {
-        "bool": {
-            "should": [_field_term_query(field_name, value) for value in normalized_values],
-            "minimum_should_match": 1,
-        }
-    }
-
-
 def _matches_batch_id(source: dict, field_name: str, batch_id: str | None) -> bool:
     if not batch_id:
         return True
@@ -90,11 +84,6 @@ def _resolve_batch_limit(batch_size: int | None) -> int | None:
     return batch_size
 
 
-def _repo_id_shard_index(repo_id: str, shard_count: int) -> int:
-    digest = hashlib.sha1(repo_id.encode("utf-8")).hexdigest()
-    return int(digest[:8], 16) % shard_count
-
-
 def _normalized_repo_ids(
     repo_ids: list[str],
     batch_limit: int | None,
@@ -108,77 +97,37 @@ def _normalized_repo_ids(
         unique_repo_ids = [
             repo_id
             for repo_id in unique_repo_ids
-            if _repo_id_shard_index(repo_id, shard_count) == normalized_shard_index
+            if repo_id_shard_index(repo_id, shard_count) == normalized_shard_index
         ]
     if batch_limit is None:
         return unique_repo_ids
     return unique_repo_ids[:batch_limit]
 
 
-def _batch_visibility_query(
+def _repo_ids_from_manifest(
     *,
-    status_field: str,
-    status_values: list[str],
-    batch_field: str,
-    batch_id: str,
-) -> dict:
-    return {
-        "bool": {
-            "must": [
-                _field_terms_query(status_field, status_values),
-                _field_term_query(batch_field, batch_id),
-            ]
-        }
-    }
-
-
-def _wait_for_batch_visibility(
-    *,
-    store: OpenSearchStore,
-    stage_name: str,
     batch_id: str | None,
-    status_field: str,
-    status_values: list[str],
-    batch_field: str,
-) -> None:
-    normalized_batch_id = str(batch_id or "").strip()
-    if not normalized_batch_id:
-        return
-
-    timeout_seconds = max(0.0, float(settings.repo_stage_visibility_wait_seconds))
-    poll_interval_seconds = max(
-        0.1,
-        float(settings.repo_stage_visibility_poll_interval_seconds),
-    )
-    if timeout_seconds <= 0:
-        return
-
-    query = _batch_visibility_query(
-        status_field=status_field,
-        status_values=status_values,
-        batch_field=batch_field,
-        batch_id=normalized_batch_id,
-    )
-    if store.count_documents(REPO_REGISTRY_INDEX, query=query) > 0:
-        return
-
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        sleep_seconds = min(poll_interval_seconds, max(0.0, deadline - time.monotonic()))
-        if sleep_seconds > 0:
-            time.sleep(sleep_seconds)
-        if store.count_documents(REPO_REGISTRY_INDEX, query=query) > 0:
-            logger.info(
-                "Batch became visible for stage=%s batch_id=%s after polling",
-                stage_name,
-                normalized_batch_id,
-            )
-            return
-
-    logger.info(
-        "Batch visibility polling timed out for stage=%s batch_id=%s",
-        stage_name,
-        normalized_batch_id,
+    stage_name: str,
+    batch_limit: int | None,
+    shard_index: int | None,
+    shard_count: int | None,
+) -> list[str]:
+    repo_ids = []
+    resolved_base_dir = resolve_pipeline_base_dir()
+    for entry in iter_stage_manifest_entries(
+        base_dir=resolved_base_dir,
+        batch_id=batch_id,
+        stage_name=stage_name,
+        shard_index=shard_index,
+    ) or []:
+        repo_id = entry.get("repo_id")
+        if isinstance(repo_id, str) and repo_id.strip():
+            repo_ids.append(repo_id)
+    return _normalized_repo_ids(
+        repo_ids,
+        batch_limit,
+        shard_index=shard_index,
+        shard_count=shard_count,
     )
 
 
@@ -189,17 +138,18 @@ def list_repo_ids_for_extraction(
     shard_index: int | None = None,
     shard_count: int | None = None,
 ) -> list[str]:
-    store = OpenSearchStore()
     batch_limit = _resolve_batch_limit(batch_size)
+    if batch_id:
+        return _repo_ids_from_manifest(
+            batch_id=batch_id,
+            stage_name=CRAWL_DOWNLOADED_STAGE,
+            batch_limit=batch_limit,
+            shard_index=shard_index,
+            shard_count=shard_count,
+        )
+
+    store = OpenSearchStore()
     now = datetime.now(timezone.utc)
-    _wait_for_batch_visibility(
-        store=store,
-        stage_name="extract",
-        batch_id=batch_id,
-        status_field="crawl_status",
-        status_values=["downloaded"],
-        batch_field="crawl_batch_id",
-    )
 
     selected_repo_ids = []
     for hit in _iter_repo_docs_by_field(store, "crawl_status", "downloaded"):
@@ -239,17 +189,18 @@ def list_repo_ids_for_chunking(
     shard_index: int | None = None,
     shard_count: int | None = None,
 ) -> list[str]:
-    store = OpenSearchStore()
     batch_limit = _resolve_batch_limit(batch_size)
+    if batch_id:
+        return _repo_ids_from_manifest(
+            batch_id=batch_id,
+            stage_name=EXTRACT_READY_STAGE,
+            batch_limit=batch_limit,
+            shard_index=shard_index,
+            shard_count=shard_count,
+        )
+
+    store = OpenSearchStore()
     now = datetime.now(timezone.utc)
-    _wait_for_batch_visibility(
-        store=store,
-        stage_name="chunk",
-        batch_id=batch_id,
-        status_field="file_extract_status",
-        status_values=["extracted"],
-        batch_field="file_extract_batch_id",
-    )
 
     selected_repo_ids = []
     for hit in _iter_repo_docs_by_field(store, "file_extract_status", "extracted"):
@@ -289,17 +240,18 @@ def list_repo_ids_for_validation(
     shard_index: int | None = None,
     shard_count: int | None = None,
 ) -> list[str]:
-    store = OpenSearchStore()
     batch_limit = _resolve_batch_limit(batch_size)
+    if batch_id:
+        return _repo_ids_from_manifest(
+            batch_id=batch_id,
+            stage_name=CHUNK_COMPLETED_STAGE,
+            batch_limit=batch_limit,
+            shard_index=shard_index,
+            shard_count=shard_count,
+        )
+
+    store = OpenSearchStore()
     now = datetime.now(timezone.utc)
-    _wait_for_batch_visibility(
-        store=store,
-        stage_name="validation",
-        batch_id=batch_id,
-        status_field="chunk_status",
-        status_values=["chunked", "chunk_failed"],
-        batch_field="chunk_batch_id",
-    )
 
     selected_repo_ids = []
     for hit in _iter_repo_docs_by_field(store, "chunk_status", "chunked"):

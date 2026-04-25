@@ -2,6 +2,10 @@ import logging
 from datetime import datetime, timezone
 
 from worker.common.config import settings
+from worker.repo.repo_pipeline_manifest_service import (
+    VALIDATION_COMPLETED_STAGE,
+    write_stage_manifest,
+)
 from worker.repo.repo_stage_service import list_repo_ids_for_validation
 from worker.storage.opensearch_store import OpenSearchStore
 
@@ -564,6 +568,7 @@ def run_repo_processing_validation_for_shard(
     validated_count = 0
     failed_count = 0
     skipped_count = 0
+    manifest_entries: list[dict] = []
     for repo_id in repo_ids:
         processed_count += 1
         result = run_repo_processing_validation_for_repo(
@@ -574,10 +579,36 @@ def run_repo_processing_validation_for_shard(
         stage_status = str(result.get("stage_status") or "")
         if stage_status == "validated":
             validated_count += 1
+            manifest_entries.append(
+                {
+                    "batch_id": batch_id,
+                    "repo_id": repo_id,
+                    "stage_status": stage_status,
+                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                    "shard_index": shard_index,
+                }
+            )
         elif stage_status == "validation_failed":
             failed_count += 1
+            manifest_entries.append(
+                {
+                    "batch_id": batch_id,
+                    "repo_id": repo_id,
+                    "stage_status": stage_status,
+                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                    "shard_index": shard_index,
+                }
+            )
         else:
             skipped_count += 1
+
+    write_stage_manifest(
+        base_dir=store.base_dir,
+        batch_id=batch_id,
+        stage_name=VALIDATION_COMPLETED_STAGE,
+        entries=manifest_entries,
+        shard_index=shard_index,
+    )
 
     return {
         "stage": "validation",
@@ -587,6 +618,7 @@ def run_repo_processing_validation_for_shard(
         "validated_count": validated_count,
         "failed_count": failed_count,
         "skipped_count": skipped_count,
+        "manifest_count": len(manifest_entries),
     }
 
 

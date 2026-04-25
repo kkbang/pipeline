@@ -146,10 +146,4 @@ class Settings:
     repo_validation_repo_limit: int = int(os.getenv("REPO_VALIDATION_REPO_LIMIT", "1000"))
     repo_pipeline_batch_size: int = int(os.getenv("REPO_PIPELINE_BATCH_SIZE", "200"))
     repo_pipeline_parallelism: int = int(os.getenv("REPO_PIPELINE_PARALLELISM", "36"))
-    repo_stage_visibility_wait_seconds: float = float(
-        os.getenv("REPO_STAGE_VISIBILITY_WAIT_SECONDS", "5")
-    )
-    repo_stage_visibility_poll_interval_seconds: float = float(
-        os.getenv("REPO_STAGE_VISIBILITY_POLL_INTERVAL_SECONDS", "0.5")
-    )
 settings = Settings()

@@ -71,6 +71,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 현재 repo 처리 계층의 운영 구조와 문제 해결 내역은 아래 문서를 참고합니다.
 
+- [repo-manifest-pipeline-architecture.md](/Users/xxuchan/Desktop/kkbang/code-pipeline/docs/repo-manifest-pipeline-architecture.md)
 - [repo-processing-current-state.md](/Users/xxuchan/Desktop/kkbang/code-pipeline/docs/repo-processing-current-state.md)
 - [large-scale-collection-current-state.md](/Users/xxuchan/Desktop/kkbang/code-pipeline/docs/large-scale-collection-current-state.md)
 

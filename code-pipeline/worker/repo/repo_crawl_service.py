@@ -9,6 +9,11 @@ from pathlib import Path
 import httpx
 
 from worker.common.config import settings
+from worker.repo.repo_pipeline_manifest_service import (
+    CRAWL_DOWNLOADED_STAGE,
+    repo_id_shard_index,
+    write_stage_manifest,
+)
 from worker.repo.repo_snapshot_local_paths import (
     normalize_repo_identity,
     resolve_extracted_root,
@@ -370,7 +375,14 @@ def repo_crawler(batch_id: str) -> None:
     store = OpenSearchStore()
     crawl_started_at = datetime.now(timezone.utc)
     repo_docs = _load_repo_docs_for_crawl(store, crawl_started_at)
+    success_manifest_entries: list[dict] = []
     if not repo_docs:
+        write_stage_manifest(
+            base_dir=store.base_dir,
+            batch_id=batch_id,
+            stage_name=CRAWL_DOWNLOADED_STAGE,
+            entries=[],
+        )
         return
 
     claimed_docs = _claim_repo_docs(
@@ -420,6 +432,18 @@ def repo_crawler(batch_id: str) -> None:
             crawl_result.repo,
             snapshot_metadata.get("ref"),
         )
+        success_manifest_entries.append(
+            {
+                "batch_id": batch_id,
+                "repo_id": doc_id,
+                "owner": crawl_result.owner,
+                "repo_name": crawl_result.repo,
+                "snapshot_ref": snapshot_metadata.get("ref"),
+                "snapshot_archive_url": snapshot_metadata.get("archive_url"),
+                "stage_status": "downloaded",
+                "recorded_at": crawl_finished_at,
+            }
+        )
 
     asyncio.run(
         _crawl_repo_batch(
@@ -431,3 +455,26 @@ def repo_crawler(batch_id: str) -> None:
     )
     if pending_registry_docs:
         _flush_registry_docs(refresh=False)
+    write_stage_manifest(
+        base_dir=store.base_dir,
+        batch_id=batch_id,
+        stage_name=CRAWL_DOWNLOADED_STAGE,
+        entries=success_manifest_entries,
+    )
+    if success_manifest_entries:
+        shard_count = max(1, settings.repo_pipeline_parallelism)
+        entries_by_shard: dict[int, list[dict]] = {index: [] for index in range(shard_count)}
+        for entry in success_manifest_entries:
+            repo_id = str(entry.get("repo_id") or "").strip()
+            if not repo_id:
+                continue
+            entries_by_shard[repo_id_shard_index(repo_id, shard_count)].append(entry)
+
+        for shard_index, shard_entries in entries_by_shard.items():
+            write_stage_manifest(
+                base_dir=store.base_dir,
+                batch_id=batch_id,
+                stage_name=CRAWL_DOWNLOADED_STAGE,
+                entries=shard_entries,
+                shard_index=shard_index,
+            )
