@@ -39,7 +39,9 @@ def _cleanup_empty_dirs() -> None:
     if not LOG_DIR.exists():
         return
     for path in sorted(LOG_DIR.rglob("*"), reverse=True):
-        if not path.is_dir():
+        # Airflow creates convenience symlinks like logs/.../latest. They may
+        # report as directories, but rmdir on the symlink path fails.
+        if not path.is_dir() or path.is_symlink():
             continue
         try:
             next(path.iterdir())

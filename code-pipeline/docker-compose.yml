@@ -55,8 +55,10 @@ services:
       done &&
       echo 'Postgres + Tor-Proxy are UP! Starting Airflow...' &&
       python /opt/airflow/config/prune_airflow_logs.py &
-      airflow db init &&
-      airflow db migrate &&
+      (
+        airflow db migrate ||
+        airflow db init
+      ) &&
       (
         airflow users create --username admin --firstname admin --lastname admin --role Admin --email admin@example.com --password admin ||
         airflow users reset-password --username admin --password admin
