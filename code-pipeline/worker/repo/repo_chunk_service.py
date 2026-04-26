@@ -3,7 +3,7 @@ import logging
 import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -150,7 +150,7 @@ class RepoChunkStats:
 @dataclass(slots=True)
 class FileChunkOutcome:
     relative_path: str
-    chunk_docs: list[tuple[str, dict]]
+    chunk_docs: list[tuple[str, dict]] = field(default_factory=list)
     total_lines_seen: int = 0
     chunk_docs_created: int = 0
     chunked_lines_total: int = 0
