@@ -143,6 +143,12 @@ class Settings:
     repo_chunk_repo_limit: int = int(os.getenv("REPO_CHUNK_REPO_LIMIT", "1000"))
     repo_chunk_max_lines: int = int(os.getenv("REPO_CHUNK_MAX_LINES", "80"))
     repo_chunk_overlap_lines: int = int(os.getenv("REPO_CHUNK_OVERLAP_LINES", "20"))
+    repo_chunk_whale_repo_min_code_bytes: int = int(
+        os.getenv("REPO_CHUNK_WHALE_REPO_MIN_CODE_BYTES", "25000000")
+    )
+    repo_chunk_whale_file_parallelism: int = int(
+        os.getenv("REPO_CHUNK_WHALE_FILE_PARALLELISM", "8")
+    )
     repo_validation_repo_limit: int = int(os.getenv("REPO_VALIDATION_REPO_LIMIT", "1000"))
     repo_pipeline_batch_size: int = int(os.getenv("REPO_PIPELINE_BATCH_SIZE", "200"))
     repo_pipeline_parallelism: int = int(os.getenv("REPO_PIPELINE_PARALLELISM", "36"))

@@ -24,6 +24,10 @@ def _parse_non_negative_int(value: object) -> int:
     return max(0, parsed)
 
 
+def _is_whale_repo(total_code_bytes: int) -> bool:
+    return total_code_bytes >= max(1, int(settings.repo_chunk_whale_repo_min_code_bytes))
+
+
 def _load_extracted_entries(store: OpenSearchStore, batch_id: str) -> list[dict]:
     entries_by_repo: dict[str, dict] = {}
     for entry in iter_stage_manifest_entries(
@@ -94,6 +98,12 @@ def plan_chunk_shards_for_batch(
                 "total_code_bytes": total_code_bytes,
                 "code_files_indexed": code_files_indexed,
                 "planning_weight": total_code_bytes,
+                "is_whale_repo": _is_whale_repo(total_code_bytes),
+                "chunk_execution_mode": (
+                    "file_parallel_whale"
+                    if _is_whale_repo(total_code_bytes)
+                    else "repo_sequential"
+                ),
                 "planned_at": planned_at,
             }
         )

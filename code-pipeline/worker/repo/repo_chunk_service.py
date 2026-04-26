@@ -2,6 +2,7 @@ import hashlib
 import logging
 import os
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -141,6 +142,26 @@ class RepoChunkStats:
     skipped_missing_files: int = 0
     skipped_non_utf8_files: int = 0
     deleted_previous_docs: int = 0
+    execution_mode: str = "repo_sequential"
+    file_parallelism: int = 1
+    repo_total_code_bytes: int = 0
+
+
+@dataclass(slots=True)
+class FileChunkOutcome:
+    relative_path: str
+    chunk_docs: list[tuple[str, dict]]
+    total_lines_seen: int = 0
+    chunk_docs_created: int = 0
+    chunked_lines_total: int = 0
+    function_chunks_created: int = 0
+    line_window_chunks_created: int = 0
+    file_has_function_chunk: bool = False
+    file_has_line_window_chunk: bool = False
+    parser_unavailable: bool = False
+    parser_failed: bool = False
+    skipped_missing_file: bool = False
+    skipped_non_utf8_file: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,6 +291,26 @@ def _chunk_parameters() -> tuple[int, int]:
     if overlap_lines >= max_lines:
         overlap_lines = max(0, max_lines - 1)
     return max_lines, overlap_lines
+
+
+def _whale_repo_threshold_code_bytes() -> int:
+    return max(1, int(settings.repo_chunk_whale_repo_min_code_bytes))
+
+
+def _whale_file_parallelism() -> int:
+    return max(1, int(settings.repo_chunk_whale_file_parallelism))
+
+
+def _whale_file_submit_window(file_parallelism: int) -> int:
+    return max(file_parallelism, min(64, file_parallelism * 8))
+
+
+def _parse_non_negative_int(value: object) -> int:
+    try:
+        parsed = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, parsed)
 
 
 def _is_path_within(path: Path, base_dir: Path) -> bool:
@@ -405,16 +446,17 @@ def _resolve_parser_key(language: object) -> str | None:
     return LANGUAGE_TO_PARSER_KEY.get(normalized)
 
 
-def _get_tree_sitter_parser(language: object) -> Parser | None:
+def _get_tree_sitter_parser(language: object, *, use_cache: bool = True) -> Parser | None:
     parser_key = _resolve_parser_key(language)
     if parser_key is None:
         return None
 
-    if parser_key in _PARSER_CACHE:
+    if use_cache and parser_key in _PARSER_CACHE:
         return _PARSER_CACHE[parser_key]
 
     if get_parser is None:
-        _PARSER_CACHE[parser_key] = None
+        if use_cache:
+            _PARSER_CACHE[parser_key] = None
         return None
 
     try:
@@ -422,7 +464,8 @@ def _get_tree_sitter_parser(language: object) -> Parser | None:
     except Exception:  # noqa: BLE001 - unsupported parser는 라인 윈도우 fallback
         parser = None
 
-    _PARSER_CACHE[parser_key] = parser
+    if use_cache:
+        _PARSER_CACHE[parser_key] = parser
     return parser
 
 
@@ -524,8 +567,9 @@ def _iterate_chunks_for_file(
     language: object,
     max_lines: int,
     overlap_lines: int,
+    use_cached_parser: bool = True,
 ):
-    parser = _get_tree_sitter_parser(language)
+    parser = _get_tree_sitter_parser(language, use_cache=use_cached_parser)
     if parser is None:
         yield from (
             (line_start, line_end, chunk_text, "line_window", None, "parser_unavailable")
@@ -688,6 +732,212 @@ def _iter_code_file_docs(store: OpenSearchStore, repo_id: str):
     )
 
 
+def _build_chunk_doc_source(
+    *,
+    repo_id: str,
+    owner: str,
+    repo_name: str,
+    canonical_repo_url: object,
+    snapshot_ref: object,
+    relative_path: str,
+    language: object,
+    chunk_index: int,
+    chunk_strategy: str,
+    function_node_type: str | None,
+    fallback_reason: str | None,
+    line_start: int,
+    line_end: int,
+    chunk_text: str,
+    chunked_at: str,
+) -> dict:
+    line_count = line_end - line_start + 1
+    return {
+        "repo_id": repo_id,
+        "owner": owner,
+        "repo_name": repo_name,
+        "canonical_repo_url": canonical_repo_url,
+        "snapshot_ref": snapshot_ref,
+        "file_path": relative_path,
+        "language": language,
+        "chunk_index": chunk_index,
+        "chunk_strategy": chunk_strategy,
+        "function_node_type": function_node_type,
+        "fallback_reason": fallback_reason,
+        "line_start": line_start,
+        "line_end": line_end,
+        "line_count": line_count,
+        "chunk_text": chunk_text,
+        "chunk_char_count": len(chunk_text),
+        "chunk_sha1": hashlib.sha1(chunk_text.encode("utf-8")).hexdigest(),
+        "chunked_at": chunked_at,
+    }
+
+
+def _chunk_single_file(
+    *,
+    snapshot_root: Path,
+    repo_id: str,
+    owner: str,
+    repo_name: str,
+    canonical_repo_url: object,
+    snapshot_ref: object,
+    file_source: dict,
+    max_lines: int,
+    overlap_lines: int,
+    chunked_at: str,
+    use_cached_parser: bool,
+) -> FileChunkOutcome:
+    relative_path = str(file_source.get("file_path") or "").strip()
+    outcome = FileChunkOutcome(relative_path=relative_path)
+    if not relative_path:
+        return outcome
+
+    absolute_path = snapshot_root / relative_path
+    if not absolute_path.exists() or not absolute_path.is_file():
+        outcome.skipped_missing_file = True
+        return outcome
+
+    try:
+        content = absolute_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        outcome.skipped_non_utf8_file = True
+        return outcome
+
+    lines = content.splitlines()
+    outcome.total_lines_seen = len(lines)
+    language = file_source.get("language")
+    chunk_index = 0
+
+    for (
+        line_start,
+        line_end,
+        chunk_text,
+        chunk_strategy,
+        function_node_type,
+        fallback_reason,
+    ) in _iterate_chunks_for_file(
+        content=content,
+        lines=lines,
+        language=language,
+        max_lines=max_lines,
+        overlap_lines=overlap_lines,
+        use_cached_parser=use_cached_parser,
+    ):
+        if not chunk_text.strip():
+            continue
+
+        chunk_index += 1
+        line_count = line_end - line_start + 1
+        outcome.chunk_docs_created += 1
+        outcome.chunked_lines_total += line_count
+        if chunk_strategy in {"function", "function_window"}:
+            outcome.file_has_function_chunk = True
+            outcome.function_chunks_created += 1
+        else:
+            outcome.file_has_line_window_chunk = True
+            outcome.line_window_chunks_created += 1
+            if fallback_reason == "parser_unavailable":
+                outcome.parser_unavailable = True
+            elif fallback_reason == "parser_failed":
+                outcome.parser_failed = True
+
+        chunk_doc_id = _build_chunk_doc_id(
+            repo_id=repo_id,
+            file_path=relative_path,
+            line_start=line_start,
+            line_end=line_end,
+            chunk_index=chunk_index,
+        )
+        outcome.chunk_docs.append(
+            (
+                chunk_doc_id,
+                _build_chunk_doc_source(
+                    repo_id=repo_id,
+                    owner=owner,
+                    repo_name=repo_name,
+                    canonical_repo_url=canonical_repo_url,
+                    snapshot_ref=snapshot_ref,
+                    relative_path=relative_path,
+                    language=language,
+                    chunk_index=chunk_index,
+                    chunk_strategy=chunk_strategy,
+                    function_node_type=function_node_type,
+                    fallback_reason=fallback_reason,
+                    line_start=line_start,
+                    line_end=line_end,
+                    chunk_text=chunk_text,
+                    chunked_at=chunked_at,
+                ),
+            )
+        )
+
+    return outcome
+
+
+def _apply_file_chunk_outcome(
+    *,
+    store: OpenSearchStore,
+    outcome: FileChunkOutcome,
+    stats: RepoChunkStats,
+    stale_doc_ids: set[str],
+    pending_docs: list[tuple[str, dict]],
+    bulk_flush_docs: int,
+) -> None:
+    stats.code_files_seen += 1
+    stats.total_lines_seen += outcome.total_lines_seen
+    stats.chunk_docs_created += outcome.chunk_docs_created
+    stats.chunked_lines_total += outcome.chunked_lines_total
+    stats.function_chunks_created += outcome.function_chunks_created
+    stats.line_window_chunks_created += outcome.line_window_chunks_created
+    if outcome.file_has_function_chunk:
+        stats.files_chunked_with_functions += 1
+    if outcome.file_has_line_window_chunk:
+        stats.files_chunked_with_line_window += 1
+    if outcome.parser_unavailable:
+        stats.parser_unavailable_files += 1
+    if outcome.parser_failed:
+        stats.parser_failed_files += 1
+    if outcome.skipped_missing_file:
+        stats.skipped_missing_files += 1
+    if outcome.skipped_non_utf8_file:
+        stats.skipped_non_utf8_files += 1
+
+    if not outcome.chunk_docs:
+        return
+
+    for chunk_doc_id, source in outcome.chunk_docs:
+        stale_doc_ids.discard(chunk_doc_id)
+        pending_docs.append((chunk_doc_id, source))
+
+    if len(pending_docs) < bulk_flush_docs:
+        return
+
+    store.bulk_index_documents(
+        collection_name=REPO_CHUNK_INDEX,
+        documents=pending_docs,
+        refresh=False,
+        chunk_size=bulk_flush_docs,
+    )
+    pending_docs.clear()
+
+
+def _resolve_chunk_execution(
+    *,
+    source: dict,
+    code_file_count: int,
+) -> tuple[str, int, int]:
+    repo_total_code_bytes = _parse_non_negative_int(source.get("file_extract_total_code_bytes"))
+    if code_file_count <= 1:
+        return "repo_sequential", 1, repo_total_code_bytes
+
+    whale_threshold = _whale_repo_threshold_code_bytes()
+    whale_parallelism = min(_whale_file_parallelism(), code_file_count)
+    if repo_total_code_bytes >= whale_threshold and whale_parallelism > 1:
+        return "file_parallel_whale", whale_parallelism, repo_total_code_bytes
+
+    return "repo_sequential", 1, repo_total_code_bytes
+
+
 def _chunk_single_repo(
     store: OpenSearchStore,
     *,
@@ -702,6 +952,12 @@ def _chunk_single_repo(
 
     max_lines, overlap_lines = _chunk_parameters()
     stale_doc_ids = set(_iter_existing_repo_chunk_doc_ids(store, repo_id))
+    code_file_docs = []
+    for file_hit in _iter_code_file_docs(store, repo_id):
+        file_source = dict(file_hit.get("_source", {}))
+        if not str(file_source.get("file_path") or "").strip():
+            continue
+        code_file_docs.append(file_source)
 
     owner = str(source.get("owner") or "").strip().lower()
     repo_name = str(source.get("repo_name") or "").strip().lower()
@@ -710,116 +966,100 @@ def _chunk_single_repo(
     bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
 
     stats = RepoChunkStats()
+    execution_mode, file_parallelism, repo_total_code_bytes = _resolve_chunk_execution(
+        source=source,
+        code_file_count=len(code_file_docs),
+    )
+    stats.execution_mode = execution_mode
+    stats.file_parallelism = file_parallelism
+    stats.repo_total_code_bytes = repo_total_code_bytes
+    logger.info(
+        "Chunking repo_id=%s mode=%s code_files=%s total_code_bytes=%s file_parallelism=%s",
+        repo_id,
+        execution_mode,
+        len(code_file_docs),
+        repo_total_code_bytes,
+        file_parallelism,
+    )
     pending_docs: list[tuple[str, dict]] = []
-    for file_hit in _iter_code_file_docs(store, repo_id):
-        file_source = file_hit.get("_source", {})
-        relative_path = str(file_source.get("file_path") or "").strip()
-        if not relative_path:
-            continue
-
-        stats.code_files_seen += 1
-        absolute_path = snapshot_root / relative_path
-        if not absolute_path.exists() or not absolute_path.is_file():
-            stats.skipped_missing_files += 1
-            continue
-
-        try:
-            content = absolute_path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            stats.skipped_non_utf8_files += 1
-            continue
-
-        lines = content.splitlines()
-        stats.total_lines_seen += len(lines)
-        language = file_source.get("language")
-        chunk_index = 0
-
-        file_has_function_chunk = False
-        file_has_line_window_chunk = False
-        file_parser_unavailable = False
-        file_parser_failed = False
-        for (
-            line_start,
-            line_end,
-            chunk_text,
-            chunk_strategy,
-            function_node_type,
-            fallback_reason,
-        ) in _iterate_chunks_for_file(
-            content=content,
-            lines=lines,
-            language=language,
-            max_lines=max_lines,
-            overlap_lines=overlap_lines,
-        ):
-            if not chunk_text.strip():
-                continue
-
-            chunk_index += 1
-            line_count = line_end - line_start + 1
-            stats.chunk_docs_created += 1
-            stats.chunked_lines_total += line_count
-            if chunk_strategy in {"function", "function_window"}:
-                file_has_function_chunk = True
-                stats.function_chunks_created += 1
-            else:
-                file_has_line_window_chunk = True
-                stats.line_window_chunks_created += 1
-                if fallback_reason == "parser_unavailable":
-                    file_parser_unavailable = True
-                elif fallback_reason == "parser_failed":
-                    file_parser_failed = True
-
-            chunk_doc_id = _build_chunk_doc_id(
-                repo_id=repo_id,
-                file_path=relative_path,
-                line_start=line_start,
-                line_end=line_end,
-                chunk_index=chunk_index,
+    completed_files = 0
+    if execution_mode == "file_parallel_whale":
+        submit_window = _whale_file_submit_window(file_parallelism)
+        logger.info(
+            "Whale chunk batching repo_id=%s submit_window=%s file_parallelism=%s",
+            repo_id,
+            submit_window,
+            file_parallelism,
+        )
+        with ThreadPoolExecutor(max_workers=file_parallelism) as executor:
+            for batch_start in range(0, len(code_file_docs), submit_window):
+                batch_docs = code_file_docs[batch_start : batch_start + submit_window]
+                futures = [
+                    executor.submit(
+                        _chunk_single_file,
+                        snapshot_root=snapshot_root,
+                        repo_id=repo_id,
+                        owner=owner,
+                        repo_name=repo_name,
+                        canonical_repo_url=canonical_repo_url,
+                        snapshot_ref=snapshot_ref,
+                        file_source=file_source,
+                        max_lines=max_lines,
+                        overlap_lines=overlap_lines,
+                        chunked_at=chunked_at,
+                        use_cached_parser=False,
+                    )
+                    for file_source in batch_docs
+                ]
+                for future in as_completed(futures):
+                    _apply_file_chunk_outcome(
+                        store=store,
+                        outcome=future.result(),
+                        stats=stats,
+                        stale_doc_ids=stale_doc_ids,
+                        pending_docs=pending_docs,
+                        bulk_flush_docs=bulk_flush_docs,
+                    )
+                    completed_files += 1
+                    if completed_files % 100 == 0 or completed_files == len(code_file_docs):
+                        logger.info(
+                            "Chunking progress repo_id=%s completed_files=%s total_files=%s mode=%s",
+                            repo_id,
+                            completed_files,
+                            len(code_file_docs),
+                            execution_mode,
+                        )
+    else:
+        for file_source in code_file_docs:
+            _apply_file_chunk_outcome(
+                store=store,
+                outcome=_chunk_single_file(
+                    snapshot_root=snapshot_root,
+                    repo_id=repo_id,
+                    owner=owner,
+                    repo_name=repo_name,
+                    canonical_repo_url=canonical_repo_url,
+                    snapshot_ref=snapshot_ref,
+                    file_source=file_source,
+                    max_lines=max_lines,
+                    overlap_lines=overlap_lines,
+                    chunked_at=chunked_at,
+                    use_cached_parser=True,
+                ),
+                stats=stats,
+                stale_doc_ids=stale_doc_ids,
+                pending_docs=pending_docs,
+                bulk_flush_docs=bulk_flush_docs,
             )
-            stale_doc_ids.discard(chunk_doc_id)
-            pending_docs.append(
-                (
-                    chunk_doc_id,
-                    {
-                        "repo_id": repo_id,
-                        "owner": owner,
-                        "repo_name": repo_name,
-                        "canonical_repo_url": canonical_repo_url,
-                        "snapshot_ref": snapshot_ref,
-                        "file_path": relative_path,
-                        "language": language,
-                        "chunk_index": chunk_index,
-                        "chunk_strategy": chunk_strategy,
-                        "function_node_type": function_node_type,
-                        "fallback_reason": fallback_reason,
-                        "line_start": line_start,
-                        "line_end": line_end,
-                        "line_count": line_count,
-                        "chunk_text": chunk_text,
-                        "chunk_char_count": len(chunk_text),
-                        "chunk_sha1": hashlib.sha1(chunk_text.encode("utf-8")).hexdigest(),
-                        "chunked_at": chunked_at,
-                    },
+            completed_files += 1
+            if completed_files % 100 == 0 or completed_files == len(code_file_docs):
+                logger.info(
+                    "Chunking progress repo_id=%s completed_files=%s total_files=%s mode=%s",
+                    repo_id,
+                    completed_files,
+                    len(code_file_docs),
+                    execution_mode,
                 )
-            )
-            if len(pending_docs) >= bulk_flush_docs:
-                store.bulk_index_documents(
-                    collection_name=REPO_CHUNK_INDEX,
-                    documents=pending_docs,
-                    refresh=False,
-                    chunk_size=bulk_flush_docs,
-                )
-                pending_docs.clear()
-
-        if file_has_function_chunk:
-            stats.files_chunked_with_functions += 1
-        if file_has_line_window_chunk:
-            stats.files_chunked_with_line_window += 1
-        if file_parser_unavailable:
-            stats.parser_unavailable_files += 1
-        if file_parser_failed:
-            stats.parser_failed_files += 1
 
     if pending_docs:
         store.bulk_index_documents(
@@ -838,6 +1078,14 @@ def _chunk_single_repo(
         )
         stats.deleted_previous_docs = len(stale_doc_ids)
 
+    logger.info(
+        "Chunking complete repo_id=%s mode=%s code_files=%s chunk_docs=%s deleted_previous_docs=%s",
+        repo_id,
+        execution_mode,
+        stats.code_files_seen,
+        stats.chunk_docs_created,
+        stats.deleted_previous_docs,
+    )
     return stats
 
 
@@ -945,6 +1193,9 @@ def run_repo_code_chunking_for_repo(
             "chunk_max_lines": max_lines,
             "chunk_overlap_lines": overlap_lines,
             "chunk_strategy": "function_first_with_fallback",
+            "chunk_execution_mode": stats.execution_mode,
+            "chunk_file_parallelism": stats.file_parallelism,
+            "chunk_repo_total_code_bytes": stats.repo_total_code_bytes,
         }
         updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
             _maybe_prune_local_snapshot_artifacts(
@@ -972,6 +1223,7 @@ def run_repo_code_chunking_for_repo(
             "function_chunks_count": stats.function_chunks_created,
             "line_window_chunks_count": stats.line_window_chunks_created,
             "code_files_seen": stats.code_files_seen,
+            "chunk_execution_mode": stats.execution_mode,
             "error_message": chunk_error_message,
             "snapshot_cleanup_status": cleanup_status,
             "snapshot_cleanup_error": cleanup_error,
@@ -986,6 +1238,7 @@ def run_repo_code_chunking_for_repo(
             "chunk_max_lines": max_lines,
             "chunk_overlap_lines": overlap_lines,
             "chunk_strategy": "function_first_with_fallback",
+            "chunk_execution_mode": "repo_failed",
         }
         _best_effort_replace_repo_chunk_doc(
             store=store,
@@ -1133,6 +1386,9 @@ def run_repo_code_chunking() -> None:
                 "chunk_max_lines": max_lines,
                 "chunk_overlap_lines": overlap_lines,
                 "chunk_strategy": "function_first_with_fallback",
+                "chunk_execution_mode": stats.execution_mode,
+                "chunk_file_parallelism": stats.file_parallelism,
+                "chunk_repo_total_code_bytes": stats.repo_total_code_bytes,
             }
             updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
                 _maybe_prune_local_snapshot_artifacts(
@@ -1162,6 +1418,7 @@ def run_repo_code_chunking() -> None:
                 "chunk_max_lines": max_lines,
                 "chunk_overlap_lines": overlap_lines,
                 "chunk_strategy": "function_first_with_fallback",
+                "chunk_execution_mode": "repo_failed",
             }
             _best_effort_replace_repo_chunk_doc(
                 store=store,
