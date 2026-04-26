@@ -6,6 +6,7 @@ from airflow.models.dagrun import DagRun
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
+from worker.repo.repo_chunk_planning_service import plan_chunk_shards_for_batch
 from worker.repo.repo_file_extract_service import run_repo_file_extraction_for_shard
 
 
@@ -43,10 +44,20 @@ with DAG(
 
     extract_results = extract_shard.expand(shard_index=list(range(shard_count)))
 
+    @task(task_id="plan_chunk_shards")
+    def plan_chunk_shards(dag_run: DagRun | None = None) -> dict:
+        batch_id = dag_run.conf.get("batch_id") if dag_run and dag_run.conf else None
+        return plan_chunk_shards_for_batch(
+            batch_id=batch_id,
+            shard_count=shard_count,
+        )
+
+    chunk_plan = plan_chunk_shards()
+
     trigger_repo_chunk = TriggerDagRunOperator(
         task_id="trigger_repo_chunk_dag",
         trigger_dag_id="repo_chunk_dag",
         conf={"batch_id": "{{ dag_run.conf.get('batch_id') if dag_run and dag_run.conf else None }}"},
     )
 
-    extract_results >> trigger_repo_chunk
+    extract_results >> chunk_plan >> trigger_repo_chunk

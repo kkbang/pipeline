@@ -104,6 +104,7 @@ class RepoFileExtractStats:
     total_files_seen: int = 0
     text_files_indexed: int = 0
     code_files_indexed: int = 0
+    total_code_bytes: int = 0
     skipped_large_files: int = 0
     skipped_binary_files: int = 0
     skipped_non_utf8_files: int = 0
@@ -206,6 +207,7 @@ def _claim_repo_docs_for_extraction(
             "file_extract_total_files_seen": None,
             "file_extract_text_files_count": None,
             "file_extract_code_files_count": None,
+            "file_extract_total_code_bytes": None,
             "file_extract_skipped_large_files": None,
             "file_extract_skipped_binary_files": None,
             "file_extract_skipped_non_utf8_files": None,
@@ -335,6 +337,7 @@ def _extract_repo_files(
         language, is_code_file, is_license_file, file_category = _classify_file(relative_path)
         if is_code_file:
             stats.code_files_indexed += 1
+            stats.total_code_bytes += size_bytes
 
         stats.text_files_indexed += 1
         line_count = text.count("\n") + (1 if text else 0)
@@ -480,6 +483,7 @@ def run_repo_file_extraction_for_repo(
             "file_extract_total_files_seen": stats.total_files_seen,
             "file_extract_text_files_count": stats.text_files_indexed,
             "file_extract_code_files_count": stats.code_files_indexed,
+            "file_extract_total_code_bytes": stats.total_code_bytes,
             "file_extract_skipped_large_files": stats.skipped_large_files,
             "file_extract_skipped_binary_files": stats.skipped_binary_files,
             "file_extract_skipped_non_utf8_files": stats.skipped_non_utf8_files,
@@ -497,6 +501,7 @@ def run_repo_file_extraction_for_repo(
             "stage": "extract",
             "stage_status": final_status,
             "code_files_indexed": stats.code_files_indexed,
+            "total_code_bytes": stats.total_code_bytes,
             "text_files_indexed": stats.text_files_indexed,
             "total_files_seen": stats.total_files_seen,
             "error_message": validation_error,
@@ -567,6 +572,8 @@ def run_repo_file_extraction_for_shard(
                     "stage_status": stage_status,
                     "recorded_at": datetime.now(timezone.utc).isoformat(),
                     "shard_index": shard_index,
+                    "total_code_bytes": int(result.get("total_code_bytes") or 0),
+                    "code_files_indexed": int(result.get("code_files_indexed") or 0),
                 }
             )
         elif stage_status == "extract_failed":
@@ -634,6 +641,7 @@ def run_repo_file_extraction() -> None:
                 "file_extract_total_files_seen": stats.total_files_seen,
                 "file_extract_text_files_count": stats.text_files_indexed,
                 "file_extract_code_files_count": stats.code_files_indexed,
+                "file_extract_total_code_bytes": stats.total_code_bytes,
                 "file_extract_skipped_large_files": stats.skipped_large_files,
                 "file_extract_skipped_binary_files": stats.skipped_binary_files,
                 "file_extract_skipped_non_utf8_files": stats.skipped_non_utf8_files,

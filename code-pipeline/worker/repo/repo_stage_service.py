@@ -4,6 +4,7 @@ from worker.common.config import settings
 from worker.repo.repo_pipeline_manifest_service import (
     CRAWL_DOWNLOADED_STAGE,
     EXTRACT_READY_STAGE,
+    CHUNK_READY_STAGE,
     CHUNK_COMPLETED_STAGE,
     iter_stage_manifest_entries,
     repo_id_shard_index,
@@ -123,12 +124,9 @@ def _repo_ids_from_manifest(
         repo_id = entry.get("repo_id")
         if isinstance(repo_id, str) and repo_id.strip():
             repo_ids.append(repo_id)
-    return _normalized_repo_ids(
-        repo_ids,
-        batch_limit,
-        shard_index=shard_index,
-        shard_count=shard_count,
-    )
+    # Manifest files are already stage-specific work assignments. Re-applying
+    # hash partitioning here would undo planner-driven rebalancing.
+    return _normalized_repo_ids(repo_ids, batch_limit)
 
 
 def list_repo_ids_for_extraction(
@@ -191,6 +189,15 @@ def list_repo_ids_for_chunking(
 ) -> list[str]:
     batch_limit = _resolve_batch_limit(batch_size)
     if batch_id:
+        repo_ids = _repo_ids_from_manifest(
+            batch_id=batch_id,
+            stage_name=CHUNK_READY_STAGE,
+            batch_limit=batch_limit,
+            shard_index=shard_index,
+            shard_count=shard_count,
+        )
+        if repo_ids:
+            return repo_ids
         return _repo_ids_from_manifest(
             batch_id=batch_id,
             stage_name=EXTRACT_READY_STAGE,

@@ -7,6 +7,7 @@ from pathlib import Path
 REPO_PIPELINE_BATCH_DIR = "repo_pipeline_batches"
 CRAWL_DOWNLOADED_STAGE = "crawl_downloaded"
 EXTRACT_READY_STAGE = "extract_ready"
+CHUNK_READY_STAGE = "chunk_ready"
 CHUNK_COMPLETED_STAGE = "chunk_completed"
 VALIDATION_COMPLETED_STAGE = "validation_completed"
 
