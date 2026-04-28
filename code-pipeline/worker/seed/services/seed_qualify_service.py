@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Iterable, TypeVar
 
 from worker.common.config import settings
+from worker.common.repo_size_tiering import classify_repo_size_kb, parse_repo_size_kb
 from worker.seed.adapters.github import (
     GitHubRepoMetadataAdapter,
     RepoMetadataFetchResult,
@@ -241,6 +242,8 @@ def _build_repo_registry_body(
     topics = repo_metadata.get("topics") or []
     if not isinstance(topics, list):
         topics = []
+    repo_size_kb = parse_repo_size_kb(repo_metadata.get("size"))
+    repo_size_tier = classify_repo_size_kb(repo_size_kb)
 
     return {
         "canonical_repo_url": source["canonical_repo_url"],
@@ -263,7 +266,9 @@ def _build_repo_registry_body(
         "repo_forks_count": repo_metadata.get("forks_count"),
         "repo_watchers_count": repo_metadata.get("watchers_count"),
         "repo_open_issues_count": repo_metadata.get("open_issues_count"),
-        "repo_size_kb": repo_metadata.get("size"),
+        "repo_size_kb": repo_size_kb,
+        "repo_size_tier": repo_size_tier,
+        "repo_whale_hint": repo_size_tier != "normal",
         "repo_is_fork": repo_metadata.get("fork") is True,
         "repo_parent_full_name": str(parent.get("full_name") or "").strip() or None,
         "repo_created_at": repo_metadata.get("created_at"),

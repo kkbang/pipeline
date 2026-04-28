@@ -9,6 +9,11 @@ from pathlib import Path
 import httpx
 
 from worker.common.config import settings
+from worker.common.repo_size_tiering import (
+    classify_repo_size_kb,
+    parse_repo_size_kb,
+    repo_size_tier_rank,
+)
 from worker.repo.repo_pipeline_manifest_service import (
     CRAWL_DOWNLOADED_STAGE,
     repo_id_shard_index,
@@ -31,8 +36,16 @@ class RepoSnapshotCrawlResult:
     doc_id: str
     owner: str
     repo: str
+    repo_size_kb: int = 0
+    repo_size_tier: str = "normal"
     snapshot_metadata: dict | None = None
     error: Exception | None = None
+
+
+@dataclass(slots=True)
+class CrawlSemaphores:
+    download: asyncio.Semaphore
+    extract: asyncio.Semaphore
 
 
 def _reset_downstream_processing_fields(source: dict) -> dict:
@@ -84,6 +97,16 @@ def _parse_datetime(value: object) -> datetime | None:
 def _clear_existing_snapshot(download_path: Path, extract_dir: Path) -> None:
     if extract_dir.exists():
         shutil.rmtree(extract_dir)
+    if download_path.exists():
+        download_path.unlink()
+
+
+def _clear_existing_extract_dir(extract_dir: Path) -> None:
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir)
+
+
+def _clear_existing_download_path(download_path: Path) -> None:
     if download_path.exists():
         download_path.unlink()
 
@@ -171,7 +194,14 @@ def _load_repo_docs_for_crawl(
             settings.repo_crawl_lease_seconds,
         )
 
-    repo_docs = list(repo_docs_by_id.values())
+    repo_docs = sorted(
+        repo_docs_by_id.values(),
+        key=lambda hit: (
+            repo_size_tier_rank(_repo_size_tier_from_source(hit.get("_source", {}))),
+            _repo_size_kb_from_source(hit.get("_source", {})),
+            str(hit.get("_id") or ""),
+        ),
+    )
     repo_limit = max(0, int(settings.repo_crawl_repo_limit))
     if repo_limit > 0:
         if len(repo_docs) > repo_limit:
@@ -184,6 +214,67 @@ def _load_repo_docs_for_crawl(
         return repo_docs[:repo_limit]
 
     return repo_docs
+
+
+def _repo_size_kb_from_source(source: dict) -> int:
+    return parse_repo_size_kb(source.get("repo_size_kb"))
+
+
+def _repo_size_tier_from_source(source: dict) -> str:
+    configured_tier = str(source.get("repo_size_tier") or "").strip().lower()
+    if configured_tier in {"normal", "whale_hint", "giant_hint"}:
+        return configured_tier
+    return classify_repo_size_kb(_repo_size_kb_from_source(source))
+
+
+def _build_crawl_semaphores() -> CrawlSemaphores:
+    download_concurrency = max(
+        1,
+        int(settings.repo_crawl_download_concurrency or settings.repo_crawl_concurrency),
+    )
+    extract_concurrency = max(1, int(settings.repo_crawl_extract_concurrency))
+    return CrawlSemaphores(
+        download=asyncio.Semaphore(download_concurrency),
+        extract=asyncio.Semaphore(extract_concurrency),
+    )
+
+
+def _repo_tier_counts(repo_docs: list[dict]) -> dict[str, int]:
+    counts = {"normal": 0, "whale_hint": 0, "giant_hint": 0}
+    for hit in repo_docs:
+        tier = _repo_size_tier_from_source(hit.get("_source", {}))
+        counts[tier] = counts.get(tier, 0) + 1
+    return counts
+
+
+def _split_repo_docs_for_crawl_phases(
+    repo_docs: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    normal_docs: list[dict] = []
+    whale_docs: list[dict] = []
+
+    for hit in repo_docs:
+        tier = _repo_size_tier_from_source(hit.get("_source", {}))
+        if tier == "normal":
+            normal_docs.append(hit)
+        else:
+            whale_docs.append(hit)
+
+    normal_docs.sort(
+        key=lambda hit: (
+            _repo_size_kb_from_source(hit.get("_source", {})),
+            str(hit.get("_id") or ""),
+        )
+    )
+    whale_docs.sort(
+        key=lambda hit: (
+            -repo_size_tier_rank(_repo_size_tier_from_source(hit.get("_source", {}))),
+            -_repo_size_kb_from_source(hit.get("_source", {})),
+            str(hit.get("_id") or ""),
+        )
+    )
+
+    return normal_docs, whale_docs
 
 
 def _claim_repo_docs(
@@ -227,14 +318,20 @@ async def _download_snapshot_for_ref(
     owner: str,
     repo: str,
     ref: str,
+    download_semaphore: asyncio.Semaphore,
+    extract_semaphore: asyncio.Semaphore,
 ) -> dict:
     download_path, extract_dir = resolve_snapshot_paths(base_dir, owner, repo)
     archive_url = _build_archive_url(owner, repo, ref)
 
-    await asyncio.to_thread(_clear_existing_snapshot, download_path, extract_dir)
-    await _stream_download_async(client, archive_url, download_path)
-    await asyncio.to_thread(_extract_tar, download_path, extract_dir, "r:gz")
-    extracted_root = await asyncio.to_thread(resolve_extracted_root, extract_dir)
+    async with download_semaphore:
+        await asyncio.to_thread(_clear_existing_download_path, download_path)
+        await _stream_download_async(client, archive_url, download_path)
+
+    async with extract_semaphore:
+        await asyncio.to_thread(_clear_existing_extract_dir, extract_dir)
+        await asyncio.to_thread(_extract_tar, download_path, extract_dir, "r:gz")
+        extracted_root = await asyncio.to_thread(resolve_extracted_root, extract_dir)
 
     return {
         "archive_url": archive_url,
@@ -249,6 +346,8 @@ async def _download_repo_snapshot(
     client: httpx.AsyncClient,
     base_dir: Path,
     source: dict,
+    download_semaphore: asyncio.Semaphore,
+    extract_semaphore: asyncio.Semaphore,
 ) -> dict:
     owner, repo = normalize_repo_identity(source)
     if not owner or not repo:
@@ -257,7 +356,15 @@ async def _download_repo_snapshot(
     last_error: Exception | None = None
     for ref in _build_ref_candidates(source):
         try:
-            return await _download_snapshot_for_ref(client, base_dir, owner, repo, ref)
+            return await _download_snapshot_for_ref(
+                client,
+                base_dir,
+                owner,
+                repo,
+                ref,
+                download_semaphore,
+                extract_semaphore,
+            )
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
                 last_error = exc
@@ -305,61 +412,92 @@ async def _crawl_single_repo(
     client: httpx.AsyncClient,
     base_dir: Path,
     hit: dict,
-    semaphore: asyncio.Semaphore,
+    semaphores: CrawlSemaphores,
     batch_id: str,
 ) -> RepoSnapshotCrawlResult:
     doc_id = hit["_id"]
     source = hit["_source"]
     owner, repo = normalize_repo_identity(source)
+    repo_size_kb = _repo_size_kb_from_source(source)
+    repo_size_tier = _repo_size_tier_from_source(source)
+    snapshot_metadata: dict | None = None
+    try:
+        snapshot_metadata = await _download_repo_snapshot(
+            client,
+            base_dir,
+            source,
+            semaphores.download,
+            semaphores.extract,
+        )
+        await asyncio.to_thread(
+            _mark_repo_downloaded,
+            base_dir=base_dir,
+            doc_id=doc_id,
+            claimed_source=source,
+            snapshot_metadata=snapshot_metadata,
+            batch_id=batch_id,
+        )
 
-    async with semaphore:
-        snapshot_metadata: dict | None = None
-        try:
-            snapshot_metadata = await _download_repo_snapshot(client, base_dir, source)
-            await asyncio.to_thread(
-                _mark_repo_downloaded,
-                base_dir=base_dir,
-                doc_id=doc_id,
-                claimed_source=source,
-                snapshot_metadata=snapshot_metadata,
-                batch_id=batch_id,
-            )
-
-            return RepoSnapshotCrawlResult(
-                doc_id=doc_id,
-                owner=owner,
-                repo=repo,
-                snapshot_metadata=snapshot_metadata,
-            )
-        except Exception as exc:  # noqa: BLE001 - repo별 실패를 결과로 모아야 함
-            logger.warning("Snapshot crawl failed for repo=%s/%s error=%s", owner, repo, str(exc))
-            return RepoSnapshotCrawlResult(
-                doc_id=doc_id,
-                owner=owner,
-                repo=repo,
-                snapshot_metadata=snapshot_metadata,
-                error=exc,
-            )
+        return RepoSnapshotCrawlResult(
+            doc_id=doc_id,
+            owner=owner,
+            repo=repo,
+            repo_size_kb=repo_size_kb,
+            repo_size_tier=repo_size_tier,
+            snapshot_metadata=snapshot_metadata,
+        )
+    except Exception as exc:  # noqa: BLE001 - repo별 실패를 결과로 모아야 함
+        logger.warning(
+            "Snapshot crawl failed for repo=%s/%s tier=%s repo_size_kb=%s error=%s",
+            owner,
+            repo,
+            repo_size_tier,
+            repo_size_kb,
+            str(exc),
+        )
+        return RepoSnapshotCrawlResult(
+            doc_id=doc_id,
+            owner=owner,
+            repo=repo,
+            repo_size_kb=repo_size_kb,
+            repo_size_tier=repo_size_tier,
+            snapshot_metadata=snapshot_metadata,
+            error=exc,
+        )
 
 
 async def _crawl_repo_batch(
     repo_docs: list[dict],
     base_dir: Path,
     result_handler: Callable[[RepoSnapshotCrawlResult], None],
+    semaphores: CrawlSemaphores,
     *,
     batch_id: str,
+    phase_name: str,
 ) -> None:
-    concurrency = max(1, settings.repo_crawl_concurrency)
-    semaphore = asyncio.Semaphore(concurrency)
+    if not repo_docs:
+        return
 
-    async with _build_async_client(concurrency) as client:
+    download_concurrency = max(
+        1,
+        int(settings.repo_crawl_download_concurrency or settings.repo_crawl_concurrency),
+    )
+
+    logger.info(
+        "Starting repo crawl phase: batch_id=%s phase=%s count=%s",
+        batch_id,
+        phase_name,
+        len(repo_docs),
+    )
+
+    async with _build_async_client(download_concurrency) as client:
         tasks = [
             asyncio.create_task(
                 _crawl_single_repo(
                     client=client,
                     base_dir=base_dir,
                     hit=hit,
-                    semaphore=semaphore,
+                    semaphores=semaphores,
                     batch_id=batch_id,
                 )
             )
@@ -385,12 +523,21 @@ def repo_crawler(batch_id: str) -> None:
         )
         return
 
-    claimed_docs = _claim_repo_docs(
-        store=store,
-        repo_docs=repo_docs,
-        started_at=crawl_started_at.isoformat(),
-        batch_id=batch_id,
+    tier_counts = _repo_tier_counts(repo_docs)
+    normal_docs, whale_docs = _split_repo_docs_for_crawl_phases(repo_docs)
+    semaphores = _build_crawl_semaphores()
+    logger.info(
+        "Starting repo crawl batch: batch_id=%s total=%s normal=%s whale_hint=%s giant_hint=%s download_concurrency=%s extract_concurrency=%s phases=%s",
+        batch_id,
+        len(repo_docs),
+        tier_counts.get("normal", 0),
+        tier_counts.get("whale_hint", 0),
+        tier_counts.get("giant_hint", 0),
+        max(1, int(settings.repo_crawl_download_concurrency or settings.repo_crawl_concurrency)),
+        max(1, int(settings.repo_crawl_extract_concurrency)),
+        2 if normal_docs and whale_docs else 1,
     )
+    claimed_docs: dict[str, dict] = {}
     bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
     pending_registry_docs: list[tuple[str, dict]] = []
 
@@ -427,10 +574,12 @@ def repo_crawler(batch_id: str) -> None:
             return
 
         logger.info(
-            "Repository snapshot download completed: repo=%s/%s ref=%s",
+            "Repository snapshot download completed: repo=%s/%s ref=%s tier=%s repo_size_kb=%s",
             crawl_result.owner,
             crawl_result.repo,
             snapshot_metadata.get("ref"),
+            crawl_result.repo_size_tier,
+            crawl_result.repo_size_kb,
         )
         success_manifest_entries.append(
             {
@@ -438,6 +587,8 @@ def repo_crawler(batch_id: str) -> None:
                 "repo_id": doc_id,
                 "owner": crawl_result.owner,
                 "repo_name": crawl_result.repo,
+                "repo_size_kb": crawl_result.repo_size_kb,
+                "repo_size_tier": crawl_result.repo_size_tier,
                 "snapshot_ref": snapshot_metadata.get("ref"),
                 "snapshot_archive_url": snapshot_metadata.get("archive_url"),
                 "stage_status": "downloaded",
@@ -445,14 +596,31 @@ def repo_crawler(batch_id: str) -> None:
             }
         )
 
-    asyncio.run(
-        _crawl_repo_batch(
-            repo_docs=list(claimed_docs.values()),
-            base_dir=store.base_dir,
-            result_handler=_handle_crawl_result,
+    def _run_phase(phase_name: str, phase_repo_docs: list[dict]) -> None:
+        if not phase_repo_docs:
+            return
+
+        phase_started_at = datetime.now(timezone.utc).isoformat()
+        phase_claimed_docs = _claim_repo_docs(
+            store=store,
+            repo_docs=phase_repo_docs,
+            started_at=phase_started_at,
             batch_id=batch_id,
         )
-    )
+        claimed_docs.update(phase_claimed_docs)
+        asyncio.run(
+            _crawl_repo_batch(
+                repo_docs=list(phase_claimed_docs.values()),
+                base_dir=store.base_dir,
+                result_handler=_handle_crawl_result,
+                semaphores=semaphores,
+                batch_id=batch_id,
+                phase_name=phase_name,
+            )
+        )
+
+    _run_phase("normal", normal_docs)
+    _run_phase("whale", whale_docs)
     if pending_registry_docs:
         _flush_registry_docs(refresh=False)
     write_stage_manifest(
