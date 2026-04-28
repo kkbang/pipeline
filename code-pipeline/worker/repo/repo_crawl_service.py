@@ -277,6 +277,23 @@ def _split_repo_docs_for_crawl_phases(
     return normal_docs, whale_docs
 
 
+def get_pending_repo_crawl_stats() -> dict:
+    store = OpenSearchStore()
+    now = datetime.now(timezone.utc)
+    repo_docs = _load_repo_docs_for_crawl(store, now)
+    tier_counts = _repo_tier_counts(repo_docs) if repo_docs else {}
+    return {
+        "pending_count": len(repo_docs),
+        "normal_count": int(tier_counts.get("normal", 0)),
+        "whale_hint_count": int(tier_counts.get("whale_hint", 0)),
+        "giant_hint_count": int(tier_counts.get("giant_hint", 0)),
+    }
+
+
+def has_pending_repo_crawl_work() -> bool:
+    return int(get_pending_repo_crawl_stats().get("pending_count") or 0) > 0
+
+
 def _claim_repo_docs(
     store: OpenSearchStore,
     repo_docs: list[dict],

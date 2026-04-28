@@ -3,8 +3,10 @@ from datetime import datetime
 from airflow import DAG
 from airflow.decorators import task
 from airflow.models.dagrun import DagRun
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
+from worker.repo.repo_crawl_service import get_pending_repo_crawl_stats
 from worker.repo.repo_validation_service import run_repo_processing_validation_for_shard
 
 
@@ -40,4 +42,18 @@ with DAG(
             batch_id=batch_id,
         )
 
-    validate_shard.expand(shard_index=list(range(shard_count)))
+    validation_results = validate_shard.expand(shard_index=list(range(shard_count)))
+
+    @task.short_circuit(task_id="has_pending_repo_crawl_work")
+    def has_pending_repo_crawl_work() -> bool:
+        pending_stats = get_pending_repo_crawl_stats()
+        return int(pending_stats.get("pending_count") or 0) > 0
+
+    pending_crawl_work = has_pending_repo_crawl_work()
+
+    trigger_next_code_pipeline = TriggerDagRunOperator(
+        task_id="trigger_next_code_pipeline_dag",
+        trigger_dag_id="code_pipeline_dag",
+    )
+
+    validation_results >> pending_crawl_work >> trigger_next_code_pipeline
