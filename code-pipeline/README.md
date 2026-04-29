@@ -11,12 +11,14 @@
 - 최종 목표: 라이선스 리스크가 있는 유사 코드 탐지를 위한 학습/검증 데이터셋 구축
 - 현재 구현 범위: seed source 수집, GitHub 저장소 식별, repo registry 구축, repo snapshot download, file extraction, code chunking, validation
 - 현재 seed source:
-  - package registry repo: `PyPI`, `npm`
+  - package registry repo: `PyPI`, `npm`를 포함한 다중 registry adapter
   - curated repo list: 정적 GitHub repo URL 목록
   - benchmark dataset source: benchmark dataset artifact에서 추출한 공개 repo
+  - GitHub org / search / topic seed: 코드 구현 완료, config 기반 활성화
 - 현재 기본 저장소: `OpenSearch`
 - 장기 설계 저장소: `OpenSearch` 중심, object storage 확장 가능
 - 실행 환경: `Airflow + Docker Compose`
+- 운영 보조 스크립트: OpenSearch 문서와 local snapshot cleanup 상태를 맞추는 스크립트 포함
 
 ## 왜 이 프로젝트가 필요한가
 
@@ -67,7 +69,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 5. 등록 가능한 repo만 `repo_registry_index`에 올립니다.
 6. 발견 경로와 provenance를 함께 남깁니다.
 
-즉, 현재 저장소의 직접적인 산출물은 `repo registry`뿐 아니라, 그 이후 단계의 `repo_file_index`, `repo_chunk_index`, validation 결과까지 포함합니다.
+즉, 현재 저장소의 직접적인 산출물은 `repo registry`뿐 아니라, 그 이후 단계의 snapshot download, file extraction, code chunking, validation 결과까지 포함합니다.
 
 현재 repo 처리 계층의 운영 구조와 문제 해결 내역은 아래 문서를 참고합니다.
 
@@ -92,7 +94,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 | Fork Network Seed              | fork graph 기반 확장                                         | 예정   |
 | README External Link Expansion | README, docs 외부 링크 기반 repo 확장                        | 예정   |
 
-현재는 `PyPI`, `npm`, curated repo list가 기본 DAG에 연결되어 있고, benchmark dataset source는 dataset config를 활성화했을 때 동적으로 추가됩니다.
+현재는 `PyPI`, `npm`, curated repo list가 기본 DAG에 연결되어 있고, benchmark dataset source는 dataset config를 활성화했을 때 동적으로 추가됩니다. GitHub org / search / topic source도 discovery DAG 코드에는 연결되어 있으며, 해당 config가 비어 있지 않을 때만 실제 태스크가 생성됩니다.
 
 현재 운영 원칙은 다음과 같습니다.
 
@@ -112,6 +114,10 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
   -> [Seed Normalization]
   -> [GitHub Repo Qualification]
   -> [repo_registry_index]
+  -> [Repository Snapshot Download]
+  -> [File Extraction]
+  -> [Code Chunking]
+  -> [Validation]
 ```
 
 핵심 역할은 다음처럼 나뉩니다.
@@ -120,6 +126,11 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 - worker: seed 수집, URL 추출, normalize, qualification 로직 수행
 - OpenSearch: 현재 기본 저장소
 - Backblaze B2: 장기 설계상 아카이브 저장소 인터페이스
+
+현재 구현 관점에서 보면 구조는 크게 두 층으로 나뉩니다.
+
+- Seed discovery 레이어: 여러 source에서 공개 repo 후보를 수집하고 canonical repo registry를 구축
+- Repo processing 레이어: registry에 등록된 repo를 snapshot/file/chunk 단위 데이터로 확장
 
 ## 현재 구현된 DAG
 
@@ -141,6 +152,22 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
   - DAG ID: `seed_pipeline_dag`
   - 스케줄: 수동/compatibility 전용
   - 역할: `seed_discovery_dag` trigger
+- [code_pipeline_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/code_pipeline_dag.py)
+  - DAG ID: `code_pipeline_dag`
+  - 스케줄: 수동/trigger 전용
+  - 역할: registered repo snapshot download 시작
+- [repo_extract_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/repo_extract_dag.py)
+  - DAG ID: `repo_extract_dag`
+  - 스케줄: `code_pipeline_dag`에서 trigger
+  - 역할: snapshot에서 텍스트/코드 파일 추출
+- [repo_chunk_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/repo_chunk_dag.py)
+  - DAG ID: `repo_chunk_dag`
+  - 스케줄: `repo_extract_dag`에서 trigger
+  - 역할: 추출된 코드를 chunk 단위로 분할
+- [repo_validation_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/repo_validation_dag.py)
+  - DAG ID: `repo_validation_dag`
+  - 스케줄: `repo_chunk_dag`에서 trigger
+  - 역할: repo 처리 결과 검증 및 다음 crawl 필요 여부 판단
 
 현재 기본 구성 태스크는 아래와 같습니다.
 
@@ -163,6 +190,18 @@ benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/k
           /
 [seed_ingestion_curated_llm_license_focus_v1]
 ```
+
+repo processing 기본 실행 순서는 다음과 같습니다.
+
+```text
+[code_pipeline_dag]
+  -> [repo_snapshot_download]
+  -> [repo_extract_dag]
+  -> [repo_chunk_dag]
+  -> [repo_validation_dag]
+```
+
+현재 repo processing DAG는 각 단계가 `batch_id`를 넘기며 연결되고, extract/chunk/validation 단계는 shard fan-out 방식으로 병렬 처리됩니다.
 
 ## 단계별 역할
 
@@ -229,6 +268,56 @@ benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/k
 - GitHub token 없이도 동작하도록 무인증 요청 기반으로 구성되어 있습니다.
 - 단, GitHub API rate limit에 걸릴 수 있습니다.
 - 같은 repo를 여러 source가 발견하면 `discovery_sources`를 누적해 provenance를 보존합니다.
+
+### 4. Repository Snapshot Download
+
+파일:
+
+- [repo_crawl_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_crawl_service.py)
+- [repo_snapshot_local_paths.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_snapshot_local_paths.py)
+
+역할:
+
+- `repo_registry_index`에서 `crawl_status`가 `scheduled`, `crawl_failed`, 또는 stale `downloading`인 repo를 선택합니다.
+- GitHub snapshot tarball을 내려받고 `local_data/raw/repo_snapshot_download/`와 `local_data/raw/repo_snapshot/` 아래에 저장합니다.
+- 성공 시 `crawl_status=downloaded`로 갱신해 다음 extract 단계가 이어서 처리할 수 있게 합니다.
+
+### 5. File Extraction
+
+파일:
+
+- [repo_file_extract_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_file_extract_service.py)
+- [repo_stage_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_stage_service.py)
+
+역할:
+
+- `crawl_status=downloaded` 인 repo 중 아직 추출되지 않은 대상을 고릅니다.
+- snapshot 내부를 순회하면서 텍스트/코드 파일을 분류하고 메타데이터를 집계합니다.
+- 성공 시 `file_extract_status=extracted` 로 갱신합니다.
+
+### 6. Code Chunking
+
+파일:
+
+- [repo_chunk_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_chunk_service.py)
+- [repo_chunk_planning_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_chunk_planning_service.py)
+
+역할:
+
+- `file_extract_status=extracted` 인 repo를 읽어 code chunk를 생성합니다.
+- shard 단위로 작업을 나눠 병렬 처리하고, 결과를 `chunk_status`로 관리합니다.
+- 성공 시 로컬 snapshot cleanup을 시도합니다.
+
+### 7. Validation
+
+파일:
+
+- [repo_validation_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_validation_service.py)
+
+역할:
+
+- chunk 결과가 실제로 유효한지 확인하고 validation 상태를 갱신합니다.
+- pending crawl work가 남아 있으면 `code_pipeline_dag`를 다시 trigger 해 다음 배치를 이어갑니다.
 
 ## 현재 데이터 모델
 
@@ -298,6 +387,12 @@ ingested -> normalized -> registered
 - 이 문서는 단순 repo 목록이 아닙니다.
 - "어떤 source가 이 repo를 발견했는가"를 최소 provenance 형태로 함께 남기는 registry입니다.
 
+## 스키마 설명
+
+이 프로젝트는 `seed_item_index`와 `repo_registry_index`를 분리해, source observation과 최종 canonical repo 상태를 섞지 않도록 설계했습니다. 이렇게 해야 ingestion 실패, 중복 source, provenance 누적은 `seed_item_index`에서 다루고, 실제 downstream 처리 기준이 되는 repo 상태는 `repo_registry_index`에서 안정적으로 관리할 수 있습니다.
+
+또한 `repo_registry_index`에는 `discovery_sources`, `source_types`, `discovery_source_count`를 함께 저장합니다. 나중에 라이선스 유사 코드 탐지에서 "왜 이 repo를 수집했는가"를 설명할 수 있어야 하므로, 최종 registry에도 provenance를 남기는 방향을 선택했습니다.
+
 ## 현재 기본 저장 모드
 
 현재 기본 저장 모드는 `OpenSearchStore` 입니다.
@@ -333,7 +428,18 @@ benchmark dataset 파일은 기본적으로 아래 경로에 마운트해서 읽
 - `/opt/airflow/benchmark_data`
 - 호스트 기준으로는 [benchmark_data](/Users/xxuchan/Desktop/kkbang/code-pipeline/benchmark_data) 디렉토리입니다.
 
+운영 중 로컬 snapshot cleanup 상태를 OpenSearch 문서와 맞추고 싶다면 아래 스크립트를 사용할 수 있습니다.
+
+- [reconcile_snapshot_cleanup_state.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/scripts/reconcile_snapshot_cleanup_state.py)
+  - `snapshot_artifacts_missing` 상태 문서를 찾아 실제 파일이 없는 경우 `missing_confirmed`로 정리
+
 ## 실행 방법
+
+필요한 도구:
+
+- Docker
+- Docker Compose
+- Python 3 (`scripts/` 유틸 실행 시)
 
 ### 1. 컨테이너 실행
 
@@ -355,6 +461,14 @@ http://localhost:8080
 
 ```text
 admin / admin
+```
+
+버전 확인 예시:
+
+```bash
+python3 --version
+docker --version
+docker compose version
 ```
 
 ### 2. 코드나 설정을 바꾼 뒤 반영
@@ -393,6 +507,7 @@ OpenSearch 주요 인덱스:
 - `seed_qualification_failure_index`
 - `package_registry_full_metadata_index` (옵션)
 - `benchmark_artifact_fetch_index`
+- repo processing 관련 상태는 주로 `repo_registry_index`에 누적 저장됩니다.
 
 ## 디렉토리 구조
 
@@ -405,7 +520,11 @@ code-pipeline/
 │   │   ├── curated_repo_lists.json
 │   │   └── seed_packages.json
 │   ├── dags/
+│   │   ├── code_pipeline_dag.py
+│   │   ├── repo_chunk_dag.py
+│   │   ├── repo_extract_dag.py
 │   │   ├── repo_relation_dag.py
+│   │   ├── repo_validation_dag.py
 │   │   ├── seed_dag_support.py
 │   │   ├── seed_discovery_dag.py
 │   │   ├── seed_expansion_dag.py
@@ -416,6 +535,7 @@ code-pipeline/
 ├── infra/
 │   └── opensearch_index/
 ├── local_data/
+├── scripts/
 ├── worker/
 │   ├── common/
 │   ├── seed/
@@ -440,6 +560,17 @@ code-pipeline/
 - repo snapshot download, 파일 수집, chunking, validation은 구현되어 있으나 embedding / retrieval / license-aware judgement 단계는 아직 남아 있습니다.
 - seed source coverage는 아직 초기 단계입니다.
 - 현재 qualification 로직은 단순하며, 장기적으로 더 정교한 정책이 필요합니다.
+- repo processing DAG는 self-triggering 구조라서 병렬도 설정이 높으면 load spike가 생길 수 있습니다.
+- local snapshot cleanup과 OpenSearch 문서 상태가 항상 완벽히 동기화되지는 않아, 운영 보조 스크립트가 필요합니다.
+
+## 구현하면서 고민한 점
+
+- seed source를 한 번에 많이 붙이기보다, `package registry -> curated repo -> benchmark dataset` 순서로 신뢰도 높은 source부터 확장했습니다. 초기에 coverage보다 provenance를 먼저 안정화하는 쪽이 이후 라이선스 판단에 더 유리하다고 봤습니다.
+- package registry raw를 얼마나 저장할지도 고민이 컸습니다. 전체 응답을 저장하면 디버깅은 쉽지만 저장 용량이 너무 커져서, 기본은 compact raw만 남기고 full raw는 옵션으로 분리했습니다.
+- `seed_item_index`와 `repo_registry_index`를 나눈 이유도 운영 편의 때문입니다. source record와 canonical repo를 섞으면 dedupe, qualification 재시도, provenance 누적이 모두 복잡해지기 때문입니다.
+- benchmark source는 수동 repo 목록이 아니라, 실제 dataset artifact에서 repo를 추출하는 구조로 바꿨습니다. 그래야 논문/benchmark에 등장한 repo라는 근거가 코드와 데이터에 함께 남습니다.
+- repo processing 단계에서는 처리량과 서버 안정성의 균형이 중요했습니다. 실제 운영 중 load spike가 있었기 때문에, 현재는 shard 수와 Airflow parallelism을 다소 보수적으로 낮추고 안정적인 fan-out 범위를 먼저 찾는 방향으로 조정했습니다.
+- local snapshot cleanup이 항상 문서 상태와 동시에 맞춰지지 않는 문제도 있었습니다. 그래서 cleanup 자체뿐 아니라, 나중에 OpenSearch 문서를 reconcile하는 운영 스크립트까지 같이 두는 방향을 선택했습니다.
 
 ## 다음 단계
 
@@ -456,4 +587,4 @@ code-pipeline/
 
 이 저장소는 라이선스 파생 코드 탐지용 전체 시스템의 첫 단계를 구현합니다.
 
-현재는 `PyPI`, `npm`, curated repo list, benchmark dataset source 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만들고, 이어서 snapshot download, 파일 추출, 코드 청크 생성, validation까지 연결하는 데 초점을 맞추고 있습니다.
+현재는 `PyPI`, `npm`, curated repo list, benchmark dataset source 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만들고, 이어서 snapshot download, 파일 추출, 코드 chunk 생성, validation까지 연결하는 데 초점을 맞추고 있습니다.
