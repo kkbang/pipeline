@@ -11,7 +11,7 @@
 - 최종 목표: 라이선스 리스크가 있는 유사 코드 탐지를 위한 학습/검증 데이터셋 구축
 - 현재 구현 범위: seed source 수집, GitHub 저장소 식별, repo registry 구축, repo snapshot download, file extraction, code chunking, validation
 - 현재 seed source:
-  - package registry repo: `PyPI`, `npm`를 포함한 다중 registry adapter
+  - package registry repo: `PyPI`, `npm`, `nuget`, `maven`, `crates.io` 등을 포함한 다중 registry adapter
   - curated repo list: 정적 GitHub repo URL 목록
   - benchmark dataset source: benchmark dataset artifact에서 추출한 공개 repo
   - GitHub org / search / topic seed: 코드 구현 완료, config 기반 활성화
@@ -68,6 +68,10 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 4. GitHub API로 저장소 메타데이터를 확인합니다.
 5. 등록 가능한 repo만 `repo_registry_index`에 올립니다.
 6. 발견 경로와 provenance를 함께 남깁니다.
+7. registered repo의 snapshot tarball을 내려받습니다.
+8. snapshot에서 파일을 추출합니다.
+9. 코드 파일을 chunk 단위로 분할합니다.
+10. chunk 결과를 검증하고 다음 crawl 배치를 이어갈지 판단합니다.
 
 즉, 현재 저장소의 직접적인 산출물은 `repo registry`뿐 아니라, 그 이후 단계의 snapshot download, file extraction, code chunking, validation 결과까지 포함합니다.
 
@@ -81,20 +85,35 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 이 프로젝트는 seed source를 한 번에 다 붙이기보다, 설명력이 높은 source부터 차례대로 확장하는 방식으로 설계되어 있습니다.
 
-| Seed Source                    | 의미                                                         | 상태   |
-| ------------------------------ | ------------------------------------------------------------ | ------ |
-| Package Registry Repo          | PyPI, npm 같은 레지스트리 메타데이터에서 공식 repo 후보 추출 | 구현됨 |
-| Curated Repo List              | 사람이 직접 고른 공개 repo 목록                              | 구현됨 |
-| Direct Repo Seed               | 사용자가 repo URL을 직접 지정                                | 예정   |
-| Org / User Seed                | GitHub org/user 아래 repo 일괄 수집                          | 예정   |
-| Benchmark Dataset Source       | benchmark dataset artifact에서 repo를 추출해 seed로 등록    | 구현됨 |
-| GitHub Search                  | query 기반 repo 수집                                         | 예정   |
-| Topic 기반 Seed                | GitHub topic/tag 기반 repo 수집                              | 예정   |
-| Dependency Expansion           | package dependency/lockfile 기반 확장                        | 예정   |
-| Fork Network Seed              | fork graph 기반 확장                                         | 예정   |
-| README External Link Expansion | README, docs 외부 링크 기반 repo 확장                        | 예정   |
+초기 seed와 후속 확장을 구분하면 현재 상태는 아래와 같습니다.
 
-현재는 `PyPI`, `npm`, curated repo list가 기본 DAG에 연결되어 있고, benchmark dataset source는 dataset config를 활성화했을 때 동적으로 추가됩니다. GitHub org / search / topic source도 discovery DAG 코드에는 연결되어 있으며, 해당 config가 비어 있지 않을 때만 실제 태스크가 생성됩니다.
+### 1. 초기 Seed Source
+
+| Source | 의미 | 상태 |
+| --- | --- | --- |
+| Package Registry Repo | package registry 메타데이터에서 공식 repo 후보 추출 | 구현됨 |
+| Curated Repo List | 사람이 직접 고른 공개 repo 목록 | 구현됨 |
+| Benchmark Dataset Source | benchmark dataset artifact에서 repo를 추출해 seed로 등록 | 구현됨 |
+| GitHub Org Seed | GitHub org 단위로 공개 repo 수집 | 구현됨 |
+| GitHub Search Seed | query 기반 GitHub search 결과를 seed로 등록 | 구현됨 |
+| GitHub Topic Seed | GitHub topic 기반 search 결과를 seed로 등록 | 구현됨 |
+| StackOverflow Repo Source | StackOverflow 질문/답변 문맥에서 언급된 공개 repo를 seed로 등록 | 예정 |
+| Direct Repo Seed | 사용자가 repo URL을 직접 지정 | 예정 |
+| GitHub User Seed | GitHub user 아래 repo 일괄 수집 | 예정 |
+
+### 2. 후속 Expansion / Relation
+
+| 기능 | 의미 | 상태 |
+| --- | --- | --- |
+| README External Link Expansion | README 안의 외부 GitHub 링크를 새로운 seed로 확장 | 구현됨 |
+| Dependency Manifest Expansion | manifest/lockfile 안의 repo 힌트를 새로운 seed로 확장 | 구현됨 |
+| Same Owner Relation | 같은 owner 아래 repo 간 관계 생성 | 구현됨 |
+| Same Project Family Relation | 이름 패턴이 유사한 repo 간 관계 생성 | 구현됨 |
+| Fork Relation | fork 관계를 relation graph로 기록 | 구현됨 |
+| Query Expansion | seed query를 더 넓은 검색 query 집합으로 확장 | 예정 |
+| Near-Duplicate Relation | 유사 repo 후보를 relation graph로 연결 | 예정 |
+
+현재 `seed_discovery_dag`는 package registry, curated repo, benchmark dataset, GitHub org/search/topic source를 모두 포함할 수 있도록 연결되어 있습니다. 실제 태스크 생성 여부는 config 파일과 `enabled` 플래그에 따라 결정됩니다.
 
 현재 운영 원칙은 다음과 같습니다.
 
@@ -108,7 +127,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 현재 구현 범위만 놓고 보면 흐름은 아래와 같습니다.
 
 ```text
-[PyPI / npm / Curated Repo List / Benchmark Dataset Source]
+[Package Registry / Curated Repo / Benchmark Dataset / GitHub Org / GitHub Search / GitHub Topic]
   -> [Seed Ingestion]
   -> [seed_item_index]
   -> [Seed Normalization]
@@ -138,7 +157,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 - [seed_discovery_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/seed_discovery_dag.py)
   - DAG ID: `seed_discovery_dag`
-  - 스케줄: `@daily`
+  - 스케줄: 수동/trigger 전용
   - 역할: base seed ingestion -> normalization -> qualification
 - [seed_expansion_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/seed_expansion_dag.py)
   - DAG ID: `seed_expansion_dag`
@@ -169,26 +188,30 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
   - 스케줄: `repo_chunk_dag`에서 trigger
   - 역할: repo 처리 결과 검증 및 다음 crawl 필요 여부 판단
 
-현재 기본 구성 태스크는 아래와 같습니다.
+현재 seed discovery DAG는 config-driven 구조입니다.
 
-1. `seed_ingestion_pypi`
-2. `seed_ingestion_npm`
-3. `seed_ingestion_curated_llm_license_focus_v1`
-4. `seed_normalization`
-5. `seed_qualification`
+- package registry ingestion: `seed_ingestion_<registry>`
+- curated repo ingestion: `seed_ingestion_curated_<list_name>`
+- benchmark dataset ingestion: `seed_ingestion_benchmark_<dataset_name>`
+- GitHub org ingestion: `seed_ingestion_github_org_<list_name>`
+- GitHub search ingestion: `seed_ingestion_github_search_<list_name>`
+- GitHub topic ingestion: `seed_ingestion_github_topic_<list_name>`
+- normalization: dynamic task mapping 기반 `seed_normalization_shard`
+- qualification: dynamic task mapping 기반 `seed_qualification_shard`
 
-benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/benchmark_datasets.json) 에서 `enabled=true` 인 항목이 있을 때만 `seed_ingestion_benchmark_*` 태스크가 동적으로 생성됩니다.
-
-또한 `artifact_fetch.enabled=true` 인 경우, `benchmark_artifact_fetch_*` 태스크가 먼저 실행되어 dataset artifact를 `benchmark_data/` 아래에 가져온 뒤 ingestion 단계로 넘깁니다.
+benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/benchmark_datasets.json) 에서 `enabled=true` 인 항목만 실제 태스크가 생성됩니다. `artifact_fetch.enabled=true` 인 경우에는 `benchmark_artifact_fetch_*` 태스크가 먼저 실행되어 dataset artifact를 `benchmark_data/` 아래에 가져온 뒤 ingestion 단계로 넘깁니다.
 
 기본 실행 순서는 다음과 같습니다.
 
 ```text
-[seed_ingestion_pypi]
-          \
-[seed_ingestion_npm] ----> [seed_normalization] -> [seed_qualification]
-          /
-[seed_ingestion_curated_llm_license_focus_v1]
+[seed_ingestion_package_registry_*]
+[seed_ingestion_curated_*]
+[seed_ingestion_benchmark_*]
+[seed_ingestion_github_org_*]
+[seed_ingestion_github_search_*]
+[seed_ingestion_github_topic_*]
+          -> [seed_normalization_shard[*]]
+          -> [seed_qualification_shard[*]]
 ```
 
 repo processing 기본 실행 순서는 다음과 같습니다.
@@ -484,17 +507,31 @@ docker compose up --build -d --force-recreate airflow
 
 ### 3. 전체 DAG 실행
 
+seed discovery만 실행:
+
 ```bash
 docker compose exec airflow airflow dags unpause seed_discovery_dag
 docker compose exec airflow airflow dags trigger seed_discovery_dag
 ```
 
-### 4. 특정 태스크만 테스트 실행
-
-예를 들어 qualification 단계만 보고 싶다면:
+seed discovery 이후 repo processing까지 이어서 실행:
 
 ```bash
-docker compose exec airflow airflow tasks test seed_discovery_dag seed_qualification 2026-03-24
+docker compose exec airflow airflow dags trigger code_pipeline_dag
+```
+
+### 4. 특정 태스크만 테스트 실행
+
+예를 들어 curated repo ingestion 태스크만 보고 싶다면:
+
+```bash
+docker compose exec airflow airflow tasks test seed_discovery_dag seed_ingestion_curated_llm_license_focus_v1 2026-03-24
+```
+
+예를 들어 benchmark artifact fetch 태스크만 보고 싶다면:
+
+```bash
+docker compose exec airflow airflow tasks test seed_discovery_dag benchmark_artifact_fetch_swe_bench_verified_v1 2026-03-24
 ```
 
 ## 결과 확인 위치
@@ -577,11 +614,15 @@ code-pipeline/
 현재 다음과 같은 확장을 염두에 두고 있습니다.
 
 1. direct repo seed 추가
-2. GitHub search / topic 기반 자동 확장 추가
-3. README / dependency link expansion 추가
-4. feature / embedding 생성 추가
-5. similarity retrieval 추가
-6. license-aware similarity pipeline 연결
+2. GitHub user seed 추가
+3. StackOverflow repo source 추가
+4. query expansion 추가
+5. qualification 전 canonical repo dedupe 강화
+6. GitHub API rate limit 대응 강화
+7. near-duplicate relation 추가
+8. feature / embedding 생성 추가
+9. similarity retrieval 추가
+10. license-aware similarity pipeline 연결
 
 ## 요약
 
