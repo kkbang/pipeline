@@ -1,10 +1,12 @@
 import asyncio
 import logging
 import shutil
+import tarfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
@@ -25,7 +27,6 @@ from worker.repo.repo_snapshot_local_paths import (
     resolve_snapshot_paths,
     strip_local_snapshot_fields,
 )
-from worker.seed.services.benchmark_artifact_fetch_service import _extract_tar
 from worker.storage.opensearch_store import OpenSearchStore
 
 logger = logging.getLogger(__name__)
@@ -63,20 +64,30 @@ def _reset_downstream_processing_fields(source: dict) -> dict:
     return cleaned
 
 def _build_ref_candidates(source: dict) -> list[str]:
-    candidates = []
-    default_branch = str(source.get("default_branch") or "").strip()
-    if default_branch:
-        candidates.append(default_branch)
+    candidates: list[str] = []
+    seen = set()
+
+    def _append_candidate(value: object) -> None:
+        ref = str(value or "").strip()
+        if not ref:
+            return
+        if ref.startswith("refs/heads/"):
+            ref = ref[len("refs/heads/") :]
+        if ref in seen:
+            return
+        seen.add(ref)
+        candidates.append(ref)
+
+    _append_candidate(source.get("default_branch"))
 
     for fallback_ref in ["main", "master"]:
-        if fallback_ref not in candidates:
-            candidates.append(fallback_ref)
+        _append_candidate(fallback_ref)
 
     return candidates
 
 
 def _build_archive_url(owner: str, repo: str, ref: str) -> str:
-    return f"https://codeload.github.com/{owner}/{repo}/tar.gz/refs/heads/{ref}"
+    return f"https://codeload.github.com/{owner}/{repo}/tar.gz/refs/heads/{quote(ref, safe='/')}"
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -109,6 +120,44 @@ def _clear_existing_extract_dir(extract_dir: Path) -> None:
 def _clear_existing_download_path(download_path: Path) -> None:
     if download_path.exists():
         download_path.unlink()
+
+
+def _safe_extract_repo_member_path(base_dir: Path, member_name: str) -> Path:
+    target_path = (base_dir / member_name).resolve()
+    base_path = base_dir.resolve()
+    try:
+        target_path.relative_to(base_path)
+    except ValueError as exc:
+        raise ValueError(f"Unsafe archive member path detected: {member_name}")
+    return target_path
+
+
+def _extract_repo_tar(archive_path: Path, extract_dir: Path, mode: str) -> None:
+    with tarfile.open(archive_path, mode) as archive:
+        for member in archive:
+            member_name = str(member.name or "").strip()
+            if not member_name:
+                continue
+
+            target_path = _safe_extract_repo_member_path(extract_dir, member_name)
+
+            if member.isdir():
+                target_path.mkdir(parents=True, exist_ok=True)
+                continue
+
+            # Repository snapshots often contain symlinks, hardlinks, sockets, and
+            # other special members that are not required for source analysis and
+            # frequently break extraction. Skip them instead of failing the repo.
+            if not member.isfile():
+                continue
+
+            extracted = archive.extractfile(member)
+            if extracted is None:
+                continue
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with extracted, target_path.open("wb") as destination:
+                shutil.copyfileobj(extracted, destination)
 
 def _build_async_client(concurrency: int) -> httpx.AsyncClient:
     return httpx.AsyncClient(
@@ -302,6 +351,7 @@ def _claim_repo_docs(
     batch_id: str,
 ) -> dict[str, dict]:
     claimed_docs = {}
+    claimed_documents: list[tuple[str, dict]] = []
 
     for hit in repo_docs:
         doc_id = hit["_id"]
@@ -319,12 +369,16 @@ def _claim_repo_docs(
             "snapshot_archive_url": None,
         }
 
-        store.replace_document(
-            collection_name="repo_registry_index",
-            doc_id=doc_id,
-            source=claimed_source,
-        )
+        claimed_documents.append((doc_id, claimed_source))
         claimed_docs[doc_id] = {"_id": doc_id, "_source": claimed_source}
+
+    if claimed_documents:
+        store.bulk_index_documents(
+            collection_name="repo_registry_index",
+            documents=claimed_documents,
+            refresh=False,
+            chunk_size=max(1, int(settings.opensearch_bulk_flush_docs)),
+        )
 
     return claimed_docs
 
@@ -347,7 +401,7 @@ async def _download_snapshot_for_ref(
 
     async with extract_semaphore:
         await asyncio.to_thread(_clear_existing_extract_dir, extract_dir)
-        await asyncio.to_thread(_extract_tar, download_path, extract_dir, "r:gz")
+        await asyncio.to_thread(_extract_repo_tar, download_path, extract_dir, "r:gz")
         extracted_root = await asyncio.to_thread(resolve_extracted_root, extract_dir)
 
     return {
@@ -576,9 +630,15 @@ def repo_crawler(batch_id: str) -> None:
         snapshot_metadata = crawl_result.snapshot_metadata or {}
 
         if crawl_result.error is not None:
+            crawl_status = "crawl_failed"
+            if (
+                isinstance(crawl_result.error, httpx.HTTPStatusError)
+                and crawl_result.error.response.status_code == 404
+            ):
+                crawl_status = "crawl_not_found"
             updated_source = {
                 **strip_local_snapshot_fields(current_source),
-                "crawl_status": "crawl_failed",
+                "crawl_status": crawl_status,
                 "crawl_finished_at": crawl_finished_at,
                 "crawl_error_message": str(crawl_result.error),
                 "snapshot_ref": snapshot_metadata.get("ref"),

@@ -110,7 +110,6 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 | Same Owner Relation | 같은 owner 아래 repo 간 관계 생성 | 구현됨 |
 | Same Project Family Relation | 이름 패턴이 유사한 repo 간 관계 생성 | 구현됨 |
 | Fork Relation | fork 관계를 relation graph로 기록 | 구현됨 |
-| Query Expansion | seed query를 더 넓은 검색 query 집합으로 확장 | 예정 |
 | Near-Duplicate Relation | 유사 repo 후보를 relation graph로 연결 | 예정 |
 
 현재 `seed_discovery_dag`는 package registry, curated repo, benchmark dataset, GitHub org/search/topic source를 모두 포함할 수 있도록 연결되어 있습니다. 실제 태스크 생성 여부는 config 파일과 `enabled` 플래그에 따라 결정됩니다.
@@ -121,6 +120,8 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 - `benchmark dataset source`: benchmark record에서 repo provenance를 함께 가져오는 고신뢰 seed
 
 즉, 같은 repo를 여러 source에 무작정 중복으로 넣기보다, curated는 "꼭 포함해야 하는 대표 repo", benchmark dataset은 "평가/연구 문맥이 명확한 dataset provenance를 가진 repo"로 분리해서 관리하는 것을 원칙으로 합니다.
+
+탐지 단계에서의 `query expansion`은 seed discovery와는 별도 개념으로 보고 있습니다. 이 기능은 아직 구현 전이며, repo를 더 모으기 위한 search query 확장이 아니라, **이미 수집한 코드 조각을 다양한 변형 형태로 다시 검색하는 탐지용 query 확장**을 의미합니다.
 
 ## 현재 아키텍처
 
@@ -600,6 +601,23 @@ code-pipeline/
 - repo processing DAG는 self-triggering 구조라서 병렬도 설정이 높으면 load spike가 생길 수 있습니다.
 - local snapshot cleanup과 OpenSearch 문서 상태가 항상 완벽히 동기화되지는 않아, 운영 보조 스크립트가 필요합니다.
 
+## 탐지 Query Expansion 방향
+
+현재는 아직 구현 전이지만, 이후 탐지 단계에서는 하나의 코드 조각을 여러 방향으로 확장해 검색할 계획입니다.
+
+| 방향 | 의미 | 구현 계획 |
+| --- | --- | --- |
+| Lexical Variation | 변수명, 함수명, import alias, 문자열/숫자 literal이 조금 바뀐 코드 대응 | 예정 |
+| Structural Variation | 포맷팅, block 구조, 조건문/반복문 형태가 일부 달라진 코드 대응 | 예정 |
+| Tree-sitter 기반 Query | AST 단위로 함수/호출/제어흐름 패턴을 정규화한 탐지 query 생성 | 예정 |
+| LLM-generated Variation | 원본 코드를 조금씩 바꾼 변형 예시를 생성해 semantic retrieval recall 보강 | 예정 |
+| Adversarial Rewrite | 의도적으로 탐지를 피하려고 identifier 치환, helper 함수 분리, 문장 재배치한 변형 대응 | 예정 |
+| Multi-query Retrieval | 하나의 원본 chunk에서 여러 query를 만들고 결과를 합치는 방식 | 예정 |
+
+핵심 아이디어는 "원래 코드가 그대로 복사되지 않았더라도 잡을 수 있어야 한다"는 점입니다. 예를 들어 함수명 치환, 주석 제거, 상수 값 변경, helper 함수 추출, formatting 변경 정도는 실제 생성 코드나 수작업 수정 코드에서 흔히 발생하므로, 단일 exact query만으로는 recall이 낮아질 수 있습니다.
+
+이 단계에서 `tree-sitter`는 코드 구조를 안정적으로 뽑아내는 역할을 하고, LLM 기반 variation은 사람이 직접 열거하기 어려운 의미 보존 변형을 넓히는 역할을 하게 됩니다. 즉 장기적으로는 lexical query, structural query, AST query, semantic variation query를 함께 쓰는 다중 탐지 전략을 목표로 합니다.
+
 ## 구현하면서 고민한 점
 
 - seed source를 한 번에 많이 붙이기보다, `package registry -> curated repo -> benchmark dataset` 순서로 신뢰도 높은 source부터 확장했습니다. 초기에 coverage보다 provenance를 먼저 안정화하는 쪽이 이후 라이선스 판단에 더 유리하다고 봤습니다.
@@ -616,12 +634,12 @@ code-pipeline/
 1. direct repo seed 추가
 2. GitHub user seed 추가
 3. StackOverflow repo source 추가
-4. query expansion 추가
-5. qualification 전 canonical repo dedupe 강화
-6. GitHub API rate limit 대응 강화
-7. near-duplicate relation 추가
-8. feature / embedding 생성 추가
-9. similarity retrieval 추가
+4. qualification 전 canonical repo dedupe 강화
+5. GitHub API rate limit 대응 강화
+6. near-duplicate relation 추가
+7. feature / embedding 생성 추가
+8. similarity retrieval 추가
+9. 탐지 query expansion 추가
 10. license-aware similarity pipeline 연결
 
 ## 요약
