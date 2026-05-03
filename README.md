@@ -77,9 +77,9 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 현재 repo 처리 계층의 운영 구조와 문제 해결 내역은 아래 문서를 참고합니다.
 
-- [repo-manifest-pipeline-architecture.md](/Users/xxuchan/Desktop/kkbang/code-pipeline/docs/repo-manifest-pipeline-architecture.md)
-- [repo-processing-current-state.md](/Users/xxuchan/Desktop/kkbang/code-pipeline/docs/repo-processing-current-state.md)
-- [large-scale-collection-current-state.md](/Users/xxuchan/Desktop/kkbang/code-pipeline/docs/large-scale-collection-current-state.md)
+- [repo-manifest-pipeline-architecture.md](/Users/xxuchan/Desktop/kkbang/docs/repo-manifest-pipeline-architecture.md)
+- [repo-processing-current-state.md](/Users/xxuchan/Desktop/kkbang/docs/repo-processing-current-state.md)
+- [large-scale-collection-current-state.md](/Users/xxuchan/Desktop/kkbang/docs/large-scale-collection-current-state.md)
 
 ## Seed Source 전략
 
@@ -121,7 +121,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 즉, 같은 repo를 여러 source에 무작정 중복으로 넣기보다, curated는 "꼭 포함해야 하는 대표 repo", benchmark dataset은 "평가/연구 문맥이 명확한 dataset provenance를 가진 repo"로 분리해서 관리하는 것을 원칙으로 합니다.
 
-탐지 단계에서의 `query expansion`은 seed discovery와는 별도 개념으로 보고 있습니다. 이 기능은 아직 구현 전이며, repo를 더 모으기 위한 search query 확장이 아니라, **이미 수집한 코드 조각을 다양한 변형 형태로 다시 검색하는 탐지용 query 확장**을 의미합니다.
+탐지 단계에서의 `query expansion`은 seed discovery와는 별도 개념으로 보고 있습니다. 이 기능은 아직 구현 전이며, repo를 더 모으기 위한 search query 확장이 아니라, **이미 수집한 코드 조각을 다양한 변형 형태로 다시 검색하는 탐지용 query 확장**을 의미합니다. 자세한 설계 메모는 [docs/query-expansion.md](docs/query-expansion.md)에 정리했습니다.
 
 ## 현재 아키텍처
 
@@ -156,35 +156,35 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 현재 seed DAG는 역할별로 분리되어 있습니다.
 
-- [seed_discovery_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/seed_discovery_dag.py)
+- [seed_discovery_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/seed_discovery_dag.py)
   - DAG ID: `seed_discovery_dag`
   - 스케줄: 수동/trigger 전용
   - 역할: base seed ingestion -> normalization -> qualification
-- [seed_expansion_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/seed_expansion_dag.py)
+- [seed_expansion_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/seed_expansion_dag.py)
   - DAG ID: `seed_expansion_dag`
   - 스케줄: 수동/trigger 전용
   - 역할: README / dependency expansion -> normalization -> qualification
-- [repo_relation_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/repo_relation_dag.py)
+- [repo_relation_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/repo_relation_dag.py)
   - DAG ID: `repo_relation_dag`
   - 스케줄: 수동/trigger 전용
   - 역할: registered repo 간 관계 그래프 생성
-- [seed_pipeline_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/seed_pipeline_dag.py)
+- [seed_pipeline_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/seed_pipeline_dag.py)
   - DAG ID: `seed_pipeline_dag`
   - 스케줄: 수동/compatibility 전용
   - 역할: `seed_discovery_dag` trigger
-- [code_pipeline_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/code_pipeline_dag.py)
+- [code_pipeline_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/code_pipeline_dag.py)
   - DAG ID: `code_pipeline_dag`
   - 스케줄: 수동/trigger 전용
   - 역할: registered repo snapshot download 시작
-- [repo_extract_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/repo_extract_dag.py)
+- [repo_extract_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/repo_extract_dag.py)
   - DAG ID: `repo_extract_dag`
   - 스케줄: `code_pipeline_dag`에서 trigger
   - 역할: snapshot에서 텍스트/코드 파일 추출
-- [repo_chunk_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/repo_chunk_dag.py)
+- [repo_chunk_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/repo_chunk_dag.py)
   - DAG ID: `repo_chunk_dag`
   - 스케줄: `repo_extract_dag`에서 trigger
   - 역할: 추출된 코드를 chunk 단위로 분할
-- [repo_validation_dag.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/dags/repo_validation_dag.py)
+- [repo_validation_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/repo_validation_dag.py)
   - DAG ID: `repo_validation_dag`
   - 스케줄: `repo_chunk_dag`에서 trigger
   - 역할: repo 처리 결과 검증 및 다음 crawl 필요 여부 판단
@@ -200,7 +200,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 - normalization: dynamic task mapping 기반 `seed_normalization_shard`
 - qualification: dynamic task mapping 기반 `seed_qualification_shard`
 
-benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/benchmark_datasets.json) 에서 `enabled=true` 인 항목만 실제 태스크가 생성됩니다. `artifact_fetch.enabled=true` 인 경우에는 `benchmark_artifact_fetch_*` 태스크가 먼저 실행되어 dataset artifact를 `benchmark_data/` 아래에 가져온 뒤 ingestion 단계로 넘깁니다.
+benchmark dataset source는 [`benchmark_datasets.json`](/Users/xxuchan/Desktop/kkbang/airflow/config/benchmark_datasets.json) 에서 `enabled=true` 인 항목만 실제 태스크가 생성됩니다. `artifact_fetch.enabled=true` 인 경우에는 `benchmark_artifact_fetch_*` 태스크가 먼저 실행되어 dataset artifact를 `benchmark_data/` 아래에 가져온 뒤 ingestion 단계로 넘깁니다.
 
 기본 실행 순서는 다음과 같습니다.
 
@@ -233,11 +233,11 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 파일:
 
-- [seed_ingest_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/services/seed_ingest_service.py)
-- [dataset.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/benchmark/dataset.py)
-- [pypi.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/package_registry/pypi.py)
-- [npm.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/package_registry/npm.py)
-- [repo_list.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/curated/repo_list.py)
+- [seed_ingest_service.py](/Users/xxuchan/Desktop/kkbang/worker/seed/services/seed_ingest_service.py)
+- [dataset.py](/Users/xxuchan/Desktop/kkbang/worker/seed/adapters/benchmark/dataset.py)
+- [pypi.py](/Users/xxuchan/Desktop/kkbang/worker/seed/adapters/package_registry/pypi.py)
+- [npm.py](/Users/xxuchan/Desktop/kkbang/worker/seed/adapters/package_registry/npm.py)
+- [repo_list.py](/Users/xxuchan/Desktop/kkbang/worker/seed/adapters/curated/repo_list.py)
 
 역할:
 
@@ -258,9 +258,9 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 파일:
 
-- [seed_normalize_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/services/seed_normalize_service.py)
-- [repo_url_extractor.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/extractors/repo_url_extractor.py)
-- [github_url_canonicalizer.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/resolvers/github_url_canonicalizer.py)
+- [seed_normalize_service.py](/Users/xxuchan/Desktop/kkbang/worker/seed/services/seed_normalize_service.py)
+- [repo_url_extractor.py](/Users/xxuchan/Desktop/kkbang/worker/seed/extractors/repo_url_extractor.py)
+- [github_url_canonicalizer.py](/Users/xxuchan/Desktop/kkbang/worker/seed/resolvers/github_url_canonicalizer.py)
 
 역할:
 
@@ -275,9 +275,9 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 파일:
 
-- [seed_qualify_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/services/seed_qualify_service.py)
-- [repo_metadata.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/adapters/github/repo_metadata.py)
-- [repo_qualifier.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/seed/qualifiers/repo_qualifier.py)
+- [seed_qualify_service.py](/Users/xxuchan/Desktop/kkbang/worker/seed/services/seed_qualify_service.py)
+- [repo_metadata.py](/Users/xxuchan/Desktop/kkbang/worker/seed/adapters/github/repo_metadata.py)
+- [repo_qualifier.py](/Users/xxuchan/Desktop/kkbang/worker/seed/qualifiers/repo_qualifier.py)
 
 역할:
 
@@ -297,8 +297,8 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 파일:
 
-- [repo_crawl_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_crawl_service.py)
-- [repo_snapshot_local_paths.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_snapshot_local_paths.py)
+- [repo_crawl_service.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_crawl_service.py)
+- [repo_snapshot_local_paths.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_snapshot_local_paths.py)
 
 역할:
 
@@ -310,8 +310,8 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 파일:
 
-- [repo_file_extract_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_file_extract_service.py)
-- [repo_stage_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_stage_service.py)
+- [repo_file_extract_service.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_file_extract_service.py)
+- [repo_stage_service.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_stage_service.py)
 
 역할:
 
@@ -323,8 +323,8 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 파일:
 
-- [repo_chunk_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_chunk_service.py)
-- [repo_chunk_planning_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_chunk_planning_service.py)
+- [repo_chunk_service.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_chunk_service.py)
+- [repo_chunk_planning_service.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_chunk_planning_service.py)
 
 역할:
 
@@ -336,7 +336,7 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 파일:
 
-- [repo_validation_service.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/repo/repo_validation_service.py)
+- [repo_validation_service.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_validation_service.py)
 
 역할:
 
@@ -423,7 +423,7 @@ ingested -> normalized -> registered
 
 파일:
 
-- [opensearch_store.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/worker/storage/opensearch_store.py)
+- [opensearch_store.py](/Users/xxuchan/Desktop/kkbang/worker/storage/opensearch_store.py)
 
 이 모드의 장점:
 
@@ -435,26 +435,26 @@ ingested -> normalized -> registered
 
 주요 설정 파일은 아래와 같습니다.
 
-- [seed_packages.json](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/seed_packages.json)
+- [seed_packages.json](/Users/xxuchan/Desktop/kkbang/airflow/config/seed_packages.json)
   - `pypi`, `npm` seed 패키지 목록
-- [curated_repo_lists.json](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/curated_repo_lists.json)
+- [curated_repo_lists.json](/Users/xxuchan/Desktop/kkbang/airflow/config/curated_repo_lists.json)
   - curated repo URL 목록
-- [benchmark_datasets.json](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/benchmark_datasets.json)
+- [benchmark_datasets.json](/Users/xxuchan/Desktop/kkbang/airflow/config/benchmark_datasets.json)
   - benchmark dataset artifact 입력 설정
-- [airflow.env](/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/airflow.env)
+- [airflow.env](/Users/xxuchan/Desktop/kkbang/airflow/config/airflow.env)
   - Airflow executor, timezone, metadata DB 설정
   - 기본값: `LocalExecutor` + `PostgreSQL` (`postgres` 서비스)
-- [.env](/Users/xxuchan/Desktop/kkbang/code-pipeline/.env)
+- [.env](/Users/xxuchan/Desktop/kkbang/.env)
   - 앱 환경변수, OpenSearch 연결, timeout 등
 
 benchmark dataset 파일은 기본적으로 아래 경로에 마운트해서 읽습니다.
 
 - `/opt/airflow/benchmark_data`
-- 호스트 기준으로는 [benchmark_data](/Users/xxuchan/Desktop/kkbang/code-pipeline/benchmark_data) 디렉토리입니다.
+- 호스트 기준으로는 [benchmark_data](/Users/xxuchan/Desktop/kkbang/benchmark_data) 디렉토리입니다.
 
 운영 중 로컬 snapshot cleanup 상태를 OpenSearch 문서와 맞추고 싶다면 아래 스크립트를 사용할 수 있습니다.
 
-- [reconcile_snapshot_cleanup_state.py](/Users/xxuchan/Desktop/kkbang/code-pipeline/scripts/reconcile_snapshot_cleanup_state.py)
+- [reconcile_snapshot_cleanup_state.py](/Users/xxuchan/Desktop/kkbang/scripts/reconcile_snapshot_cleanup_state.py)
   - `snapshot_artifacts_missing` 상태 문서를 찾아 실제 파일이 없는 경우 `missing_confirmed`로 정리
 
 ## 실행 방법
@@ -468,7 +468,7 @@ benchmark dataset 파일은 기본적으로 아래 경로에 마운트해서 읽
 ### 1. 컨테이너 실행
 
 ```bash
-cd /Users/xxuchan/Desktop/kkbang/code-pipeline
+cd /Users/xxuchan/Desktop/kkbang
 docker compose up --build -d airflow
 ```
 
@@ -502,7 +502,7 @@ docker compose version
 즉, 코드나 설정 파일을 수정한 뒤에는 아래처럼 다시 빌드해야 합니다.
 
 ```bash
-cd /Users/xxuchan/Desktop/kkbang/code-pipeline
+cd /Users/xxuchan/Desktop/kkbang
 docker compose up --build -d --force-recreate airflow
 ```
 
@@ -550,7 +550,7 @@ OpenSearch 주요 인덱스:
 ## 디렉토리 구조
 
 ```text
-code-pipeline/
+.
 ├── airflow/
 │   ├── config/
 │   │   ├── airflow.env
@@ -603,7 +603,7 @@ code-pipeline/
 
 ## 탐지 Query Expansion 방향
 
-현재는 아직 구현 전이지만, 이후 탐지 단계에서는 하나의 코드 조각을 여러 방향으로 확장해 검색할 계획입니다.
+현재는 아직 구현 전이지만, 이후 탐지 단계에서는 하나의 코드 조각을 여러 방향으로 확장해 검색할 계획입니다. 아래 표는 요약본이고, 설계 배경과 단계별 제안은 [docs/query-expansion.md](docs/query-expansion.md)를 참고하면 됩니다.
 
 | 방향 | 의미 | 구현 계획 |
 | --- | --- | --- |

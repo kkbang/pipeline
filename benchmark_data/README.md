@@ -5,7 +5,7 @@
 호스트 기준 경로:
 
 ```text
-code-pipeline/benchmark_data/
+benchmark_data/
 ```
 
 컨테이너 내부 경로:
@@ -38,7 +38,7 @@ benchmark_data/
 
 연결 설정은 다음 파일에서 관리합니다.
 
-- `/Users/xxuchan/Desktop/kkbang/code-pipeline/airflow/config/benchmark_datasets.json`
+- `/Users/xxuchan/Desktop/kkbang/airflow/config/benchmark_datasets.json`
 
 일반적인 사용 순서:
 

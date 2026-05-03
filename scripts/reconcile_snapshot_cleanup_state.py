@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--root",
-        default=str(Path.home() / "pipeline" / "code-pipeline"),
+        default=str(Path(__file__).resolve().parents[1]),
         help="Project root that contains .env and local_data/",
     )
     parser.add_argument(
