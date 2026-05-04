@@ -363,6 +363,18 @@ SIGNIFICANT_NODE_SKIP_TYPES = {
     "name",
     "block",
     "statement_block",
+    "modifier",
+    "modifiers",
+    "primitive_type",
+    "predefined_type",
+    "type_annotation",
+    "array_rank_specifier",
+    "dimensions",
+    "string_content",
+    "string_fragment",
+    "string_start",
+    "string_end",
+    "escape_sequence",
 }
 
 STRING_PREFIX_CHARS = frozenset("rRuUbBfF")
@@ -434,6 +446,24 @@ TRIVIAL_CLASS_AST_NODE_TYPES = {
     "field_declaration",
     "field_declaration_list",
     "struct_type",
+}
+
+SELF_RECURSIVE_CALL_RE = re.compile(r"^(self|cls|this|super)(?:\.|::|->)(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
+INLINE_CALLBACK_ANCESTOR_TYPES = {
+    "argument",
+    "arguments",
+    "argument_list",
+    "jsx_expression",
+    "jsx_attribute",
+}
+NAMED_ARROW_PARENT_TYPES = {
+    "assignment_expression",
+    "field_definition",
+    "lexical_declaration",
+    "pair",
+    "public_field_definition",
+    "variable_declaration",
+    "variable_declarator",
 }
 
 
@@ -1073,7 +1103,18 @@ def _collect_control_flow_tags(
             tags.append(tag)
             seen.add(tag)
 
-    if symbol_name and any(token == symbol_name or token.endswith(f".{symbol_name}") for token in call_tokens):
+    is_recursive = False
+    if symbol_name:
+        for token in call_tokens:
+            if token == symbol_name:
+                is_recursive = True
+                break
+            recursive_match = SELF_RECURSIVE_CALL_RE.match(token)
+            if recursive_match and recursive_match.group("name") == symbol_name:
+                is_recursive = True
+                break
+
+    if is_recursive:
         if "recursion" not in seen:
             tags.append("recursion")
             seen.add("recursion")
@@ -1176,6 +1217,95 @@ def _preserved_symbols_for_language(language: str) -> set[str]:
     return set()
 
 
+def _previous_non_whitespace_char(text: str, index: int) -> str:
+    cursor = index - 1
+    while cursor >= 0 and text[cursor].isspace():
+        cursor -= 1
+    return text[cursor] if cursor >= 0 else ""
+
+
+def _previous_non_whitespace_index(text: str, index: int) -> int:
+    cursor = index - 1
+    while cursor >= 0 and text[cursor].isspace():
+        cursor -= 1
+    return cursor
+
+
+def _next_non_whitespace_char(text: str, index: int) -> str:
+    cursor = index
+    text_length = len(text)
+    while cursor < text_length and text[cursor].isspace():
+        cursor += 1
+    return text[cursor] if cursor < text_length else ""
+
+
+def _has_member_or_namespace_prefix(text: str, start: int) -> bool:
+    if start >= 2:
+        two_char_prefix = text[start - 2 : start]
+        if two_char_prefix in {"::", "->"}:
+            return True
+    return _previous_non_whitespace_char(text, start) in {".", "\\"}
+
+
+def _is_object_key_or_shorthand_context(text: str, start: int, end: int) -> bool:
+    previous_index = _previous_non_whitespace_index(text, start)
+    previous_char = text[previous_index] if previous_index >= 0 else ""
+    next_char = _next_non_whitespace_char(text, end)
+    if previous_char == "{" and previous_index > 0 and text[previous_index - 1] in {"#", "$"}:
+        return False
+    return previous_char in "{," and next_char in {":", ",", "}"}
+
+
+def _replace_identifiers_in_segment(
+    segment: str,
+    *,
+    absolute_start: int,
+    replace_token: Any,
+) -> str:
+    parts: list[str] = []
+    cursor = 0
+    for match in IDENTIFIER_RE.finditer(segment):
+        start, end = match.span()
+        parts.append(segment[cursor:start])
+        parts.append(replace_token(match.group(0), absolute_start + start, absolute_start + end))
+        cursor = end
+    parts.append(segment[cursor:])
+    return "".join(parts)
+
+
+def _anonymize_interpolated_string_segment(
+    *,
+    language: str,
+    segment: str,
+    absolute_start: int,
+    replace_token: Any,
+) -> str:
+    interpolation_pattern: re.Pattern[str] | None = None
+    if language == "ruby":
+        interpolation_pattern = re.compile(r"#\{([^{}]+)\}")
+    elif language in {"javascript", "typescript"} and segment.startswith("`"):
+        interpolation_pattern = re.compile(r"\$\{([^{}]+)\}")
+
+    if interpolation_pattern is None:
+        return segment
+
+    parts: list[str] = []
+    cursor = 0
+    for match in interpolation_pattern.finditer(segment):
+        inner_start, inner_end = match.span(1)
+        parts.append(segment[cursor:inner_start])
+        parts.append(
+            _replace_identifiers_in_segment(
+                segment[inner_start:inner_end],
+                absolute_start=absolute_start + inner_start,
+                replace_token=replace_token,
+            )
+        )
+        cursor = inner_end
+    parts.append(segment[cursor:])
+    return "".join(parts)
+
+
 def _anonymize_code(
     *,
     language: str,
@@ -1208,10 +1338,13 @@ def _anonymize_code(
     next_class_index = 1
     symbol_alias = "CLASS_0" if chunk_type == "class" else "FUNC_0"
 
-    def replace(match: re.Match[str]) -> str:
+    def replace_token(token: str, start: int, end: int) -> str:
         nonlocal next_var_index, next_function_index, next_class_index
-        token = match.group(0)
         lowered = token.lower()
+        if _has_member_or_namespace_prefix(normalized_code, start):
+            return token
+        if _is_object_key_or_shorthand_context(normalized_code, start, end):
+            return token
         if token == symbol_name and symbol_name:
             return symbol_alias
         if lowered in preserve or token.startswith("__") and token.endswith("__"):
@@ -1242,11 +1375,30 @@ def _anonymize_code(
     cursor = 0
     for start, end in _iter_string_ranges(normalized_code):
         if start > cursor:
-            parts.append(IDENTIFIER_RE.sub(replace, normalized_code[cursor:start]))
-        parts.append(normalized_code[start:end])
+            parts.append(
+                _replace_identifiers_in_segment(
+                    normalized_code[cursor:start],
+                    absolute_start=cursor,
+                    replace_token=replace_token,
+                )
+            )
+        parts.append(
+            _anonymize_interpolated_string_segment(
+                language=language,
+                segment=normalized_code[start:end],
+                absolute_start=start,
+                replace_token=replace_token,
+            )
+        )
         cursor = end
     if cursor < len(normalized_code):
-        parts.append(IDENTIFIER_RE.sub(replace, normalized_code[cursor:]))
+        parts.append(
+            _replace_identifiers_in_segment(
+                normalized_code[cursor:],
+                absolute_start=cursor,
+                replace_token=replace_token,
+            )
+        )
     return "".join(parts)
 
 
@@ -1304,15 +1456,31 @@ def collect_symbol_spans(content_bytes: bytes, language: str, tree: Tree) -> lis
     return spans
 
 
+def _is_inline_callback_arrow_function(node: Node) -> bool:
+    current = getattr(node, "parent", None)
+    depth = 0
+    while current is not None and depth < 5:
+        current_type = str(current.type or "")
+        if current_type in INLINE_CALLBACK_ANCESTOR_TYPES:
+            return True
+        if current_type in NAMED_ARROW_PARENT_TYPES:
+            return False
+        current = getattr(current, "parent", None)
+        depth += 1
+    return False
+
+
 def _is_trivial_candidate(
     *,
     span: SymbolSpan,
+    node: Node,
     language: str,
     normalized_code: str,
     identifier_tokens: list[str],
     call_tokens: list[str],
     ast_node_sequence: list[str],
     structure_signature: str,
+    nested_function_symbols: set[str],
 ) -> bool:
     node_type = str(span.node_type or "")
     node_type_tokens = _node_type_tokens(node_type)
@@ -1337,10 +1505,18 @@ def _is_trivial_candidate(
             return True
         if node_type == "arrow_function" and not identifier_tokens and not call_tokens:
             return True
+        if (
+            language in {"javascript", "typescript"}
+            and node_type == "arrow_function"
+            and _is_inline_callback_arrow_function(node)
+        ):
+            return True
         if normalized_code.strip() in {"()", "{}"}:
             return True
 
     if span.chunk_type == "class":
+        if nested_function_symbols:
+            return True
         if ast_types and ast_types.issubset(TRIVIAL_CLASS_AST_NODE_TYPES):
             return True
 
@@ -1424,12 +1600,14 @@ def build_code_chunk_candidates(
         )
         if _is_trivial_candidate(
             span=span,
+            node=node,
             language=language,
             normalized_code=normalized_code,
             identifier_tokens=identifier_tokens,
             call_tokens=call_tokens,
             ast_node_sequence=ast_node_sequence,
             structure_signature=structure_signature,
+            nested_function_symbols=anonymization_context.local_function_symbols,
         ):
             filtered_count += 1
             continue
