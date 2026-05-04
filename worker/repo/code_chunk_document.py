@@ -93,6 +93,14 @@ PARAMETER_CONTAINER_TYPES = {
     "arguments",
 }
 
+PARAMETER_BINDING_CONTAINER_TYPES = {
+    "parameters",
+    "formal_parameters",
+    "parameter_list",
+    "parameter_clause",
+    "method_parameters",
+}
+
 LOCAL_BINDING_FIELD_NAMES = (
     "name",
     "left",
@@ -254,19 +262,33 @@ JAVASCRIPT_COMMON_GLOBALS = {
     "Array",
     "Boolean",
     "Date",
+    "decodeURIComponent",
+    "encodeURIComponent",
     "Error",
+    "Intl",
     "JSON",
     "Map",
     "Math",
     "Number",
     "Object",
     "Promise",
+    "RegExp",
     "Set",
     "String",
+    "URL",
+    "URLSearchParams",
+    "clearInterval",
+    "clearTimeout",
     "console",
     "exports",
+    "isFinite",
+    "isNaN",
     "module",
+    "parseFloat",
+    "parseInt",
     "require",
+    "setInterval",
+    "setTimeout",
 }
 
 RUBY_COMMON_SYMBOLS = {
@@ -713,7 +735,7 @@ def _find_parameter_container(node: Node) -> Node | None:
         if not child.is_named:
             continue
         child_type = str(child.type or "")
-        if child_type in PARAMETER_CONTAINER_TYPES:
+        if child_type in PARAMETER_BINDING_CONTAINER_TYPES:
             return child
     return None
 
@@ -746,6 +768,26 @@ def _collect_imported_symbols(content_bytes: bytes, node: Node) -> set[str]:
     return imported_symbols
 
 
+def _collect_binding_identifier_texts(content_bytes: bytes, node: Node) -> list[str]:
+    tokens: list[str] = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if not current.is_named:
+            continue
+        current_type = str(current.type or "")
+        lowered_type = current_type.lower()
+        if current_type in IDENTIFIER_NODE_TYPES:
+            token = _decode_node_text(content_bytes, current).strip()
+            if token:
+                tokens.append(token)
+            continue
+        if "type" in lowered_type:
+            continue
+        stack.extend(reversed(list(current.children)))
+    return tokens
+
+
 def _collect_local_binding_symbols(content_bytes: bytes, node: Node) -> set[str]:
     local_symbols: set[str] = set()
     stack = [node]
@@ -759,12 +801,19 @@ def _collect_local_binding_symbols(content_bytes: bytes, node: Node) -> set[str]
             continue
 
         binding_child = _find_child_by_field_names(current, LOCAL_BINDING_FIELD_NAMES)
-        if binding_child is not None and _is_local_variable_like_node(current_type):
-            local_symbols.update(_ordered_unique_set(_collect_identifier_texts(content_bytes, binding_child)))
+        lowered_type = current_type.lower()
+        if binding_child is not None and (
+            _is_local_variable_like_node(current_type) or "parameter" in lowered_type
+        ):
+            local_symbols.update(
+                _ordered_unique_set(_collect_binding_identifier_texts(content_bytes, binding_child))
+            )
 
         parameter_child = _find_parameter_container(current)
         if parameter_child is not None:
-            local_symbols.update(_ordered_unique_set(_collect_identifier_texts(content_bytes, parameter_child)))
+            local_symbols.update(
+                _ordered_unique_set(_collect_binding_identifier_texts(content_bytes, parameter_child))
+            )
 
         stack.extend(reversed(list(current.children)))
     return local_symbols
@@ -1318,9 +1367,9 @@ def _anonymize_code(
     local_function_symbols: set[str],
     local_class_symbols: set[str],
 ) -> str:
-    preserve: set[str] = set(COMMON_RESERVED_WORDS)
-    preserve.update(_preserved_symbols_for_language(language))
-    preserve.update(imported_symbols)
+    preserve_exact: set[str] = set(COMMON_RESERVED_WORDS)
+    preserve_exact.update(_preserved_symbols_for_language(language))
+    preserve_exact.update(imported_symbols)
     local_symbols = local_variable_symbols | local_function_symbols | local_class_symbols
     for token in call_tokens:
         parts = [part for part in token.split(".") if part]
@@ -1329,8 +1378,9 @@ def _anonymize_code(
         if len(parts) == 1:
             continue
         if parts[0] not in local_symbols:
-            preserve.add(parts[0])
-        preserve.update(parts[1:])
+            preserve_exact.add(parts[0])
+        preserve_exact.update(parts[1:])
+    preserve_lowered = {token.lower() for token in preserve_exact}
 
     replacements: dict[str, str] = {}
     next_var_index = 0
@@ -1343,11 +1393,13 @@ def _anonymize_code(
         lowered = token.lower()
         if _has_member_or_namespace_prefix(normalized_code, start):
             return token
-        if _is_object_key_or_shorthand_context(normalized_code, start, end):
+        if language in {"javascript", "typescript"} and _is_object_key_or_shorthand_context(
+            normalized_code, start, end
+        ):
             return token
         if token == symbol_name and symbol_name:
             return symbol_alias
-        if lowered in preserve or token.startswith("__") and token.endswith("__"):
+        if token in preserve_exact or lowered in preserve_lowered or token.startswith("__") and token.endswith("__"):
             return token
         if _looks_like_external_pascal_symbol(token, local_symbols=local_symbols):
             return token
