@@ -124,6 +124,13 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 탐지 단계에서의 `query expansion`은 seed discovery와는 별도 개념으로 보고 있습니다. 이 기능은 아직 구현 전이며, repo를 더 모으기 위한 search query 확장이 아니라, **이미 수집한 코드 조각을 다양한 변형 형태로 다시 검색하는 탐지용 query 확장**을 의미합니다. 자세한 설계 메모는 [docs/query-expansion.md](docs/query-expansion.md)에 정리했습니다.
 
+현재 `code_chunk_index`와 그 위에 올라갈 탐지 설계 관련 문서는 아래를 참고합니다.
+
+- [code-chunk-implementation.md](/Users/xxuchan/Desktop/kkbang/docs/code-chunk-implementation.md)
+- [query-expansion.md](/Users/xxuchan/Desktop/kkbang/docs/query-expansion.md)
+- [query-expansion-design.md](/Users/xxuchan/Desktop/kkbang/docs/query-expansion-design.md)
+- [code-chunk-embedding.md](/Users/xxuchan/Desktop/kkbang/docs/code-chunk-embedding.md)
+
 ## 현재 아키텍처
 
 현재 구현 범위만 놓고 보면 흐름은 아래와 같습니다.
@@ -304,6 +311,9 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 역할:
 
 - `repo_registry_index`에서 `crawl_status`가 `scheduled`, `crawl_failed`, 또는 stale `downloading`인 repo를 선택합니다.
+- `repo_size_kb` 기반 `normal / whale_hint / giant_hint` tier를 참고해 crawl batch를 구성합니다.
+- `normal` repo를 먼저 처리하고, 그 다음 `whale/giant hint` repo를 처리하는 2-phase scheduling을 사용합니다.
+- download concurrency와 extract concurrency를 분리해 큰 repo의 압축 해제가 download 슬롯을 오래 점유하지 않게 합니다.
 - GitHub snapshot tarball을 내려받고 `local_data/raw/repo_snapshot_download/`와 `local_data/raw/repo_snapshot/` 아래에 저장합니다.
 - 성공 시 `crawl_status=downloaded`로 갱신해 다음 extract 단계가 이어서 처리할 수 있게 합니다.
 
@@ -318,6 +328,7 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 - `crawl_status=downloaded` 인 repo 중 아직 추출되지 않은 대상을 고릅니다.
 - snapshot 내부를 순회하면서 텍스트/코드 파일을 분류하고 메타데이터를 집계합니다.
+- `file_extract_total_code_bytes`, `file_extract_code_files_count` 같은 chunk planning용 통계를 함께 저장합니다.
 - 성공 시 `file_extract_status=extracted` 로 갱신합니다.
 
 ### 6. Code Chunking
@@ -333,8 +344,9 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 - extract 결과의 `file_extract_total_code_bytes`를 기준으로 shard를 다시 배분합니다.
 - tree-sitter 기반 `function/class` symbol chunk를 만들고, 각 chunk에 `raw_code`, `normalized_code`, `anonymized_code`를 저장합니다.
 - `identifier_tokens`, `call_tokens`, `operator_tokens`, `control_flow_tags`, `structure_signature`, `ast_node_sequence` 같은 검색용 summary feature를 함께 생성합니다.
+- `raw_hash`, `normalized_hash`, `anonymized_hash`와 stable `chunk_id`를 생성합니다.
 - 설정이 켜져 있으면 `raw_embedding`, `anonymized_embedding`도 저장 직전에 채웁니다.
-- whale repo는 repo 내부 file-level parallel chunking으로 처리하고, giant repo는 main chunk path에서 defer 할 수 있습니다.
+- whale repo는 repo 내부 file-level parallel chunking으로 처리합니다.
 - 결과는 `code_chunk_index` alias에 저장되고, repo 상태는 `chunk_status`로 관리합니다.
 - 성공 시 로컬 snapshot cleanup을 시도합니다.
 
@@ -347,7 +359,8 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 역할:
 
 - chunk 결과가 실제로 유효한지 확인하고 validation 상태를 갱신합니다.
-- pending crawl work가 남아 있으면 `code_pipeline_dag`를 다시 trigger 해 다음 배치를 이어갑니다.
+- embedding이 켜져 있으면 `raw_embedding`, `anonymized_embedding` 누락 개수도 warning 성격으로 집계합니다.
+- `REPO_PIPELINE_SELF_LOOP_ENABLED=true`일 때만, pending crawl work가 남아 있으면 `code_pipeline_dag`를 다시 trigger 해 다음 배치를 이어갑니다.
 
 ## 현재 데이터 모델
 
@@ -448,6 +461,7 @@ ingested -> normalized -> registered
 - `raw_hash`
 - `normalized_hash`
 - `anonymized_hash`
+- `validation_status`
 - `raw_embedding` (옵션)
 - `anonymized_embedding` (옵션)
 - `chunker_version`
@@ -481,6 +495,8 @@ ingested -> normalized -> registered
 - `seed_item_index`, `repo_registry_index` 등 인덱스 단위 조회/갱신이 바로 가능
 - Airflow/worker에서 동일한 저장소 인터페이스로 운영 환경과 개발 환경을 맞출 수 있음
 - 이후 검색/유사도/통계 파이프라인을 붙이기 쉬움
+- shard recovering 시점의 짧은 `503`은 저장소 레이어에서 짧게 재시도해 task-level failure를 줄입니다.
+- 대량 iteration은 OpenSearch-safe한 `_doc` 정렬과 scroll 기반 조회로 처리합니다.
 
 ## 설정 파일
 
@@ -573,6 +589,7 @@ docker compose exec airflow airflow dags trigger code_pipeline_dag
 ```
 
 `code_pipeline_dag`는 한 번만 trigger 하면 되고, 이후에는 `repo_validation_dag`가 pending crawl 대상이 남아 있는 동안 다음 배치를 자동으로 이어서 실행합니다.
+단, 이 동작은 `REPO_PIPELINE_SELF_LOOP_ENABLED=true`일 때만 활성화됩니다.
 
 ### 4. 특정 태스크만 테스트 실행
 
@@ -654,8 +671,8 @@ OpenSearch 주요 인덱스:
 - 다만 embedding 경로는 현재 config-gated 기능이며, 실제 운영 환경에서의 end-to-end smoke와 retrieval 품질 검증은 아직 남아 있습니다.
 - seed source coverage는 아직 초기 단계입니다.
 - 현재 qualification 로직은 단순하며, 장기적으로 더 정교한 정책이 필요합니다.
-- repo processing DAG는 self-triggering 구조라서 병렬도 설정이 높으면 load spike가 생길 수 있습니다.
-- giant repo는 현재 main chunk path에서 defer 할 수 있으며, 별도 giant 처리 lane은 아직 후속 작업입니다.
+- repo processing DAG는 self-loop를 켤 수 있는 구조라서 병렬도 설정이 높으면 load spike가 생길 수 있습니다.
+- whale repo는 task 내부 file-level parallelism으로 완화하고 있지만, giant repo를 여러 Airflow task로 다시 쪼개는 전용 lane은 아직 없습니다.
 - local snapshot cleanup과 OpenSearch 문서 상태가 항상 완벽히 동기화되지는 않아, 운영 보조 스크립트가 필요합니다.
 
 ## 탐지 Query Expansion 방향
@@ -682,8 +699,10 @@ OpenSearch 주요 인덱스:
 - `seed_item_index`와 `repo_registry_index`를 나눈 이유도 운영 편의 때문입니다. source record와 canonical repo를 섞으면 dedupe, qualification 재시도, provenance 누적이 모두 복잡해지기 때문입니다.
 - benchmark source는 수동 repo 목록이 아니라, 실제 dataset artifact에서 repo를 추출하는 구조로 바꿨습니다. 그래야 논문/benchmark에 등장한 repo라는 근거가 코드와 데이터에 함께 남습니다.
 - repo processing 단계에서는 처리량과 서버 안정성의 균형이 중요했습니다. 실제 운영 중 load spike가 있었기 때문에, 현재는 shard 수와 Airflow parallelism을 다소 보수적으로 낮추고 안정적인 fan-out 범위를 먼저 찾는 방향으로 조정했습니다.
-- chunk 단계는 해시 기반 shard fan-out만으로는 tail latency가 커졌기 때문에, extract 이후 `file_extract_total_code_bytes` 기반 재분배, whale repo file-level parallel chunking, giant defer 전략을 추가했습니다.
+- crawl 단계는 repo 크기 편차가 커서, `repo_size_kb` 기반 `normal / whale_hint / giant_hint` 분류와 `normal -> whale/giant hint` 2-phase scheduling, download/extract concurrency 분리를 추가했습니다.
+- chunk 단계는 해시 기반 shard fan-out만으로는 tail latency가 커졌기 때문에, extract 이후 `file_extract_total_code_bytes` 기반 재분배와 whale repo file-level parallel chunking을 추가했습니다.
 - code chunk는 단순 텍스트 보관보다 검색 중심이 중요하다고 봤기 때문에, `repo_chunk_index` 성격에서 `code_chunk_index` 성격으로 옮겨 왔습니다. 현재는 symbol-level chunk, normalization/anonymization, summary feature, optional embedding enrich를 한 문서에 모아 retrieval-ready 형태로 저장합니다.
+- OpenSearch 쪽도 운영 중 race가 있었기 때문에, shard recovering 시점의 짧은 503 재시도와 `_id` 정렬 회피를 저장소 레이어에 넣어 seed/repo 파이프라인이 덜 깨지게 조정했습니다.
 - local snapshot cleanup이 항상 문서 상태와 동시에 맞춰지지 않는 문제도 있었습니다. 그래서 cleanup 자체뿐 아니라, 나중에 OpenSearch 문서를 reconcile하는 운영 스크립트까지 같이 두는 방향을 선택했습니다.
 
 ## 다음 단계
@@ -696,7 +715,7 @@ OpenSearch 주요 인덱스:
 4. qualification 전 canonical repo dedupe 강화
 5. GitHub API rate limit 대응 강화
 6. near-duplicate relation 추가
-7. giant repo 전용 별도 처리 lane 추가
+7. giant repo 전용 별도 처리 lane 또는 내부 재분배 추가
 8. embedding 모델/차원 확정 및 운영 smoke
 9. similarity retrieval 추가
 10. 탐지 query expansion 추가
@@ -706,4 +725,4 @@ OpenSearch 주요 인덱스:
 
 이 저장소는 라이선스 파생 코드 탐지용 전체 시스템의 첫 단계를 구현합니다.
 
-현재는 `PyPI`, `npm`, curated repo list, benchmark dataset source 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만들고, 이어서 snapshot download, 파일 추출, tree-sitter 기반 symbol chunk 생성, normalization/anonymization, summary feature 저장, optional embedding enrich, validation까지 연결하는 데 초점을 맞추고 있습니다.
+현재는 `PyPI`, `npm`, curated repo list, benchmark dataset source 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만들고, 이어서 size-aware snapshot download, 파일 추출, extract-aware chunk shard planning, tree-sitter 기반 symbol chunk 생성, normalization/anonymization, summary feature 저장, optional embedding enrich, validation까지 연결하는 데 초점을 맞추고 있습니다.

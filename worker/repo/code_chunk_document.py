@@ -1,6 +1,7 @@
 import hashlib
 import keyword
 import re
+import builtins
 from dataclasses import dataclass
 from typing import Any
 
@@ -235,8 +236,31 @@ COMMON_RESERVED_WORDS = {
     "string",
 }
 
+PYTHON_BUILTIN_SYMBOLS = {
+    name for name in dir(builtins) if name and not name.startswith("_")
+}
+
+JAVASCRIPT_COMMON_GLOBALS = {
+    "Array",
+    "Boolean",
+    "Date",
+    "Error",
+    "JSON",
+    "Map",
+    "Math",
+    "Number",
+    "Object",
+    "Promise",
+    "Set",
+    "String",
+    "console",
+    "exports",
+    "module",
+    "require",
+}
+
 IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
-CALL_TOKEN_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\(")
+IDENTIFIER_TEXT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 OPERATOR_TOKEN_MAP = (
     ("==", "eq"),
@@ -257,6 +281,14 @@ OPERATOR_TOKEN_MAP = (
     (">", "gt"),
 )
 
+OPERATOR_SYMBOL_TO_TOKEN = dict(OPERATOR_TOKEN_MAP)
+OPERATOR_SYMBOL_PATTERN = re.compile(
+    "|".join(
+        re.escape(symbol)
+        for symbol, _token in sorted(OPERATOR_TOKEN_MAP, key=lambda item: len(item[0]), reverse=True)
+    )
+)
+
 SIGNIFICANT_NODE_SKIP_TYPES = {
     "comment",
     "identifier",
@@ -268,6 +300,26 @@ SIGNIFICANT_NODE_SKIP_TYPES = {
     "block",
     "statement_block",
 }
+
+STRING_PREFIX_CHARS = frozenset("rRuUbBfF")
+CALL_LIKE_NODE_TYPES = {
+    "call",
+    "call_expression",
+    "invocation_expression",
+    "method_invocation",
+}
+CALL_FIELD_NAMES = (
+    "function",
+    "callee",
+    "callable",
+    "name",
+)
+PARENT_SYMBOL_FIELD_NAME_GROUPS = (
+    ("name",),
+    ("left",),
+    ("key",),
+    ("property",),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,24 +451,46 @@ def _node_matches_chunk_type(language: str, node: Node) -> str | None:
 
 
 def _extract_symbol_name(content_bytes: bytes, node: Node) -> str:
+    direct_name_child = _find_child_by_field_names(node, ("name",))
+    if direct_name_child is not None:
+        direct_name = _decode_node_text(content_bytes, direct_name_child).strip()
+        if direct_name:
+            return direct_name
+
     for child in node.children:
         if not child.is_named:
             continue
         child_type = str(child.type or "")
+        if child_type in PARAMETER_CONTAINER_TYPES or "body" in child_type or "block" in child_type:
+            continue
         if child_type in SYMBOL_NAME_NODE_TYPES:
             value = _decode_node_text(content_bytes, child).strip()
             if value:
                 return value
 
-    stack = [child for child in reversed(node.children) if child.is_named]
-    while stack:
-        child = stack.pop()
-        child_type = str(child.type or "")
-        if child_type in SYMBOL_NAME_NODE_TYPES:
-            value = _decode_node_text(content_bytes, child).strip()
-            if value:
-                return value
-        stack.extend(reversed([grand for grand in child.children if grand.is_named]))
+    current = node
+    for _ in range(4):
+        parent = getattr(current, "parent", None)
+        if parent is None:
+            break
+        for field_names in PARENT_SYMBOL_FIELD_NAME_GROUPS:
+            candidate = _find_child_by_field_names(parent, field_names)
+            if candidate is None:
+                continue
+            if (
+                int(candidate.start_byte) == int(current.start_byte)
+                and int(candidate.end_byte) == int(current.end_byte)
+            ):
+                continue
+            identifiers = _collect_identifier_texts(content_bytes, candidate)
+            if identifiers:
+                return identifiers[-1]
+            candidate_text = _decode_node_text(content_bytes, candidate).strip()
+            if candidate_text:
+                identifier_matches = IDENTIFIER_TEXT_RE.findall(candidate_text)
+                if identifier_matches:
+                    return identifier_matches[-1]
+        current = parent
 
     return ""
 
@@ -628,21 +702,81 @@ def _collect_identifier_tokens(content_bytes: bytes, node: Node, *, cap: int) ->
     return _ordered_unique(tokens, cap=cap)
 
 
-def _collect_call_tokens(raw_code: str, *, cap: int) -> list[str]:
-    tokens = [match.group(1) for match in CALL_TOKEN_RE.finditer(raw_code)]
+def _is_call_like_node(node_type: str) -> bool:
+    lowered = node_type.lower()
+    if lowered in CALL_LIKE_NODE_TYPES:
+        return True
+    return "call" in lowered and "callback" not in lowered
+
+
+def _normalize_call_target_text(raw_text: str) -> str:
+    normalized = re.sub(r"\s+", "", raw_text.strip())
+    if not normalized:
+        return ""
+
+    previous = None
+    while previous != normalized:
+        previous = normalized
+        normalized = re.sub(r"\([^()]*\)", "", normalized)
+
+    if normalized.startswith("new") and len(normalized) > 3 and normalized[3].isalpha():
+        normalized = normalized[3:]
+
+    if "." in normalized:
+        identifiers = IDENTIFIER_TEXT_RE.findall(normalized)
+        return ".".join(identifiers)
+    if "::" in normalized:
+        identifiers = IDENTIFIER_TEXT_RE.findall(normalized)
+        return "::".join(identifiers)
+    if "->" in normalized:
+        identifiers = IDENTIFIER_TEXT_RE.findall(normalized)
+        return "->".join(identifiers)
+
+    identifier_matches = IDENTIFIER_TEXT_RE.findall(normalized)
+    if not identifier_matches:
+        return ""
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", normalized):
+        return normalized
+    return identifier_matches[-1]
+
+
+def _extract_call_token_from_node(content_bytes: bytes, node: Node) -> str:
+    callee = _find_child_by_field_names(node, CALL_FIELD_NAMES)
+    if callee is None:
+        named_children = [child for child in node.children if child.is_named]
+        if not named_children:
+            return ""
+        callee = named_children[0]
+    return _normalize_call_target_text(_decode_node_text(content_bytes, callee))
+
+
+def _collect_call_tokens(content_bytes: bytes, node: Node, *, cap: int) -> list[str]:
+    tokens: list[str] = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if not current.is_named:
+            continue
+        current_type = str(current.type or "")
+        if _is_call_like_node(current_type):
+            token = _extract_call_token_from_node(content_bytes, current)
+            if token and token.lower() not in COMMON_RESERVED_WORDS:
+                tokens.append(token)
+        stack.extend(reversed([child for child in current.children if child.is_named]))
     return _ordered_unique(tokens, cap=cap)
 
 
 def _collect_operator_tokens(raw_code: str) -> list[str]:
     ordered: list[str] = []
     seen: set[str] = set()
-    lowered_code = raw_code.lower()
-    for symbol, token in OPERATOR_TOKEN_MAP:
-        if symbol in raw_code and token not in seen:
+    lowered_code = f" {raw_code.lower()} "
+    for match in OPERATOR_SYMBOL_PATTERN.finditer(raw_code):
+        token = OPERATOR_SYMBOL_TO_TOKEN.get(match.group(0))
+        if token and token not in seen:
             ordered.append(token)
             seen.add(token)
     for keyword_token, token in ((" and ", "and"), (" or ", "or"), (" not ", "not")):
-        if keyword_token in f" {lowered_code} " and token not in seen:
+        if keyword_token in lowered_code and token not in seen:
             ordered.append(token)
             seen.add(token)
     return ordered
@@ -668,8 +802,9 @@ def _build_structure_signature(chunk_type: str, ast_node_sequence: list[str]) ->
     parts = [chunk_type]
     for node_type in ast_node_sequence:
         lowered = node_type.lower()
+        node_tokens = {token for token in re.split(r"[^a-z0-9]+|_", lowered) if token}
         for marker, category in STRUCTURE_NODE_CATEGORIES:
-            if marker in lowered and category not in parts:
+            if any(token == marker or token.rstrip("s") == marker for token in node_tokens) and category not in parts:
                 parts.append(category)
                 break
         if len(parts) >= 6:
@@ -712,8 +847,86 @@ def _looks_like_external_pascal_symbol(token: str, *, local_symbols: set[str]) -
     return any(char.islower() for char in token[1:])
 
 
+def _iter_string_ranges(code: str) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    index = 0
+    code_length = len(code)
+
+    while index < code_length:
+        current = code[index]
+        if current not in {"'", '"', "`"}:
+            index += 1
+            continue
+
+        start = index
+        if current in {"'", '"'}:
+            prefix_start = index
+            while prefix_start > 0 and code[prefix_start - 1] in STRING_PREFIX_CHARS:
+                prefix_start -= 1
+            if prefix_start < index:
+                before_prefix = code[prefix_start - 1] if prefix_start > 0 else ""
+                if not before_prefix or (not before_prefix.isalnum() and before_prefix != "_"):
+                    start = prefix_start
+
+        triple_quoted = (
+            current in {"'", '"'}
+            and index + 2 < code_length
+            and code[index + 1] == current
+            and code[index + 2] == current
+        )
+        cursor = index + (3 if triple_quoted else 1)
+
+        if current == "`":
+            while cursor < code_length:
+                if code[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if code[cursor] == "`":
+                    cursor += 1
+                    break
+                cursor += 1
+        elif triple_quoted:
+            while cursor < code_length:
+                if code[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if (
+                    cursor + 2 < code_length
+                    and code[cursor] == current
+                    and code[cursor + 1] == current
+                    and code[cursor + 2] == current
+                ):
+                    cursor += 3
+                    break
+                cursor += 1
+        else:
+            while cursor < code_length:
+                if code[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if code[cursor] == current:
+                    cursor += 1
+                    break
+                cursor += 1
+
+        ranges.append((start, min(cursor, code_length)))
+        index = max(cursor, index + 1)
+
+    return ranges
+
+
+def _preserved_symbols_for_language(language: str) -> set[str]:
+    normalized_language = str(language or "").strip().lower()
+    if normalized_language == "python":
+        return set(PYTHON_BUILTIN_SYMBOLS)
+    if normalized_language in {"javascript", "typescript"}:
+        return set(JAVASCRIPT_COMMON_GLOBALS)
+    return set()
+
+
 def _anonymize_code(
     *,
+    language: str,
     normalized_code: str,
     symbol_name: str,
     chunk_type: str,
@@ -724,6 +937,7 @@ def _anonymize_code(
     local_class_symbols: set[str],
 ) -> str:
     preserve: set[str] = set(COMMON_RESERVED_WORDS)
+    preserve.update(_preserved_symbols_for_language(language))
     preserve.update(imported_symbols)
     local_symbols = local_variable_symbols | local_function_symbols | local_class_symbols
     for token in call_tokens:
@@ -772,7 +986,16 @@ def _anonymize_code(
         replacements[token] = replacement
         return replacement
 
-    return IDENTIFIER_RE.sub(replace, normalized_code)
+    parts: list[str] = []
+    cursor = 0
+    for start, end in _iter_string_ranges(normalized_code):
+        if start > cursor:
+            parts.append(IDENTIFIER_RE.sub(replace, normalized_code[cursor:start]))
+        parts.append(normalized_code[start:end])
+        cursor = end
+    if cursor < len(normalized_code):
+        parts.append(IDENTIFIER_RE.sub(replace, normalized_code[cursor:]))
+    return "".join(parts)
 
 
 def collect_symbol_spans(content_bytes: bytes, language: str, tree: Tree) -> list[SymbolSpan]:
@@ -879,7 +1102,7 @@ def build_code_chunk_candidates(
             regex_identifiers = IDENTIFIER_RE.findall(normalized_code)
             identifier_tokens = _ordered_unique(regex_identifiers, cap=max(1, identifier_token_cap))
 
-        call_tokens = _collect_call_tokens(raw_code, cap=max(1, call_token_cap))
+        call_tokens = _collect_call_tokens(content_bytes, node, cap=max(1, call_token_cap))
         operator_tokens = _collect_operator_tokens(raw_code)
         ast_node_sequence = _collect_ast_node_sequence(node, cap=max(1, ast_node_sequence_cap))
         structure_signature = _build_structure_signature(span.chunk_type, ast_node_sequence)
@@ -890,6 +1113,7 @@ def build_code_chunk_candidates(
             call_tokens=call_tokens,
         )
         anonymized_code = _anonymize_code(
+            language=language,
             normalized_code=normalized_code,
             symbol_name=span.symbol_name,
             chunk_type=span.chunk_type,
