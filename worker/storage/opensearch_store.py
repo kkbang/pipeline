@@ -1,9 +1,11 @@
 import os
 import json
+import time
 from pathlib import Path
+from typing import Callable, TypeVar
 
 from opensearchpy import OpenSearch
-from opensearchpy.exceptions import NotFoundError, RequestError
+from opensearchpy.exceptions import NotFoundError, RequestError, TransportError
 from opensearchpy.helpers import bulk as opensearch_bulk
 
 from worker.common.config import settings
@@ -11,6 +13,9 @@ from worker.common.config import settings
 
 CODE_CHUNK_INDEX_TEMPLATE_NAME = "code_chunk_index"
 CODE_CHUNK_INDEX_ALIAS = settings.code_chunk_index_alias
+TRANSIENT_SHARD_RECOVERY_MAX_RETRIES = 4
+TRANSIENT_SHARD_RECOVERY_SLEEP_SECONDS = 0.5
+_T = TypeVar("_T")
 
 
 class OpenSearchStore:
@@ -130,14 +135,58 @@ class OpenSearchStore:
         self._ensure_index_created(index_name, body=self._load_index_spec(index_name))
         self._ensured_indices.add(index_name)
 
+    def _is_retryable_shard_recovery_error(self, exc: Exception) -> bool:
+        if not isinstance(exc, TransportError):
+            return False
+
+        if getattr(exc, "status_code", None) != 503:
+            return False
+
+        error_type = ""
+        reason = ""
+        info = getattr(exc, "info", None)
+        if isinstance(info, dict):
+            error = info.get("error")
+            if isinstance(error, dict):
+                error_type = str(error.get("type") or "")
+                reason = str(error.get("reason") or "")
+
+        combined_text = " ".join(text for text in [error_type, reason, str(exc)] if text).lower()
+        return (
+            "no_shard_available_action_exception" in combined_text
+            or "currentstate[recovering]" in combined_text
+            or "operations only allowed when shard state" in combined_text
+        )
+
+    def _run_with_transient_retry(self, operation: Callable[[], _T]) -> _T:
+        last_error: Exception | None = None
+        for attempt in range(TRANSIENT_SHARD_RECOVERY_MAX_RETRIES + 1):
+            try:
+                return operation()
+            except Exception as exc:  # noqa: BLE001 - transport errors vary by API path
+                if not self._is_retryable_shard_recovery_error(exc):
+                    raise
+                last_error = exc
+                if attempt >= TRANSIENT_SHARD_RECOVERY_MAX_RETRIES:
+                    raise
+                time.sleep(TRANSIENT_SHARD_RECOVERY_SLEEP_SECONDS * (attempt + 1))
+
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("transient retry loop exited without result")
+
     def refresh_index(self, collection_name: str) -> None:
         self._ensure_index(collection_name)
-        self.client.indices.refresh(index=collection_name)
+        self._run_with_transient_retry(
+            lambda: self.client.indices.refresh(index=collection_name)
+        )
 
     def get_document(self, collection_name: str, doc_id: str) -> dict:
         self._ensure_index(collection_name)
         try:
-            result = self.client.get(index=collection_name, id=doc_id)
+            result = self._run_with_transient_retry(
+                lambda: self.client.get(index=collection_name, id=doc_id)
+            )
         except NotFoundError:
             return {}
         return {
@@ -154,11 +203,13 @@ class OpenSearchStore:
         refresh: bool = True,
     ) -> None:
         self._ensure_index(collection_name)
-        self.client.update(
-            index=collection_name,
-            id=doc_id,
-            body={"doc": body, "doc_as_upsert": True},
-            refresh=refresh,
+        self._run_with_transient_retry(
+            lambda: self.client.update(
+                index=collection_name,
+                id=doc_id,
+                body={"doc": body, "doc_as_upsert": True},
+                refresh=refresh,
+            )
         )
 
     def bulk_upsert_documents(
@@ -203,11 +254,13 @@ class OpenSearchStore:
         existing = self.get_document(collection_name, doc_id)
         if not existing:
             raise KeyError(f"Document '{doc_id}' does not exist in collection '{collection_name}'")
-        self.client.update(
-            index=collection_name,
-            id=doc_id,
-            body={"doc": body},
-            refresh=refresh,
+        self._run_with_transient_retry(
+            lambda: self.client.update(
+                index=collection_name,
+                id=doc_id,
+                body={"doc": body},
+                refresh=refresh,
+            )
         )
 
     def replace_document(
@@ -219,11 +272,13 @@ class OpenSearchStore:
         refresh: bool = True,
     ) -> None:
         self._ensure_index(collection_name)
-        self.client.index(
-            index=collection_name,
-            id=doc_id,
-            body=source,
-            refresh=refresh,
+        self._run_with_transient_retry(
+            lambda: self.client.index(
+                index=collection_name,
+                id=doc_id,
+                body=source,
+                refresh=refresh,
+            )
         )
 
     def bulk_index_documents(
@@ -306,7 +361,9 @@ class OpenSearchStore:
     ) -> None:
         self._ensure_index(collection_name)
         try:
-            self.client.delete(index=collection_name, id=doc_id, refresh=refresh)
+            self._run_with_transient_retry(
+                lambda: self.client.delete(index=collection_name, id=doc_id, refresh=refresh)
+            )
         except NotFoundError:
             return
 
@@ -319,21 +376,23 @@ class OpenSearchStore:
         refresh: bool = True,
     ) -> int:
         self._ensure_index(collection_name)
-        result = self.client.delete_by_query(
-            index=collection_name,
-            body={
-                "query": {
-                    "bool": {
-                        "should": [
-                            {"term": {f"{field_name}.keyword": value}},
-                            {"term": {field_name: value}},
-                        ],
-                        "minimum_should_match": 1,
+        result = self._run_with_transient_retry(
+            lambda: self.client.delete_by_query(
+                index=collection_name,
+                body={
+                    "query": {
+                        "bool": {
+                            "should": [
+                                {"term": {f"{field_name}.keyword": value}},
+                                {"term": {field_name: value}},
+                            ],
+                            "minimum_should_match": 1,
+                        }
                     }
-                }
-            },
-            conflicts="proceed",
-            refresh=refresh,
+                },
+                conflicts="proceed",
+                refresh=refresh,
+            )
         )
         return int(result.get("deleted") or 0)
 
@@ -343,9 +402,11 @@ class OpenSearchStore:
         query: dict | None = None,
     ) -> int:
         self._ensure_index(collection_name)
-        result = self.client.count(
-            index=collection_name,
-            body={"query": query or {"match_all": {}}},
+        result = self._run_with_transient_retry(
+            lambda: self.client.count(
+                index=collection_name,
+                body={"query": query or {"match_all": {}}},
+            )
         )
         return int(result.get("count") or 0)
 
@@ -374,7 +435,9 @@ class OpenSearchStore:
             if search_after is not None:
                 body["search_after"] = search_after
 
-            result = self.client.search(index=collection_name, body=body)
+            result = self._run_with_transient_retry(
+                lambda: self.client.search(index=collection_name, body=body)
+            )
             hits = result.get("hits", {}).get("hits", [])
             if not hits:
                 return
@@ -392,13 +455,15 @@ class OpenSearchStore:
         size: int = 1000,
     ) -> list[dict]:
         self._ensure_index(collection_name)
-        result = self.client.search(
-            index=collection_name,
-            body={
-                "size": size,
-                "sort": [{"_id": "asc"}],
-                "query": {"match_all": {}},
-            },
+        result = self._run_with_transient_retry(
+            lambda: self.client.search(
+                index=collection_name,
+                body={
+                    "size": size,
+                    "sort": [{"_id": "asc"}],
+                    "query": {"match_all": {}},
+                },
+            )
         )
         return result.get("hits", {}).get("hits", [])
 
@@ -410,21 +475,23 @@ class OpenSearchStore:
         size: int = 1000,
     ) -> list[dict]:
         self._ensure_index(collection_name)
-        result = self.client.search(
-            index=collection_name,
-            body={
-                "size": size,
-                "sort": [{"_id": "asc"}],
-                "query": {
-                    "bool": {
-                        "should": [
-                            {"term": {f"{field_name}.keyword": value}},
-                            {"term": {field_name: value}},
-                        ],
-                        "minimum_should_match": 1,
+        result = self._run_with_transient_retry(
+            lambda: self.client.search(
+                index=collection_name,
+                body={
+                    "size": size,
+                    "sort": [{"_id": "asc"}],
+                    "query": {
+                        "bool": {
+                            "should": [
+                                {"term": {f"{field_name}.keyword": value}},
+                                {"term": {field_name: value}},
+                            ],
+                            "minimum_should_match": 1,
+                        }
                     }
                 },
-            },
+            )
         )
         return result.get("hits", {}).get("hits", [])
 
