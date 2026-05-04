@@ -9,6 +9,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from worker.common.config import settings
+from worker.repo.code_chunk_document import (
+    CODE_CHUNK_INDEX_ALIAS,
+    CodeChunkCandidate,
+    build_code_chunk_candidates,
+    build_code_chunk_id as build_code_chunk_stable_id,
+)
+from worker.repo.code_chunk_embedding_service import get_code_chunk_embedding_client
 from worker.repo.repo_pipeline_manifest_service import (
     CHUNK_COMPLETED_STAGE,
     write_stage_manifest,
@@ -36,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 REPO_REGISTRY_INDEX = "repo_registry_index"
 REPO_FILE_INDEX = "repo_file_index"
-REPO_CHUNK_INDEX = "repo_chunk_index"
+CODE_CHUNK_INDEX = CODE_CHUNK_INDEX_ALIAS
 
 LANGUAGE_TO_PARSER_KEY = {
     "python": "python",
@@ -134,8 +141,11 @@ class RepoChunkStats:
     total_lines_seen: int = 0
     chunked_lines_total: int = 0
     function_chunks_created: int = 0
+    class_chunks_created: int = 0
     line_window_chunks_created: int = 0
+    filtered_symbol_chunks: int = 0
     files_chunked_with_functions: int = 0
+    files_chunked_with_classes: int = 0
     files_chunked_with_line_window: int = 0
     parser_unavailable_files: int = 0
     parser_failed_files: int = 0
@@ -155,8 +165,11 @@ class FileChunkOutcome:
     chunk_docs_created: int = 0
     chunked_lines_total: int = 0
     function_chunks_created: int = 0
+    class_chunks_created: int = 0
     line_window_chunks_created: int = 0
+    filtered_symbol_chunks: int = 0
     file_has_function_chunk: bool = False
+    file_has_class_chunk: bool = False
     file_has_line_window_chunk: bool = False
     parser_unavailable: bool = False
     parser_failed: bool = False
@@ -640,13 +653,20 @@ def _iterate_chunks_for_file(
 def _build_chunk_doc_id(
     repo_id: str,
     file_path: str,
+    chunk_type: str,
     line_start: int,
     line_end: int,
-    chunk_index: int,
+    symbol_name: str,
 ) -> str:
-    digest_input = f"{repo_id}:{file_path}:{line_start}:{line_end}:{chunk_index}"
-    digest = hashlib.sha1(digest_input.encode("utf-8")).hexdigest()
-    return f"{repo_id}:chunk:{digest}"
+    return build_code_chunk_stable_id(
+        repo_id=repo_id,
+        file_path=file_path,
+        chunk_type=chunk_type,
+        start_line=line_start,
+        end_line=line_end,
+        symbol_name=symbol_name,
+        chunker_version=settings.code_chunk_chunker_version,
+    )
 
 
 def _repo_id_query(repo_id: str) -> dict:
@@ -665,14 +685,14 @@ def _iter_existing_repo_chunk_doc_ids(store: OpenSearchStore, repo_id: str):
     yield from (
         hit["_id"]
         for hit in store.iterate_documents_by_query(
-            collection_name=REPO_CHUNK_INDEX,
+            collection_name=CODE_CHUNK_INDEX,
             query=_repo_id_query(repo_id),
             size=1000,
             sort=[
                 {"file_path.keyword": {"order": "asc", "unmapped_type": "keyword"}},
                 {"line_start": {"order": "asc", "unmapped_type": "long"}},
                 {"line_end": {"order": "asc", "unmapped_type": "long"}},
-                {"chunk_index": {"order": "asc", "unmapped_type": "long"}},
+                {"symbol_name": {"order": "asc", "unmapped_type": "keyword"}},
             ],
             source_includes=[],
         )
@@ -737,40 +757,57 @@ def _build_chunk_doc_source(
     repo_id: str,
     owner: str,
     repo_name: str,
-    canonical_repo_url: object,
+    repo_url: object,
     snapshot_ref: object,
     relative_path: str,
     language: object,
-    chunk_index: int,
-    chunk_strategy: str,
-    function_node_type: str | None,
-    fallback_reason: str | None,
-    line_start: int,
-    line_end: int,
-    chunk_text: str,
     chunked_at: str,
+    candidate: CodeChunkCandidate,
 ) -> dict:
-    line_count = line_end - line_start + 1
-    return {
+    chunk_id = _build_chunk_doc_id(
+        repo_id=repo_id,
+        file_path=relative_path,
+        chunk_type=candidate.chunk_type,
+        line_start=candidate.line_start,
+        line_end=candidate.line_end,
+        symbol_name=candidate.symbol_name,
+    )
+    source = {
+        "chunk_id": chunk_id,
         "repo_id": repo_id,
+        "repo_url": repo_url,
         "owner": owner,
         "repo_name": repo_name,
-        "canonical_repo_url": canonical_repo_url,
-        "snapshot_ref": snapshot_ref,
+        "snapshot_ref": str(snapshot_ref or "").strip() or None,
         "file_path": relative_path,
-        "language": language,
-        "chunk_index": chunk_index,
-        "chunk_strategy": chunk_strategy,
-        "function_node_type": function_node_type,
-        "fallback_reason": fallback_reason,
-        "line_start": line_start,
-        "line_end": line_end,
-        "line_count": line_count,
-        "chunk_text": chunk_text,
-        "chunk_char_count": len(chunk_text),
-        "chunk_sha1": hashlib.sha1(chunk_text.encode("utf-8")).hexdigest(),
+        "language": str(language or "").strip().lower() or None,
+        "chunk_type": candidate.chunk_type,
+        "start_line": candidate.line_start,
+        "end_line": candidate.line_end,
+        "raw_code": candidate.raw_code,
+        "normalized_code": candidate.normalized_code,
+        "anonymized_code": candidate.anonymized_code,
+        "symbol_type": candidate.symbol_type,
+        "symbol_name": candidate.symbol_name or None,
+        "param_count": candidate.param_count,
+        "identifier_tokens": candidate.identifier_tokens,
+        "call_tokens": candidate.call_tokens,
+        "operator_tokens": candidate.operator_tokens,
+        "control_flow_tags": candidate.control_flow_tags,
+        "structure_signature": candidate.structure_signature,
+        "ast_node_sequence": candidate.ast_node_sequence,
+        "raw_hash": candidate.raw_hash,
+        "normalized_hash": candidate.normalized_hash,
+        "anonymized_hash": candidate.anonymized_hash,
+        "validation_status": candidate.validation_status,
+        "chunker_version": settings.code_chunk_chunker_version,
+        "normalization_version": settings.code_chunk_normalization_version,
+        "anonymization_version": settings.code_chunk_anonymization_version,
+        "feature_version": settings.code_chunk_feature_version,
+        "ast_root_node_type": candidate.node_type,
         "chunked_at": chunked_at,
     }
+    return {key: value for key, value in source.items() if value is not None}
 
 
 def _chunk_single_file(
@@ -779,7 +816,7 @@ def _chunk_single_file(
     repo_id: str,
     owner: str,
     repo_name: str,
-    canonical_repo_url: object,
+    repo_url: object,
     snapshot_ref: object,
     file_source: dict,
     max_lines: int,
@@ -805,48 +842,50 @@ def _chunk_single_file(
 
     lines = content.splitlines()
     outcome.total_lines_seen = len(lines)
-    language = file_source.get("language")
-    chunk_index = 0
+    language = str(file_source.get("language") or "").strip().lower()
+    parser = _get_tree_sitter_parser(language, use_cache=use_cached_parser)
+    if parser is None:
+        outcome.parser_unavailable = True
+        return outcome
 
-    for (
-        line_start,
-        line_end,
-        chunk_text,
-        chunk_strategy,
-        function_node_type,
-        fallback_reason,
-    ) in _iterate_chunks_for_file(
+    content_bytes = content.encode("utf-8")
+    try:
+        tree = parser.parse(content_bytes)
+    except Exception:  # noqa: BLE001 - parse 실패는 파일 단위 skip 처리
+        outcome.parser_failed = True
+        return outcome
+
+    candidates, filtered_count = build_code_chunk_candidates(
         content=content,
-        lines=lines,
+        content_bytes=content_bytes,
+        tree=tree,
         language=language,
-        max_lines=max_lines,
-        overlap_lines=overlap_lines,
-        use_cached_parser=use_cached_parser,
-    ):
-        if not chunk_text.strip():
-            continue
+        min_symbol_lines=settings.code_chunk_min_symbol_lines,
+        max_symbol_lines=settings.code_chunk_max_symbol_lines,
+        identifier_token_cap=settings.code_chunk_identifier_token_cap,
+        call_token_cap=settings.code_chunk_call_token_cap,
+        ast_node_sequence_cap=settings.code_chunk_ast_node_sequence_cap,
+    )
+    outcome.filtered_symbol_chunks = filtered_count
 
-        chunk_index += 1
-        line_count = line_end - line_start + 1
+    for candidate in candidates:
+        line_count = candidate.line_end - candidate.line_start + 1
         outcome.chunk_docs_created += 1
         outcome.chunked_lines_total += line_count
-        if chunk_strategy in {"function", "function_window"}:
+        if candidate.chunk_type == "function":
             outcome.file_has_function_chunk = True
             outcome.function_chunks_created += 1
-        else:
-            outcome.file_has_line_window_chunk = True
-            outcome.line_window_chunks_created += 1
-            if fallback_reason == "parser_unavailable":
-                outcome.parser_unavailable = True
-            elif fallback_reason == "parser_failed":
-                outcome.parser_failed = True
+        elif candidate.chunk_type == "class":
+            outcome.file_has_class_chunk = True
+            outcome.class_chunks_created += 1
 
         chunk_doc_id = _build_chunk_doc_id(
             repo_id=repo_id,
             file_path=relative_path,
-            line_start=line_start,
-            line_end=line_end,
-            chunk_index=chunk_index,
+            chunk_type=candidate.chunk_type,
+            line_start=candidate.line_start,
+            line_end=candidate.line_end,
+            symbol_name=candidate.symbol_name,
         )
         outcome.chunk_docs.append(
             (
@@ -855,18 +894,12 @@ def _chunk_single_file(
                     repo_id=repo_id,
                     owner=owner,
                     repo_name=repo_name,
-                    canonical_repo_url=canonical_repo_url,
+                    repo_url=repo_url,
                     snapshot_ref=snapshot_ref,
                     relative_path=relative_path,
                     language=language,
-                    chunk_index=chunk_index,
-                    chunk_strategy=chunk_strategy,
-                    function_node_type=function_node_type,
-                    fallback_reason=fallback_reason,
-                    line_start=line_start,
-                    line_end=line_end,
-                    chunk_text=chunk_text,
                     chunked_at=chunked_at,
+                    candidate=candidate,
                 ),
             )
         )
@@ -882,15 +915,20 @@ def _apply_file_chunk_outcome(
     stale_doc_ids: set[str],
     pending_docs: list[tuple[str, dict]],
     bulk_flush_docs: int,
+    embedding_client,
 ) -> None:
     stats.code_files_seen += 1
     stats.total_lines_seen += outcome.total_lines_seen
     stats.chunk_docs_created += outcome.chunk_docs_created
     stats.chunked_lines_total += outcome.chunked_lines_total
     stats.function_chunks_created += outcome.function_chunks_created
+    stats.class_chunks_created += outcome.class_chunks_created
     stats.line_window_chunks_created += outcome.line_window_chunks_created
+    stats.filtered_symbol_chunks += outcome.filtered_symbol_chunks
     if outcome.file_has_function_chunk:
         stats.files_chunked_with_functions += 1
+    if outcome.file_has_class_chunk:
+        stats.files_chunked_with_classes += 1
     if outcome.file_has_line_window_chunk:
         stats.files_chunked_with_line_window += 1
     if outcome.parser_unavailable:
@@ -912,8 +950,27 @@ def _apply_file_chunk_outcome(
     if len(pending_docs) < bulk_flush_docs:
         return
 
+    _flush_pending_chunk_docs(
+        store=store,
+        pending_docs=pending_docs,
+        bulk_flush_docs=bulk_flush_docs,
+        embedding_client=embedding_client,
+    )
+
+
+def _flush_pending_chunk_docs(
+    *,
+    store: OpenSearchStore,
+    pending_docs: list[tuple[str, dict]],
+    bulk_flush_docs: int,
+    embedding_client,
+) -> None:
+    if not pending_docs:
+        return
+
+    embedding_client.enrich_documents(pending_docs)
     store.bulk_index_documents(
-        collection_name=REPO_CHUNK_INDEX,
+        collection_name=CODE_CHUNK_INDEX,
         documents=pending_docs,
         refresh=False,
         chunk_size=bulk_flush_docs,
@@ -961,7 +1018,7 @@ def _chunk_single_repo(
 
     owner = str(source.get("owner") or "").strip().lower()
     repo_name = str(source.get("repo_name") or "").strip().lower()
-    canonical_repo_url = source.get("canonical_repo_url")
+    repo_url = source.get("canonical_repo_url")
     snapshot_ref = source.get("snapshot_ref")
     bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
 
@@ -981,6 +1038,7 @@ def _chunk_single_repo(
         repo_total_code_bytes,
         file_parallelism,
     )
+    embedding_client = get_code_chunk_embedding_client()
     pending_docs: list[tuple[str, dict]] = []
     completed_files = 0
     if execution_mode == "file_parallel_whale":
@@ -1001,7 +1059,7 @@ def _chunk_single_repo(
                         repo_id=repo_id,
                         owner=owner,
                         repo_name=repo_name,
-                        canonical_repo_url=canonical_repo_url,
+                        repo_url=repo_url,
                         snapshot_ref=snapshot_ref,
                         file_source=file_source,
                         max_lines=max_lines,
@@ -1019,6 +1077,7 @@ def _chunk_single_repo(
                         stale_doc_ids=stale_doc_ids,
                         pending_docs=pending_docs,
                         bulk_flush_docs=bulk_flush_docs,
+                        embedding_client=embedding_client,
                     )
                     completed_files += 1
                     if completed_files % 100 == 0 or completed_files == len(code_file_docs):
@@ -1038,7 +1097,7 @@ def _chunk_single_repo(
                     repo_id=repo_id,
                     owner=owner,
                     repo_name=repo_name,
-                    canonical_repo_url=canonical_repo_url,
+                    repo_url=repo_url,
                     snapshot_ref=snapshot_ref,
                     file_source=file_source,
                     max_lines=max_lines,
@@ -1050,6 +1109,7 @@ def _chunk_single_repo(
                 stale_doc_ids=stale_doc_ids,
                 pending_docs=pending_docs,
                 bulk_flush_docs=bulk_flush_docs,
+                embedding_client=embedding_client,
             )
             completed_files += 1
             if completed_files % 100 == 0 or completed_files == len(code_file_docs):
@@ -1062,16 +1122,16 @@ def _chunk_single_repo(
                 )
 
     if pending_docs:
-        store.bulk_index_documents(
-            collection_name=REPO_CHUNK_INDEX,
-            documents=pending_docs,
-            refresh=False,
-            chunk_size=bulk_flush_docs,
+        _flush_pending_chunk_docs(
+            store=store,
+            pending_docs=pending_docs,
+            bulk_flush_docs=bulk_flush_docs,
+            embedding_client=embedding_client,
         )
 
     if stale_doc_ids:
         store.bulk_delete_documents(
-            collection_name=REPO_CHUNK_INDEX,
+            collection_name=CODE_CHUNK_INDEX,
             doc_ids=list(stale_doc_ids),
             refresh=False,
             chunk_size=bulk_flush_docs,
@@ -1182,8 +1242,11 @@ def run_repo_code_chunking_for_repo(
             "chunk_total_lines_seen": stats.total_lines_seen,
             "chunked_lines_total": stats.chunked_lines_total,
             "chunk_function_chunks_count": stats.function_chunks_created,
+            "chunk_class_chunks_count": stats.class_chunks_created,
             "chunk_line_window_chunks_count": stats.line_window_chunks_created,
+            "chunk_filtered_symbol_chunks_count": stats.filtered_symbol_chunks,
             "chunk_function_chunked_files_count": stats.files_chunked_with_functions,
+            "chunk_class_chunked_files_count": stats.files_chunked_with_classes,
             "chunk_line_window_chunked_files_count": stats.files_chunked_with_line_window,
             "chunk_parser_unavailable_files": stats.parser_unavailable_files,
             "chunk_parser_failed_files": stats.parser_failed_files,
@@ -1192,10 +1255,15 @@ def run_repo_code_chunking_for_repo(
             "chunk_deleted_previous_docs": stats.deleted_previous_docs,
             "chunk_max_lines": max_lines,
             "chunk_overlap_lines": overlap_lines,
-            "chunk_strategy": "function_first_with_fallback",
+            "chunk_strategy": "tree_sitter_symbol_only",
             "chunk_execution_mode": stats.execution_mode,
             "chunk_file_parallelism": stats.file_parallelism,
             "chunk_repo_total_code_bytes": stats.repo_total_code_bytes,
+            "code_chunk_index_name": CODE_CHUNK_INDEX,
+            "code_chunk_chunker_version": settings.code_chunk_chunker_version,
+            "code_chunk_normalization_version": settings.code_chunk_normalization_version,
+            "code_chunk_anonymization_version": settings.code_chunk_anonymization_version,
+            "code_chunk_feature_version": settings.code_chunk_feature_version,
         }
         updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
             _maybe_prune_local_snapshot_artifacts(
@@ -1221,7 +1289,9 @@ def run_repo_code_chunking_for_repo(
             "stage_status": chunk_status,
             "chunk_total_count": stats.chunk_docs_created,
             "function_chunks_count": stats.function_chunks_created,
+            "class_chunks_count": stats.class_chunks_created,
             "line_window_chunks_count": stats.line_window_chunks_created,
+            "filtered_symbol_chunks_count": stats.filtered_symbol_chunks,
             "code_files_seen": stats.code_files_seen,
             "chunk_execution_mode": stats.execution_mode,
             "error_message": chunk_error_message,
@@ -1237,8 +1307,13 @@ def run_repo_code_chunking_for_repo(
             "chunk_error_message": str(exc),
             "chunk_max_lines": max_lines,
             "chunk_overlap_lines": overlap_lines,
-            "chunk_strategy": "function_first_with_fallback",
+            "chunk_strategy": "tree_sitter_symbol_only",
             "chunk_execution_mode": "repo_failed",
+            "code_chunk_index_name": CODE_CHUNK_INDEX,
+            "code_chunk_chunker_version": settings.code_chunk_chunker_version,
+            "code_chunk_normalization_version": settings.code_chunk_normalization_version,
+            "code_chunk_anonymization_version": settings.code_chunk_anonymization_version,
+            "code_chunk_feature_version": settings.code_chunk_feature_version,
         }
         _best_effort_replace_repo_chunk_doc(
             store=store,
@@ -1375,8 +1450,11 @@ def run_repo_code_chunking() -> None:
                 "chunk_total_lines_seen": stats.total_lines_seen,
                 "chunked_lines_total": stats.chunked_lines_total,
                 "chunk_function_chunks_count": stats.function_chunks_created,
+                "chunk_class_chunks_count": stats.class_chunks_created,
                 "chunk_line_window_chunks_count": stats.line_window_chunks_created,
+                "chunk_filtered_symbol_chunks_count": stats.filtered_symbol_chunks,
                 "chunk_function_chunked_files_count": stats.files_chunked_with_functions,
+                "chunk_class_chunked_files_count": stats.files_chunked_with_classes,
                 "chunk_line_window_chunked_files_count": stats.files_chunked_with_line_window,
                 "chunk_parser_unavailable_files": stats.parser_unavailable_files,
                 "chunk_parser_failed_files": stats.parser_failed_files,
@@ -1385,10 +1463,15 @@ def run_repo_code_chunking() -> None:
                 "chunk_deleted_previous_docs": stats.deleted_previous_docs,
                 "chunk_max_lines": max_lines,
                 "chunk_overlap_lines": overlap_lines,
-                "chunk_strategy": "function_first_with_fallback",
+                "chunk_strategy": "tree_sitter_symbol_only",
                 "chunk_execution_mode": stats.execution_mode,
                 "chunk_file_parallelism": stats.file_parallelism,
                 "chunk_repo_total_code_bytes": stats.repo_total_code_bytes,
+                "code_chunk_index_name": CODE_CHUNK_INDEX,
+                "code_chunk_chunker_version": settings.code_chunk_chunker_version,
+                "code_chunk_normalization_version": settings.code_chunk_normalization_version,
+                "code_chunk_anonymization_version": settings.code_chunk_anonymization_version,
+                "code_chunk_feature_version": settings.code_chunk_feature_version,
             }
             updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
                 _maybe_prune_local_snapshot_artifacts(
@@ -1417,8 +1500,13 @@ def run_repo_code_chunking() -> None:
                 "chunk_error_message": str(exc),
                 "chunk_max_lines": max_lines,
                 "chunk_overlap_lines": overlap_lines,
-                "chunk_strategy": "function_first_with_fallback",
+                "chunk_strategy": "tree_sitter_symbol_only",
                 "chunk_execution_mode": "repo_failed",
+                "code_chunk_index_name": CODE_CHUNK_INDEX,
+                "code_chunk_chunker_version": settings.code_chunk_chunker_version,
+                "code_chunk_normalization_version": settings.code_chunk_normalization_version,
+                "code_chunk_anonymization_version": settings.code_chunk_anonymization_version,
+                "code_chunk_feature_version": settings.code_chunk_feature_version,
             }
             _best_effort_replace_repo_chunk_doc(
                 store=store,

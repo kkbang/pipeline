@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 
 from opensearchpy import OpenSearch
@@ -6,6 +7,10 @@ from opensearchpy.exceptions import NotFoundError, RequestError
 from opensearchpy.helpers import bulk as opensearch_bulk
 
 from worker.common.config import settings
+
+
+CODE_CHUNK_INDEX_TEMPLATE_NAME = "code_chunk_index"
+CODE_CHUNK_INDEX_ALIAS = settings.code_chunk_index_alias
 
 
 class OpenSearchStore:
@@ -34,16 +39,62 @@ class OpenSearchStore:
         )
         self._ensured_indices: set[str] = set()
 
-    def _ensure_index(self, index_name: str) -> None:
-        if index_name in self._ensured_indices:
-            return
+    def _index_spec_dir(self) -> Path:
+        return Path(__file__).resolve().parents[2] / "infra" / "opensearch_index"
 
+    def _is_code_chunk_index_name(self, index_name: str) -> bool:
+        return (
+            index_name == CODE_CHUNK_INDEX_ALIAS
+            or index_name.startswith(f"{CODE_CHUNK_INDEX_ALIAS}_")
+            or index_name == CODE_CHUNK_INDEX_TEMPLATE_NAME
+            or index_name.startswith(f"{CODE_CHUNK_INDEX_TEMPLATE_NAME}_")
+        )
+
+    def _load_index_spec(self, index_name: str) -> dict | None:
+        spec_names = [index_name]
+        if self._is_code_chunk_index_name(index_name):
+            versioned_template_name = (
+                f"{CODE_CHUNK_INDEX_TEMPLATE_NAME}_{settings.code_chunk_index_version}"
+            )
+            if versioned_template_name not in spec_names:
+                spec_names.append(versioned_template_name)
+            if CODE_CHUNK_INDEX_TEMPLATE_NAME not in spec_names:
+                spec_names.append(CODE_CHUNK_INDEX_TEMPLATE_NAME)
+
+        spec = None
+        for spec_name in spec_names:
+            spec_path = self._index_spec_dir() / f"{spec_name}.json"
+            if not spec_path.exists():
+                continue
+            raw_text = spec_path.read_text(encoding="utf-8").strip()
+            if not raw_text:
+                continue
+            spec = json.loads(raw_text)
+            break
+
+        if spec is None:
+            return None
+
+        if self._is_code_chunk_index_name(index_name):
+            properties = spec.get("mappings", {}).get("properties", {})
+            raw_embedding = properties.get("raw_embedding")
+            anonymized_embedding = properties.get("anonymized_embedding")
+            if isinstance(raw_embedding, dict):
+                raw_embedding["dimension"] = max(1, settings.code_chunk_raw_embedding_dimensions)
+            if isinstance(anonymized_embedding, dict):
+                anonymized_embedding["dimension"] = max(
+                    1, settings.code_chunk_anonymized_embedding_dimensions
+                )
+        return spec
+
+    def _ensure_index_created(self, index_name: str, *, body: dict | None = None) -> None:
         try:
             if not self.client.indices.exists(index=index_name):
-                self.client.indices.create(index=index_name)
+                if body:
+                    self.client.indices.create(index=index_name, body=body)
+                else:
+                    self.client.indices.create(index=index_name)
         except RequestError as exc:
-            # Concurrent workers can race on index creation.
-            # If another worker already created the index, treat it as success.
             error_type = None
             if isinstance(getattr(exc, "info", None), dict):
                 error = exc.info.get("error")
@@ -55,6 +106,28 @@ class OpenSearchStore:
             ):
                 raise
 
+    def _ensure_code_chunk_alias(self) -> None:
+        alias_name = CODE_CHUNK_INDEX_ALIAS
+        if self.client.indices.exists_alias(name=alias_name):
+            self._ensured_indices.add(alias_name)
+            return
+
+        physical_index_name = f"{alias_name}_{settings.code_chunk_index_version}"
+        spec = self._load_index_spec(physical_index_name) or self._load_index_spec(alias_name)
+        self._ensure_index_created(physical_index_name, body=spec)
+        self.client.indices.put_alias(index=physical_index_name, name=alias_name)
+        self._ensured_indices.add(alias_name)
+        self._ensured_indices.add(physical_index_name)
+
+    def _ensure_index(self, index_name: str) -> None:
+        if index_name in self._ensured_indices:
+            return
+
+        if index_name == CODE_CHUNK_INDEX_ALIAS:
+            self._ensure_code_chunk_alias()
+            return
+
+        self._ensure_index_created(index_name, body=self._load_index_spec(index_name))
         self._ensured_indices.add(index_name)
 
     def refresh_index(self, collection_name: str) -> None:

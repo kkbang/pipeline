@@ -1,0 +1,68 @@
+{
+  "settings": {
+    "index": {
+      "knn": true
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "chunk_id": { "type": "keyword" },
+      "repo_id": { "type": "keyword" },
+      "repo_url": { "type": "keyword" },
+      "owner": { "type": "keyword" },
+      "repo_name": { "type": "keyword" },
+      "language": { "type": "keyword" },
+      "file_path": { "type": "keyword" },
+      "chunk_type": { "type": "keyword" },
+      "start_line": { "type": "integer" },
+      "end_line": { "type": "integer" },
+      "raw_code": { "type": "text" },
+      "normalized_code": { "type": "text" },
+      "anonymized_code": { "type": "text" },
+      "symbol_type": { "type": "keyword" },
+      "symbol_name": {
+        "type": "keyword",
+        "fields": {
+          "text": { "type": "text" }
+        }
+      },
+      "param_count": { "type": "integer" },
+      "identifier_tokens": { "type": "keyword" },
+      "call_tokens": { "type": "keyword" },
+      "operator_tokens": { "type": "keyword" },
+      "control_flow_tags": { "type": "keyword" },
+      "structure_signature": { "type": "keyword" },
+      "ast_node_sequence": { "type": "keyword" },
+      "raw_embedding": {
+        "type": "knn_vector",
+        "dimension": 1536,
+        "method": {
+          "name": "hnsw",
+          "space_type": "cosinesimil",
+          "engine": "lucene"
+        }
+      },
+      "anonymized_embedding": {
+        "type": "knn_vector",
+        "dimension": 1536,
+        "method": {
+          "name": "hnsw",
+          "space_type": "cosinesimil",
+          "engine": "lucene"
+        }
+      },
+      "raw_hash": { "type": "keyword" },
+      "normalized_hash": { "type": "keyword" },
+      "anonymized_hash": { "type": "keyword" },
+      "validation_status": { "type": "keyword" },
+      "chunker_version": { "type": "keyword" },
+      "normalization_version": { "type": "keyword" },
+      "anonymization_version": { "type": "keyword" },
+      "feature_version": { "type": "keyword" },
+      "snapshot_ref": { "type": "keyword" },
+      "ast_root_node_type": { "type": "keyword" },
+      "chunked_at": { "type": "date" }
+    }
+  }
+}

@@ -46,6 +46,8 @@ with DAG(
 
     @task.short_circuit(task_id="has_pending_repo_crawl_work")
     def has_pending_repo_crawl_work() -> bool:
+        if not settings.repo_pipeline_self_loop_enabled:
+            return False
         pending_stats = get_pending_repo_crawl_stats()
         return int(pending_stats.get("pending_count") or 0) > 0
 

@@ -157,7 +157,68 @@ class Settings:
     repo_chunk_whale_file_parallelism: int = int(
         os.getenv("REPO_CHUNK_WHALE_FILE_PARALLELISM", "8")
     )
+    code_chunk_index_alias: str = (
+        os.getenv("CODE_CHUNK_INDEX_ALIAS", "code_chunk_index").strip() or "code_chunk_index"
+    )
+    code_chunk_index_version: str = os.getenv("CODE_CHUNK_INDEX_VERSION", "v1").strip() or "v1"
+    code_chunk_chunker_version: str = (
+        os.getenv("CODE_CHUNK_CHUNKER_VERSION", "ts_chunker_v1").strip() or "ts_chunker_v1"
+    )
+    code_chunk_normalization_version: str = (
+        os.getenv("CODE_CHUNK_NORMALIZATION_VERSION", "norm_v1").strip() or "norm_v1"
+    )
+    code_chunk_anonymization_version: str = (
+        os.getenv("CODE_CHUNK_ANONYMIZATION_VERSION", "anon_v2").strip() or "anon_v2"
+    )
+    code_chunk_feature_version: str = (
+        os.getenv("CODE_CHUNK_FEATURE_VERSION", "ts_feature_v1").strip() or "ts_feature_v1"
+    )
+    code_chunk_identifier_token_cap: int = int(
+        os.getenv("CODE_CHUNK_IDENTIFIER_TOKEN_CAP", "64")
+    )
+    code_chunk_call_token_cap: int = int(
+        os.getenv("CODE_CHUNK_CALL_TOKEN_CAP", "64")
+    )
+    code_chunk_ast_node_sequence_cap: int = int(
+        os.getenv("CODE_CHUNK_AST_NODE_SEQUENCE_CAP", "64")
+    )
+    code_chunk_min_symbol_lines: int = int(
+        os.getenv("CODE_CHUNK_MIN_SYMBOL_LINES", "1")
+    )
+    code_chunk_max_symbol_lines: int = int(
+        os.getenv("CODE_CHUNK_MAX_SYMBOL_LINES", "800")
+    )
+    code_chunk_raw_embedding_dimensions: int = int(
+        os.getenv("CODE_CHUNK_RAW_EMBEDDING_DIMENSIONS", "1536")
+    )
+    code_chunk_anonymized_embedding_dimensions: int = int(
+        os.getenv("CODE_CHUNK_ANONYMIZED_EMBEDDING_DIMENSIONS", "1536")
+    )
+    code_chunk_embedding_enabled: bool = (
+        os.getenv("CODE_CHUNK_EMBEDDING_ENABLED", "false").lower() == "true"
+    )
+    code_chunk_embedding_endpoint: str = (
+        os.getenv("CODE_CHUNK_EMBEDDING_ENDPOINT", "https://api.openai.com/v1/embeddings").strip()
+    )
+    code_chunk_embedding_api_key: str = (
+        os.getenv("CODE_CHUNK_EMBEDDING_API_KEY", os.getenv("OPENAI_API_KEY", "")).strip()
+    )
+    code_chunk_embedding_model: str = (
+        os.getenv("CODE_CHUNK_EMBEDDING_MODEL", "").strip()
+    )
+    code_chunk_embedding_batch_size: int = int(
+        os.getenv("CODE_CHUNK_EMBEDDING_BATCH_SIZE", "32")
+    )
+    code_chunk_embedding_timeout_seconds: int = int(
+        os.getenv("CODE_CHUNK_EMBEDDING_TIMEOUT_SECONDS", str(request_timeout_seconds))
+    )
+    code_chunk_embedding_fail_hard: bool = (
+        os.getenv("CODE_CHUNK_EMBEDDING_FAIL_HARD", "false").lower() == "true"
+    )
     repo_validation_repo_limit: int = int(os.getenv("REPO_VALIDATION_REPO_LIMIT", "1000"))
     repo_pipeline_batch_size: int = int(os.getenv("REPO_PIPELINE_BATCH_SIZE", "200"))
     repo_pipeline_parallelism: int = int(os.getenv("REPO_PIPELINE_PARALLELISM", "36"))
+    repo_pipeline_self_loop_enabled: bool = (
+        os.getenv("REPO_PIPELINE_SELF_LOOP_ENABLED", "true").lower() == "true"
+    )
 settings = Settings()

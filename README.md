@@ -4,12 +4,12 @@
 
 이 저장소의 최종 목표는 공개 코드 저장소를 대규모로 수집한 뒤, 코드와 라이선스 문맥을 함께 보존하고, 이후 function-level chunking, feature/embedding 생성, 유사도 검색, license-aware 판단까지 이어지는 데이터 파이프라인을 구축하는 것입니다.
 
-현재 구현은 `Seed Source -> Repo Discovery -> Repo Registry`를 넘어, `Repository Snapshot Download -> File Extraction -> Code Chunking -> Validation`까지 기본 동작이 들어와 있습니다.
+현재 구현은 `Seed Source -> Repo Discovery -> Repo Registry`를 넘어, `Repository Snapshot Download -> File Extraction -> Tree-sitter Symbol Chunking -> Normalization / Anonymization / Summary Feature Extraction -> Optional Embedding Enrichment -> Validation`까지 기본 동작이 들어와 있습니다.
 
 ## 한눈에 보기
 
 - 최종 목표: 라이선스 리스크가 있는 유사 코드 탐지를 위한 학습/검증 데이터셋 구축
-- 현재 구현 범위: seed source 수집, GitHub 저장소 식별, repo registry 구축, repo snapshot download, file extraction, code chunking, validation
+- 현재 구현 범위: seed source 수집, GitHub 저장소 식별, repo registry 구축, repo snapshot download, file extraction, tree-sitter 기반 function/class chunking, normalization, anonymization, summary feature 추출, optional embedding enrichment, validation
 - 현재 seed source:
   - package registry repo: `PyPI`, `npm`, `nuget`, `maven`, `crates.io` 등을 포함한 다중 registry adapter
   - curated repo list: 정적 GitHub repo URL 목록
@@ -52,7 +52,7 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 
 설계 문서 기준으로 이후 단계에서 중요하게 다뤄야 할 주제는 다음과 같습니다.
 
-- function / class / fallback 단위 chunking
+- function / class 단위 tree-sitter chunking
 - AST / DFG 기반 feature
 - embedding 기반 검색
 - dedup 및 leakage 방지
@@ -70,10 +70,11 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 6. 발견 경로와 provenance를 함께 남깁니다.
 7. registered repo의 snapshot tarball을 내려받습니다.
 8. snapshot에서 파일을 추출합니다.
-9. 코드 파일을 chunk 단위로 분할합니다.
-10. chunk 결과를 검증하고 다음 crawl 배치를 이어갈지 판단합니다.
+9. 코드 파일을 tree-sitter 기반 `function/class` chunk로 분할합니다.
+10. 각 chunk에 `raw_code`, `normalized_code`, `anonymized_code`, summary feature, optional embedding을 생성합니다.
+11. chunk 결과를 검증하고 다음 crawl 배치를 이어갈지 판단합니다.
 
-즉, 현재 저장소의 직접적인 산출물은 `repo registry`뿐 아니라, 그 이후 단계의 snapshot download, file extraction, code chunking, validation 결과까지 포함합니다.
+즉, 현재 저장소의 직접적인 산출물은 `repo registry`뿐 아니라, 그 이후 단계의 snapshot download, file extraction, `code_chunk_index` 생성, validation 결과까지 포함합니다.
 
 현재 repo 처리 계층의 운영 구조와 문제 해결 내역은 아래 문서를 참고합니다.
 
@@ -225,7 +226,7 @@ repo processing 기본 실행 순서는 다음과 같습니다.
   -> [repo_validation_dag]
 ```
 
-현재 repo processing DAG는 각 단계가 `batch_id`를 넘기며 연결되고, extract/chunk/validation 단계는 shard fan-out 방식으로 병렬 처리됩니다.
+현재 repo processing DAG는 각 단계가 `batch_id`를 넘기며 연결되고, extract/chunk/validation 단계는 shard fan-out 방식으로 병렬 처리됩니다. `repo_validation_dag`가 끝난 뒤 pending crawl 대상이 남아 있으면 `code_pipeline_dag`를 다시 trigger 하는 self-draining 구조로 이어집니다.
 
 ## 단계별 역할
 
@@ -329,7 +330,12 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 역할:
 
 - `file_extract_status=extracted` 인 repo를 읽어 code chunk를 생성합니다.
-- shard 단위로 작업을 나눠 병렬 처리하고, 결과를 `chunk_status`로 관리합니다.
+- extract 결과의 `file_extract_total_code_bytes`를 기준으로 shard를 다시 배분합니다.
+- tree-sitter 기반 `function/class` symbol chunk를 만들고, 각 chunk에 `raw_code`, `normalized_code`, `anonymized_code`를 저장합니다.
+- `identifier_tokens`, `call_tokens`, `operator_tokens`, `control_flow_tags`, `structure_signature`, `ast_node_sequence` 같은 검색용 summary feature를 함께 생성합니다.
+- 설정이 켜져 있으면 `raw_embedding`, `anonymized_embedding`도 저장 직전에 채웁니다.
+- whale repo는 repo 내부 file-level parallel chunking으로 처리하고, giant repo는 main chunk path에서 defer 할 수 있습니다.
+- 결과는 `code_chunk_index` alias에 저장되고, repo 상태는 `chunk_status`로 관리합니다.
 - 성공 시 로컬 snapshot cleanup을 시도합니다.
 
 ### 7. Validation
@@ -410,6 +416,51 @@ ingested -> normalized -> registered
 
 - 이 문서는 단순 repo 목록이 아닙니다.
 - "어떤 source가 이 repo를 발견했는가"를 최소 provenance 형태로 함께 남기는 registry입니다.
+
+### 4. `code_chunk_index`
+
+역할:
+
+- 검색 중심의 derived code chunk index
+- repo/file source code에서 뽑은 `function/class` 단위 symbol chunk 저장
+- 이후 retrieval, query expansion, embedding search의 공통 기반
+
+대표 필드:
+
+- `chunk_id`
+- `repo_id`
+- `repo_url`
+- `language`
+- `file_path`
+- `chunk_type`
+- `start_line`, `end_line`
+- `raw_code`
+- `normalized_code`
+- `anonymized_code`
+- `symbol_type`
+- `symbol_name`
+- `identifier_tokens`
+- `call_tokens`
+- `operator_tokens`
+- `control_flow_tags`
+- `structure_signature`
+- `ast_node_sequence`
+- `raw_hash`
+- `normalized_hash`
+- `anonymized_hash`
+- `raw_embedding` (옵션)
+- `anonymized_embedding` (옵션)
+- `chunker_version`
+- `normalization_version`
+- `anonymization_version`
+- `feature_version`
+
+중요한 점:
+
+- `code_chunk_index`는 system of record가 아니라 drop-and-rebuild 가능한 derived index입니다.
+- full AST JSON, full DFG JSON은 저장하지 않고 retrieval용 summary feature만 저장합니다.
+- 현재 physical index는 `code_chunk_index_v1`, logical alias는 `code_chunk_index` 방식으로 운영합니다.
+- embedding 설명은 [code-chunk-embedding.md](/Users/xxuchan/Desktop/kkbang/docs/code-chunk-embedding.md)를 참고합니다.
 
 ## 스키마 설명
 
@@ -521,6 +572,8 @@ seed discovery 이후 repo processing까지 이어서 실행:
 docker compose exec airflow airflow dags trigger code_pipeline_dag
 ```
 
+`code_pipeline_dag`는 한 번만 trigger 하면 되고, 이후에는 `repo_validation_dag`가 pending crawl 대상이 남아 있는 동안 다음 배치를 자동으로 이어서 실행합니다.
+
 ### 4. 특정 태스크만 테스트 실행
 
 예를 들어 curated repo ingestion 태스크만 보고 싶다면:
@@ -541,6 +594,7 @@ OpenSearch 주요 인덱스:
 
 - `seed_item_index`
 - `repo_registry_index`
+- `code_chunk_index`
 - `repo_relation_index`
 - `seed_qualification_failure_index`
 - `package_registry_full_metadata_index` (옵션)
@@ -576,6 +630,7 @@ OpenSearch 주요 인덱스:
 ├── scripts/
 ├── worker/
 │   ├── common/
+│   ├── repo/
 │   ├── seed/
 │   │   ├── adapters/
 │   │   │   ├── benchmark/
@@ -595,10 +650,12 @@ OpenSearch 주요 인덱스:
 
 - 현재 저장소는 OpenSearch 중심이며, repo snapshot은 local scratch 기반으로 처리 후 정리합니다.
 - GitHub qualification은 GitHub REST API 무인증 호출에 의존합니다.
-- repo snapshot download, 파일 수집, chunking, validation은 구현되어 있으나 embedding / retrieval / license-aware judgement 단계는 아직 남아 있습니다.
+- repo snapshot download, 파일 수집, tree-sitter symbol chunking, normalization/anonymization, summary feature 저장, optional embedding enrichment까지는 구현되어 있습니다.
+- 다만 embedding 경로는 현재 config-gated 기능이며, 실제 운영 환경에서의 end-to-end smoke와 retrieval 품질 검증은 아직 남아 있습니다.
 - seed source coverage는 아직 초기 단계입니다.
 - 현재 qualification 로직은 단순하며, 장기적으로 더 정교한 정책이 필요합니다.
 - repo processing DAG는 self-triggering 구조라서 병렬도 설정이 높으면 load spike가 생길 수 있습니다.
+- giant repo는 현재 main chunk path에서 defer 할 수 있으며, 별도 giant 처리 lane은 아직 후속 작업입니다.
 - local snapshot cleanup과 OpenSearch 문서 상태가 항상 완벽히 동기화되지는 않아, 운영 보조 스크립트가 필요합니다.
 
 ## 탐지 Query Expansion 방향
@@ -625,6 +682,8 @@ OpenSearch 주요 인덱스:
 - `seed_item_index`와 `repo_registry_index`를 나눈 이유도 운영 편의 때문입니다. source record와 canonical repo를 섞으면 dedupe, qualification 재시도, provenance 누적이 모두 복잡해지기 때문입니다.
 - benchmark source는 수동 repo 목록이 아니라, 실제 dataset artifact에서 repo를 추출하는 구조로 바꿨습니다. 그래야 논문/benchmark에 등장한 repo라는 근거가 코드와 데이터에 함께 남습니다.
 - repo processing 단계에서는 처리량과 서버 안정성의 균형이 중요했습니다. 실제 운영 중 load spike가 있었기 때문에, 현재는 shard 수와 Airflow parallelism을 다소 보수적으로 낮추고 안정적인 fan-out 범위를 먼저 찾는 방향으로 조정했습니다.
+- chunk 단계는 해시 기반 shard fan-out만으로는 tail latency가 커졌기 때문에, extract 이후 `file_extract_total_code_bytes` 기반 재분배, whale repo file-level parallel chunking, giant defer 전략을 추가했습니다.
+- code chunk는 단순 텍스트 보관보다 검색 중심이 중요하다고 봤기 때문에, `repo_chunk_index` 성격에서 `code_chunk_index` 성격으로 옮겨 왔습니다. 현재는 symbol-level chunk, normalization/anonymization, summary feature, optional embedding enrich를 한 문서에 모아 retrieval-ready 형태로 저장합니다.
 - local snapshot cleanup이 항상 문서 상태와 동시에 맞춰지지 않는 문제도 있었습니다. 그래서 cleanup 자체뿐 아니라, 나중에 OpenSearch 문서를 reconcile하는 운영 스크립트까지 같이 두는 방향을 선택했습니다.
 
 ## 다음 단계
@@ -637,13 +696,14 @@ OpenSearch 주요 인덱스:
 4. qualification 전 canonical repo dedupe 강화
 5. GitHub API rate limit 대응 강화
 6. near-duplicate relation 추가
-7. feature / embedding 생성 추가
-8. similarity retrieval 추가
-9. 탐지 query expansion 추가
-10. license-aware similarity pipeline 연결
+7. giant repo 전용 별도 처리 lane 추가
+8. embedding 모델/차원 확정 및 운영 smoke
+9. similarity retrieval 추가
+10. 탐지 query expansion 추가
+11. license-aware similarity pipeline 연결
 
 ## 요약
 
 이 저장소는 라이선스 파생 코드 탐지용 전체 시스템의 첫 단계를 구현합니다.
 
-현재는 `PyPI`, `npm`, curated repo list, benchmark dataset source 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만들고, 이어서 snapshot download, 파일 추출, 코드 chunk 생성, validation까지 연결하는 데 초점을 맞추고 있습니다.
+현재는 `PyPI`, `npm`, curated repo list, benchmark dataset source 로부터 설득력 있는 공개 GitHub 저장소를 찾아 `repo_registry_index`를 만들고, 이어서 snapshot download, 파일 추출, tree-sitter 기반 symbol chunk 생성, normalization/anonymization, summary feature 저장, optional embedding enrich, validation까지 연결하는 데 초점을 맞추고 있습니다.
