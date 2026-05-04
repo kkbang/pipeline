@@ -243,6 +243,35 @@ def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) ->
             ],
         ),
     )
+    trivial_chunk_docs_count = store.count_documents(
+        collection_name=CODE_CHUNK_INDEX,
+        query=_repo_chunk_query(
+            repo_id,
+            extra_must=[
+                {
+                    "bool": {
+                        "should": [
+                            {"term": {"structure_signature": "function|params"}},
+                            {
+                                "terms": {
+                                    "ast_root_node_type": [
+                                        "formal_parameters",
+                                        "function_call_expression",
+                                        "function_declarator",
+                                        "member_call_expression",
+                                        "method_parameters",
+                                        "parameter_list",
+                                        "struct_type",
+                                    ]
+                                }
+                            },
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            ],
+        ),
+    )
     chunk_docs_missing_raw_embedding_count = 0
     chunk_docs_missing_anonymized_embedding_count = 0
     if settings.code_chunk_embedding_enabled:
@@ -291,6 +320,8 @@ def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) ->
             failed_rules.append("chunk_docs_missing_ast_sequence")
         if chunk_docs_missing_hash_count > 0:
             failed_rules.append("chunk_docs_missing_hash")
+        if trivial_chunk_docs_count > 0:
+            failed_rules.append("trivial_chunk_docs_present")
 
     if isinstance(expected_text_files, int) and expected_text_files > 0 and file_docs_count != expected_text_files:
         warning_rules.append("text_file_count_mismatch")
@@ -334,6 +365,7 @@ def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) ->
         "chunk_docs_missing_structure_signature_count": chunk_docs_missing_structure_signature_count,
         "chunk_docs_missing_ast_sequence_count": chunk_docs_missing_ast_sequence_count,
         "chunk_docs_missing_hash_count": chunk_docs_missing_hash_count,
+        "trivial_chunk_docs_count": trivial_chunk_docs_count,
         "chunk_docs_missing_raw_embedding_count": chunk_docs_missing_raw_embedding_count,
         "chunk_docs_missing_anonymized_embedding_count": chunk_docs_missing_anonymized_embedding_count,
         "expected_text_files": expected_text_files,
@@ -447,6 +479,7 @@ def run_repo_processing_validation_for_repo(
             "validation_chunk_docs_missing_structure_signature_count": metrics["chunk_docs_missing_structure_signature_count"],
             "validation_chunk_docs_missing_ast_sequence_count": metrics["chunk_docs_missing_ast_sequence_count"],
             "validation_chunk_docs_missing_hash_count": metrics["chunk_docs_missing_hash_count"],
+            "validation_trivial_chunk_docs_count": metrics["trivial_chunk_docs_count"],
             "validation_chunk_docs_missing_raw_embedding_count": metrics["chunk_docs_missing_raw_embedding_count"],
             "validation_chunk_docs_missing_anonymized_embedding_count": metrics["chunk_docs_missing_anonymized_embedding_count"],
         }
@@ -636,6 +669,7 @@ def run_repo_processing_validation() -> None:
                 "validation_chunk_docs_missing_structure_signature_count": metrics["chunk_docs_missing_structure_signature_count"],
                 "validation_chunk_docs_missing_ast_sequence_count": metrics["chunk_docs_missing_ast_sequence_count"],
                 "validation_chunk_docs_missing_hash_count": metrics["chunk_docs_missing_hash_count"],
+                "validation_trivial_chunk_docs_count": metrics["trivial_chunk_docs_count"],
                 "validation_chunk_docs_missing_raw_embedding_count": metrics["chunk_docs_missing_raw_embedding_count"],
                 "validation_chunk_docs_missing_anonymized_embedding_count": metrics["chunk_docs_missing_anonymized_embedding_count"],
             }

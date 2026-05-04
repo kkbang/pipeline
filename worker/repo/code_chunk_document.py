@@ -218,6 +218,16 @@ COMMON_RESERVED_WORDS = {
     "pass",
     "lambda",
     "with",
+    "function",
+    "throw",
+    "typeof",
+    "instanceof",
+    "delete",
+    "default",
+    "export",
+    "extends",
+    "implements",
+    "namespace",
     "public",
     "private",
     "protected",
@@ -257,6 +267,60 @@ JAVASCRIPT_COMMON_GLOBALS = {
     "exports",
     "module",
     "require",
+}
+
+RUBY_COMMON_SYMBOLS = {
+    "File",
+    "puts",
+    "print",
+    "p",
+    "open",
+    "require",
+    "load",
+    "include",
+    "extend",
+    "attr_reader",
+    "attr_writer",
+    "attr_accessor",
+    "to_i",
+    "to_s",
+    "split",
+    "join",
+    "map",
+    "each",
+    "end",
+    "do",
+    "then",
+    "elsif",
+    "unless",
+    "begin",
+}
+
+PHP_COMMON_SYMBOLS = {
+    "die",
+    "echo",
+    "empty",
+    "isset",
+    "print",
+    "session_start",
+}
+
+SHELL_COMMON_SYMBOLS = {
+    "cat",
+    "done",
+    "do",
+    "echo",
+    "exit",
+    "fi",
+    "function",
+    "grep",
+    "kubectl",
+    "read",
+    "return",
+    "rm",
+    "then",
+    "test",
+    "yq",
 }
 
 IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
@@ -305,7 +369,10 @@ STRING_PREFIX_CHARS = frozenset("rRuUbBfF")
 CALL_LIKE_NODE_TYPES = {
     "call",
     "call_expression",
+    "command",
+    "function_call_expression",
     "invocation_expression",
+    "member_call_expression",
     "method_invocation",
 }
 CALL_FIELD_NAMES = (
@@ -320,6 +387,54 @@ PARENT_SYMBOL_FIELD_NAME_GROUPS = (
     ("key",),
     ("property",),
 )
+
+FUNCTION_INFERENCE_TOKEN_GROUPS = (
+    {"function", "definition"},
+    {"function", "declaration"},
+    {"function", "item"},
+    {"method", "declaration"},
+    {"constructor", "declaration"},
+    {"local", "function", "statement"},
+    {"arrow", "function"},
+    {"initializer", "declaration"},
+    {"deinitializer", "declaration"},
+    {"secondary", "constructor"},
+    {"create", "function", "statement"},
+    {"create", "procedure", "statement"},
+    {"singleton", "method"},
+)
+
+CLASS_INFERENCE_TOKEN_GROUPS = (
+    {"class", "definition"},
+    {"class", "declaration"},
+    {"interface", "declaration"},
+    {"record", "declaration"},
+    {"struct", "declaration"},
+    {"struct", "item"},
+    {"enum", "item"},
+    {"trait", "item"},
+    {"impl", "item"},
+    {"object", "definition"},
+    {"trait", "definition"},
+    {"protocol", "declaration"},
+    {"actor", "declaration"},
+)
+
+TRIVIAL_ONLY_AST_NODE_TYPES = {
+    "arrow_function",
+    "formal_parameters",
+    "function_declarator",
+    "function_definition",
+    "method_parameters",
+    "parameter_list",
+    "parameters",
+}
+
+TRIVIAL_CLASS_AST_NODE_TYPES = {
+    "field_declaration",
+    "field_declaration_list",
+    "struct_type",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -429,10 +544,29 @@ def _should_skip_decorated_python_node(language: str, node: Node) -> bool:
     return False
 
 
+def _get_decorated_python_target(node: Node) -> Node | None:
+    for child in node.children:
+        if not child.is_named:
+            continue
+        child_type = str(child.type or "")
+        if child_type in {"class_definition", "function_definition"}:
+            return child
+    return None
+
+
+def _node_type_tokens(node_type: str) -> set[str]:
+    return {token for token in re.split(r"[^a-z0-9]+|_", node_type.lower()) if token}
+
+
 def _node_matches_chunk_type(language: str, node: Node) -> str | None:
     node_type = str(node.type or "")
     if not node_type or not node.is_named:
         return None
+
+    if language == "python" and node_type == "decorated_definition":
+        decorated_target = _get_decorated_python_target(node)
+        if decorated_target is not None:
+            return _node_matches_chunk_type(language, decorated_target)
 
     function_node_types = FUNCTION_NODE_TYPES_BY_LANGUAGE.get(language, set())
     class_node_types = CLASS_NODE_TYPES_BY_LANGUAGE.get(language, set())
@@ -442,15 +576,20 @@ def _node_matches_chunk_type(language: str, node: Node) -> str | None:
     if node_type in class_node_types:
         return "class"
 
-    lowered = node_type.lower()
-    if "function" in lowered or "method" in lowered or "constructor" in lowered:
+    tokens = _node_type_tokens(node_type)
+    if any(group.issubset(tokens) for group in FUNCTION_INFERENCE_TOKEN_GROUPS):
         return "function"
-    if "class" in lowered or "interface" in lowered or "struct" in lowered or "trait" in lowered:
+    if any(group.issubset(tokens) for group in CLASS_INFERENCE_TOKEN_GROUPS):
         return "class"
     return None
 
 
 def _extract_symbol_name(content_bytes: bytes, node: Node) -> str:
+    if str(node.type or "") == "decorated_definition":
+        decorated_target = _get_decorated_python_target(node)
+        if decorated_target is not None:
+            return _extract_symbol_name(content_bytes, decorated_target)
+
     direct_name_child = _find_child_by_field_names(node, ("name",))
     if direct_name_child is not None:
         direct_name = _decode_node_text(content_bytes, direct_name_child).strip()
@@ -714,6 +853,9 @@ def _normalize_call_target_text(raw_text: str) -> str:
     if not normalized:
         return ""
 
+    normalized = re.sub(r"\[[^\[\]]*\]", "", normalized)
+    normalized = re.sub(r"`[^`]*`", "", normalized)
+
     previous = None
     while previous != normalized:
         previous = normalized
@@ -722,6 +864,9 @@ def _normalize_call_target_text(raw_text: str) -> str:
     if normalized.startswith("new") and len(normalized) > 3 and normalized[3].isalpha():
         normalized = normalized[3:]
 
+    if normalized.startswith("$."):
+        identifiers = IDENTIFIER_TEXT_RE.findall(normalized)
+        return "$." + ".".join(identifiers)
     if "." in normalized:
         identifiers = IDENTIFIER_TEXT_RE.findall(normalized)
         return ".".join(identifiers)
@@ -740,17 +885,63 @@ def _normalize_call_target_text(raw_text: str) -> str:
     return identifier_matches[-1]
 
 
-def _extract_call_token_from_node(content_bytes: bytes, node: Node) -> str:
+def _extract_shell_command_name(content_bytes: bytes, node: Node) -> str:
+    command_name_child = _find_child_by_field_names(node, ("name", "command"))
+    if command_name_child is not None:
+        return _normalize_call_target_text(_decode_node_text(content_bytes, command_name_child))
+
+    for child in node.children:
+        if not child.is_named:
+            continue
+        child_type = str(child.type or "")
+        if child_type == "command_name":
+            return _normalize_call_target_text(_decode_node_text(content_bytes, child))
+    return ""
+
+
+def _extract_ruby_call_token(raw_text: str) -> str:
+    normalized = raw_text.strip()
+    if not normalized:
+        return ""
+
+    normalized = normalized.split("{", 1)[0].strip()
+    normalized = re.split(r"\bdo\b", normalized, maxsplit=1)[0].strip()
+
+    dotted_match = re.match(
+        r"((?:self|[A-Za-z_][A-Za-z0-9_]*)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*[!?=]?)*)",
+        normalized,
+    )
+    if dotted_match:
+        return dotted_match.group(1)
+
+    bare_match = re.match(r"([A-Za-z_][A-Za-z0-9_]*[!?=]?)", normalized)
+    if bare_match:
+        return bare_match.group(1)
+
+    return ""
+
+
+def _extract_call_token_from_node(content_bytes: bytes, node: Node, *, language: str) -> str:
+    raw_text = _decode_node_text(content_bytes, node)
+    if language == "ruby":
+        ruby_token = _extract_ruby_call_token(raw_text)
+        if ruby_token:
+            return ruby_token
+    if language == "shell":
+        shell_token = _extract_shell_command_name(content_bytes, node)
+        if shell_token:
+            return shell_token
+
     callee = _find_child_by_field_names(node, CALL_FIELD_NAMES)
     if callee is None:
         named_children = [child for child in node.children if child.is_named]
         if not named_children:
-            return ""
+            return _normalize_call_target_text(raw_text)
         callee = named_children[0]
     return _normalize_call_target_text(_decode_node_text(content_bytes, callee))
 
 
-def _collect_call_tokens(content_bytes: bytes, node: Node, *, cap: int) -> list[str]:
+def _collect_call_tokens(content_bytes: bytes, node: Node, *, language: str, cap: int) -> list[str]:
     tokens: list[str] = []
     stack = [node]
     while stack:
@@ -759,26 +950,81 @@ def _collect_call_tokens(content_bytes: bytes, node: Node, *, cap: int) -> list[
             continue
         current_type = str(current.type or "")
         if _is_call_like_node(current_type):
-            token = _extract_call_token_from_node(content_bytes, current)
+            token = _extract_call_token_from_node(content_bytes, current, language=language)
             if token and token.lower() not in COMMON_RESERVED_WORDS:
                 tokens.append(token)
         stack.extend(reversed([child for child in current.children if child.is_named]))
     return _ordered_unique(tokens, cap=cap)
 
+def _extract_operator_tokens_from_gap(gap_text: str) -> list[str]:
+    if not gap_text.strip():
+        return []
 
-def _collect_operator_tokens(raw_code: str) -> list[str]:
-    ordered: list[str] = []
+    tokens: list[str] = []
     seen: set[str] = set()
-    lowered_code = f" {raw_code.lower()} "
-    for match in OPERATOR_SYMBOL_PATTERN.finditer(raw_code):
+    for match in OPERATOR_SYMBOL_PATTERN.finditer(gap_text):
         token = OPERATOR_SYMBOL_TO_TOKEN.get(match.group(0))
         if token and token not in seen:
-            ordered.append(token)
+            tokens.append(token)
             seen.add(token)
+
+    lowered_gap = f" {gap_text.lower()} "
     for keyword_token, token in ((" and ", "and"), (" or ", "or"), (" not ", "not")):
-        if keyword_token in lowered_code and token not in seen:
-            ordered.append(token)
+        if keyword_token in lowered_gap and token not in seen:
+            tokens.append(token)
             seen.add(token)
+    return tokens
+
+
+def _collect_operator_tokens(content_bytes: bytes, node: Node) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if not current.is_named:
+            continue
+
+        current_type = str(current.type or "").lower()
+        named_children = [child for child in current.children if child.is_named]
+
+        if "assignment" in current_type and "assign" not in seen:
+            ordered.append("assign")
+            seen.add("assign")
+
+        if len(named_children) >= 2 and (
+            "binary" in current_type
+            or "comparison" in current_type
+            or "member" in current_type
+            or "selector" in current_type
+            or "attribute" == current_type
+            or "qualified_identifier" == current_type
+        ):
+            previous_child = named_children[0]
+            for child in named_children[1:]:
+                gap_text = content_bytes[previous_child.end_byte : child.start_byte].decode(
+                    "utf-8",
+                    errors="ignore",
+                )
+                for token in _extract_operator_tokens_from_gap(gap_text):
+                    if token not in seen:
+                        ordered.append(token)
+                        seen.add(token)
+                previous_child = child
+
+        if "unary" in current_type and named_children:
+            first_child = named_children[0]
+            prefix_text = content_bytes[current.start_byte : first_child.start_byte].decode(
+                "utf-8",
+                errors="ignore",
+            )
+            for token in _extract_operator_tokens_from_gap(prefix_text):
+                if token not in seen:
+                    ordered.append(token)
+                    seen.add(token)
+
+        stack.extend(reversed(named_children))
     return ordered
 
 
@@ -921,6 +1167,12 @@ def _preserved_symbols_for_language(language: str) -> set[str]:
         return set(PYTHON_BUILTIN_SYMBOLS)
     if normalized_language in {"javascript", "typescript"}:
         return set(JAVASCRIPT_COMMON_GLOBALS)
+    if normalized_language == "ruby":
+        return set(RUBY_COMMON_SYMBOLS)
+    if normalized_language == "php":
+        return set(PHP_COMMON_SYMBOLS)
+    if normalized_language == "shell":
+        return set(SHELL_COMMON_SYMBOLS)
     return set()
 
 
@@ -977,7 +1229,7 @@ def _anonymize_code(
         elif token in local_function_symbols:
             replacement = f"FUNC_{next_function_index}"
             next_function_index += 1
-        elif token in local_variable_symbols or token not in preserve:
+        elif token in local_variable_symbols:
             replacement = f"VAR_{next_var_index}"
             next_var_index += 1
         else:
@@ -1017,8 +1269,18 @@ def collect_symbol_spans(content_bytes: bytes, language: str, tree: Tree) -> lis
         if line_start <= 0 or line_end < line_start:
             continue
 
-        symbol_name = _extract_symbol_name(content_bytes, node)
-        param_count = _estimate_param_count(_decode_node_text(content_bytes, node)) if chunk_type == "function" else 0
+        symbol_target = node
+        if language == "python" and str(node.type or "") == "decorated_definition":
+            decorated_target = _get_decorated_python_target(node)
+            if decorated_target is not None:
+                symbol_target = decorated_target
+
+        symbol_name = _extract_symbol_name(content_bytes, symbol_target)
+        param_count = (
+            _estimate_param_count(_decode_node_text(content_bytes, symbol_target))
+            if chunk_type == "function"
+            else 0
+        )
 
         range_key = (chunk_type, line_start, line_end, symbol_name)
         if range_key in seen_ranges:
@@ -1040,6 +1302,49 @@ def collect_symbol_spans(content_bytes: bytes, language: str, tree: Tree) -> lis
 
     spans.sort(key=lambda span: (span.line_start, span.line_end, span.chunk_type, span.symbol_name))
     return spans
+
+
+def _is_trivial_candidate(
+    *,
+    span: SymbolSpan,
+    language: str,
+    normalized_code: str,
+    identifier_tokens: list[str],
+    call_tokens: list[str],
+    ast_node_sequence: list[str],
+    structure_signature: str,
+) -> bool:
+    node_type = str(span.node_type or "")
+    node_type_tokens = _node_type_tokens(node_type)
+    ast_types = set(ast_node_sequence)
+
+    if language in {"c", "cpp"} and node_type == "function_declarator":
+        return True
+    if language == "go" and node_type == "struct_type":
+        return True
+    if language in {"php", "javascript", "typescript"} and node_type in {
+        "function_call_expression",
+        "member_call_expression",
+    }:
+        return True
+
+    if span.chunk_type == "function":
+        if node_type in PARAMETER_CONTAINER_TYPES or "parameter" in node_type_tokens:
+            return True
+        if ast_types and ast_types.issubset(TRIVIAL_ONLY_AST_NODE_TYPES):
+            return True
+        if structure_signature == "function|params" and not call_tokens:
+            return True
+        if node_type == "arrow_function" and not identifier_tokens and not call_tokens:
+            return True
+        if normalized_code.strip() in {"()", "{}"}:
+            return True
+
+    if span.chunk_type == "class":
+        if ast_types and ast_types.issubset(TRIVIAL_CLASS_AST_NODE_TYPES):
+            return True
+
+    return False
 
 
 def build_code_chunk_candidates(
@@ -1102,8 +1407,13 @@ def build_code_chunk_candidates(
             regex_identifiers = IDENTIFIER_RE.findall(normalized_code)
             identifier_tokens = _ordered_unique(regex_identifiers, cap=max(1, identifier_token_cap))
 
-        call_tokens = _collect_call_tokens(content_bytes, node, cap=max(1, call_token_cap))
-        operator_tokens = _collect_operator_tokens(raw_code)
+        call_tokens = _collect_call_tokens(
+            content_bytes,
+            node,
+            language=language,
+            cap=max(1, call_token_cap),
+        )
+        operator_tokens = _collect_operator_tokens(content_bytes, node)
         ast_node_sequence = _collect_ast_node_sequence(node, cap=max(1, ast_node_sequence_cap))
         structure_signature = _build_structure_signature(span.chunk_type, ast_node_sequence)
         anonymization_context = _build_anonymization_context(content_bytes, node, language)
@@ -1112,6 +1422,17 @@ def build_code_chunk_candidates(
             symbol_name=span.symbol_name,
             call_tokens=call_tokens,
         )
+        if _is_trivial_candidate(
+            span=span,
+            language=language,
+            normalized_code=normalized_code,
+            identifier_tokens=identifier_tokens,
+            call_tokens=call_tokens,
+            ast_node_sequence=ast_node_sequence,
+            structure_signature=structure_signature,
+        ):
+            filtered_count += 1
+            continue
         anonymized_code = _anonymize_code(
             language=language,
             normalized_code=normalized_code,
