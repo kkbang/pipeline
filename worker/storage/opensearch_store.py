@@ -175,6 +175,18 @@ class OpenSearchStore:
             raise last_error
         raise RuntimeError("transient retry loop exited without result")
 
+    def _normalize_sort(self, sort: list[dict] | list[str] | None) -> list[dict] | list[str]:
+        if not sort:
+            return ["_doc"]
+
+        for item in sort:
+            if isinstance(item, str) and item == "_id":
+                return ["_doc"]
+            if isinstance(item, dict) and "_id" in item:
+                return ["_doc"]
+
+        return sort
+
     def refresh_index(self, collection_name: str) -> None:
         self._ensure_index(collection_name)
         self._run_with_transient_retry(
@@ -421,10 +433,10 @@ class OpenSearchStore:
     ):
         self._ensure_index(collection_name)
         safe_size = max(1, size)
-        resolved_sort = sort or [{"_id": "asc"}]
-        search_after = None
+        resolved_sort = self._normalize_sort(sort)
+        scroll_id = None
 
-        while True:
+        try:
             body = {
                 "size": safe_size,
                 "sort": resolved_sort,
@@ -432,22 +444,33 @@ class OpenSearchStore:
             }
             if source_includes is not None:
                 body["_source"] = source_includes
-            if search_after is not None:
-                body["search_after"] = search_after
 
             result = self._run_with_transient_retry(
-                lambda: self.client.search(index=collection_name, body=body)
+                lambda: self.client.search(index=collection_name, body=body, scroll="2m")
             )
-            hits = result.get("hits", {}).get("hits", [])
-            if not hits:
-                return
+            scroll_id = result.get("_scroll_id")
 
-            for hit in hits:
-                yield hit
+            while True:
+                hits = result.get("hits", {}).get("hits", [])
+                if not hits:
+                    return
 
-            search_after = hits[-1].get("sort")
-            if not search_after:
-                return
+                for hit in hits:
+                    yield hit
+
+                if not scroll_id:
+                    return
+
+                result = self._run_with_transient_retry(
+                    lambda: self.client.scroll(scroll_id=scroll_id, scroll="2m")
+                )
+                scroll_id = result.get("_scroll_id") or scroll_id
+        finally:
+            if scroll_id:
+                try:
+                    self.client.clear_scroll(scroll_id=scroll_id)
+                except Exception:
+                    pass
 
     def list_documents(
         self,
@@ -455,12 +478,13 @@ class OpenSearchStore:
         size: int = 1000,
     ) -> list[dict]:
         self._ensure_index(collection_name)
+        resolved_sort = self._normalize_sort(None)
         result = self._run_with_transient_retry(
             lambda: self.client.search(
                 index=collection_name,
                 body={
                     "size": size,
-                    "sort": [{"_id": "asc"}],
+                    "sort": resolved_sort,
                     "query": {"match_all": {}},
                 },
             )
@@ -475,12 +499,13 @@ class OpenSearchStore:
         size: int = 1000,
     ) -> list[dict]:
         self._ensure_index(collection_name)
+        resolved_sort = self._normalize_sort(None)
         result = self._run_with_transient_retry(
             lambda: self.client.search(
                 index=collection_name,
                 body={
                     "size": size,
-                    "sort": [{"_id": "asc"}],
+                    "sort": resolved_sort,
                     "query": {
                         "bool": {
                             "should": [
