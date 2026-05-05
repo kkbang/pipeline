@@ -19,7 +19,10 @@ from worker.repo.repo_pipeline_manifest_service import (
     CHUNK_COMPLETED_STAGE,
     write_stage_manifest,
 )
-from worker.repo.repo_snapshot_cleanup import prune_local_snapshot_artifacts
+from worker.repo.repo_snapshot_cleanup import (
+    needs_snapshot_cleanup_retry,
+    prune_local_snapshot_artifacts,
+)
 from worker.repo.repo_snapshot_local_paths import (
     resolve_snapshot_root_path,
     strip_local_snapshot_fields,
@@ -277,6 +280,8 @@ def _load_repo_docs_for_chunking(store: OpenSearchStore, now: datetime) -> list[
     for hit in extracted_docs:
         source = hit.get("_source", {})
         if source.get("chunk_status") == "chunked":
+            if needs_snapshot_cleanup_retry(source):
+                repo_docs_by_id[hit["_id"]] = hit
             continue
         repo_docs_by_id[hit["_id"]] = hit
 
@@ -1191,6 +1196,32 @@ def run_repo_code_chunking_for_repo(
             }
 
         if source.get("chunk_status") == "chunked":
+            if needs_snapshot_cleanup_retry(source):
+                updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
+                    _maybe_prune_local_snapshot_artifacts(
+                        store=store,
+                        repo_id=repo_id,
+                        source=source,
+                        chunk_status="chunked",
+                    )
+                )
+                updated_source["snapshot_local_cleanup_status"] = cleanup_status
+                updated_source["snapshot_local_cleanup_at"] = cleanup_finished_at
+                updated_source["snapshot_local_cleanup_error"] = cleanup_error
+                store.replace_document(
+                    collection_name=REPO_REGISTRY_INDEX,
+                    doc_id=repo_id,
+                    source=updated_source,
+                    refresh=refresh_writes,
+                )
+                return {
+                    "repo_id": repo_id,
+                    "stage": "chunk",
+                    "stage_status": "chunked",
+                    "reason": "cleanup_retried",
+                    "snapshot_cleanup_status": cleanup_status,
+                    "snapshot_cleanup_error": cleanup_error,
+                }
             return {
                 "repo_id": repo_id,
                 "stage": "chunk",

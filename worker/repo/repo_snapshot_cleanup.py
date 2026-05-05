@@ -10,6 +10,12 @@ from worker.repo.repo_snapshot_local_paths import (
     resolve_snapshot_extract_dir,
 )
 
+FINAL_SNAPSHOT_CLEANUP_STATUSES = {
+    "pruned",
+    "skipped",
+    "missing_confirmed",
+}
+
 
 def _is_path_within(path: Path, root_dir: Path) -> bool:
     try:
@@ -110,3 +116,11 @@ def prune_local_snapshot_artifacts(*, base_dir: Path, source: dict) -> tuple[boo
 
     cleanup_error = ",".join(missing_artifacts) if missing_artifacts else None
     return pruned_any, cleanup_error
+
+
+def needs_snapshot_cleanup_retry(source: dict) -> bool:
+    if str(source.get("chunk_status") or "").strip() != "chunked":
+        return False
+
+    cleanup_status = str(source.get("snapshot_local_cleanup_status") or "").strip()
+    return cleanup_status not in FINAL_SNAPSHOT_CLEANUP_STATUSES

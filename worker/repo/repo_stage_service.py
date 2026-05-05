@@ -10,6 +10,7 @@ from worker.repo.repo_pipeline_manifest_service import (
     repo_id_shard_index,
     resolve_pipeline_base_dir,
 )
+from worker.repo.repo_snapshot_cleanup import needs_snapshot_cleanup_retry
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -196,12 +197,33 @@ def list_repo_ids_for_chunking(
             shard_index=shard_index,
             shard_count=shard_count,
         )
-        if repo_ids:
-            return repo_ids
-        return _repo_ids_from_manifest(
-            batch_id=batch_id,
-            stage_name=EXTRACT_READY_STAGE,
-            batch_limit=batch_limit,
+        if not repo_ids:
+            repo_ids = _repo_ids_from_manifest(
+                batch_id=batch_id,
+                stage_name=EXTRACT_READY_STAGE,
+                batch_limit=batch_limit,
+                shard_index=shard_index,
+                shard_count=shard_count,
+            )
+
+        store = OpenSearchStore()
+        for hit in _iter_repo_docs_by_field(store, "chunk_status", "chunked"):
+            doc_id = hit.get("_id")
+            source = hit.get("_source", {})
+            if not (
+                _matches_batch_id(source, "chunk_batch_id", batch_id)
+                or _matches_batch_id(source, "file_extract_batch_id", batch_id)
+                or _matches_batch_id(source, "crawl_batch_id", batch_id)
+            ):
+                continue
+            if not needs_snapshot_cleanup_retry(source):
+                continue
+            if isinstance(doc_id, str) and doc_id.strip():
+                repo_ids.append(doc_id)
+
+        return _normalized_repo_ids(
+            repo_ids,
+            batch_limit,
             shard_index=shard_index,
             shard_count=shard_count,
         )
@@ -216,6 +238,9 @@ def list_repo_ids_for_chunking(
         if not _matches_batch_id(source, "file_extract_batch_id", batch_id):
             continue
         if source.get("chunk_status") == "chunked":
+            if needs_snapshot_cleanup_retry(source):
+                if isinstance(doc_id, str) and doc_id.strip():
+                    selected_repo_ids.append(doc_id)
             continue
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)
