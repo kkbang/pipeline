@@ -4,7 +4,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from worker.common.config import settings
@@ -131,6 +131,36 @@ FUNCTION_NODE_TYPES_BY_LANGUAGE = {
 
 _PARSER_CACHE: dict[str, Parser | None] = {}
 
+TEST_LIKE_DIRECTORIES = {
+    "test",
+    "tests",
+    "spec",
+    "specs",
+    "__tests__",
+    "__mocks__",
+}
+TEST_LIKE_FILE_SUFFIXES = (
+    ".test.js",
+    ".test.jsx",
+    ".test.ts",
+    ".test.tsx",
+    ".spec.js",
+    ".spec.jsx",
+    ".spec.ts",
+    ".spec.tsx",
+    "_test.py",
+    "_test.rb",
+    "_test.go",
+    "_test.rs",
+    "_test.java",
+    "_test.cpp",
+    "_test.cc",
+    "_test.cxx",
+    "_test.cs",
+    "_test.php",
+    "_test.sh",
+)
+
 
 @dataclass(slots=True)
 class RepoChunkStats:
@@ -149,6 +179,7 @@ class RepoChunkStats:
     parser_failed_files: int = 0
     skipped_missing_files: int = 0
     skipped_non_utf8_files: int = 0
+    skipped_test_files: int = 0
     deleted_previous_docs: int = 0
     execution_mode: str = "repo_sequential"
     file_parallelism: int = 1
@@ -173,6 +204,7 @@ class FileChunkOutcome:
     parser_failed: bool = False
     skipped_missing_file: bool = False
     skipped_non_utf8_file: bool = False
+    skipped_test_file: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +212,24 @@ class FunctionSpan:
     line_start: int
     line_end: int
     node_type: str
+
+
+def _is_test_like_file_path(relative_path: str) -> bool:
+    normalized_path = str(relative_path or "").strip().lower()
+    if not normalized_path:
+        return False
+
+    path = PurePosixPath(normalized_path)
+    if any(part in TEST_LIKE_DIRECTORIES for part in path.parts[:-1]):
+        return True
+
+    file_name = path.name
+    stem = path.stem
+    if file_name.startswith(("test.", "spec.")) or stem.startswith(("test_", "spec_")):
+        return True
+    if stem in {"test", "tests", "spec", "specs"}:
+        return True
+    return any(file_name.endswith(suffix) for suffix in TEST_LIKE_FILE_SUFFIXES)
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -281,6 +331,7 @@ def _claim_repo_docs_for_chunking(
             "chunk_parser_failed_files": None,
             "chunk_skipped_missing_files": None,
             "chunk_skipped_non_utf8_files": None,
+            "chunk_skipped_test_files": None,
             "chunk_deleted_previous_docs": None,
             "chunk_max_lines": None,
             "chunk_overlap_lines": None,
@@ -733,6 +784,7 @@ def _build_chunk_doc_source(
         "param_count": candidate.param_count,
         "identifier_tokens": candidate.identifier_tokens,
         "call_tokens": candidate.call_tokens,
+        "api_signatures": candidate.call_tokens,
         "operator_tokens": candidate.operator_tokens,
         "control_flow_tags": candidate.control_flow_tags,
         "structure_signature": candidate.structure_signature,
@@ -768,6 +820,9 @@ def _chunk_single_file(
     relative_path = str(file_source.get("file_path") or "").strip()
     outcome = FileChunkOutcome(relative_path=relative_path)
     if not relative_path:
+        return outcome
+    if _is_test_like_file_path(relative_path):
+        outcome.skipped_test_file = True
         return outcome
 
     absolute_path = snapshot_root / relative_path
@@ -858,6 +913,10 @@ def _apply_file_chunk_outcome(
     bulk_flush_docs: int,
     embedding_client,
 ) -> None:
+    if outcome.skipped_test_file:
+        stats.skipped_test_files += 1
+        return
+
     stats.code_files_seen += 1
     stats.total_lines_seen += outcome.total_lines_seen
     stats.chunk_docs_created += outcome.chunk_docs_created
@@ -1193,6 +1252,7 @@ def run_repo_code_chunking_for_repo(
             "chunk_parser_failed_files": stats.parser_failed_files,
             "chunk_skipped_missing_files": stats.skipped_missing_files,
             "chunk_skipped_non_utf8_files": stats.skipped_non_utf8_files,
+            "chunk_skipped_test_files": stats.skipped_test_files,
             "chunk_deleted_previous_docs": stats.deleted_previous_docs,
             "chunk_max_lines": max_lines,
             "chunk_overlap_lines": overlap_lines,
@@ -1234,6 +1294,7 @@ def run_repo_code_chunking_for_repo(
             "line_window_chunks_count": stats.line_window_chunks_created,
             "filtered_symbol_chunks_count": stats.filtered_symbol_chunks,
             "code_files_seen": stats.code_files_seen,
+            "skipped_test_files": stats.skipped_test_files,
             "chunk_execution_mode": stats.execution_mode,
             "error_message": chunk_error_message,
             "snapshot_cleanup_status": cleanup_status,
@@ -1401,6 +1462,7 @@ def run_repo_code_chunking() -> None:
                 "chunk_parser_failed_files": stats.parser_failed_files,
                 "chunk_skipped_missing_files": stats.skipped_missing_files,
                 "chunk_skipped_non_utf8_files": stats.skipped_non_utf8_files,
+                "chunk_skipped_test_files": stats.skipped_test_files,
                 "chunk_deleted_previous_docs": stats.deleted_previous_docs,
                 "chunk_max_lines": max_lines,
                 "chunk_overlap_lines": overlap_lines,

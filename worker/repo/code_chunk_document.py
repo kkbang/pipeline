@@ -1332,6 +1332,8 @@ def _anonymize_interpolated_string_segment(
     interpolation_pattern: re.Pattern[str] | None = None
     if language == "ruby":
         interpolation_pattern = re.compile(r"#\{([^{}]+)\}")
+    elif language == "python" and re.match(r"(?i)^[rubf]*f[rubf]*(['\"]{1,3})", segment):
+        interpolation_pattern = re.compile(r"\{([^{}]+)\}")
     elif language in {"javascript", "typescript"} and segment.startswith("`"):
         interpolation_pattern = re.compile(r"\$\{([^{}]+)\}")
 
@@ -1355,6 +1357,136 @@ def _anonymize_interpolated_string_segment(
     return "".join(parts)
 
 
+def _split_string_literal_segment(segment: str) -> tuple[str, str, str, str] | None:
+    if not segment:
+        return None
+
+    quote_index = 0
+    while quote_index < len(segment) and segment[quote_index] in STRING_PREFIX_CHARS:
+        quote_index += 1
+    if quote_index >= len(segment):
+        return None
+
+    quote_char = segment[quote_index]
+    if quote_char == "`":
+        if len(segment) < quote_index + 2:
+            return None
+        return segment[:quote_index], "`", segment[quote_index + 1 : -1], "`"
+
+    if quote_char not in {"'", '"'}:
+        return None
+
+    triple = segment[quote_index : quote_index + 3] == quote_char * 3
+    opener = quote_char * (3 if triple else 1)
+    opener_len = len(opener)
+    if len(segment) < quote_index + opener_len * 2:
+        return None
+    prefix = segment[:quote_index]
+    content_start = quote_index + opener_len
+    content_end = len(segment) - opener_len
+    return prefix, opener, segment[content_start:content_end], opener
+
+
+def _normalize_string_fragment(
+    fragment: str,
+    *,
+    string_replacements: dict[str, str],
+    next_string_index: list[int],
+) -> str:
+    replacement = string_replacements.get(fragment)
+    if replacement is not None:
+        return replacement
+
+    replacement = f"STR_{next_string_index[0]}"
+    next_string_index[0] += 1
+    string_replacements[fragment] = replacement
+    return replacement
+
+
+def _normalize_string_literal_segment(
+    *,
+    language: str,
+    segment: str,
+    absolute_start: int,
+    replace_token: Any,
+    string_replacements: dict[str, str],
+    next_string_index: list[int],
+) -> str:
+    parsed = _split_string_literal_segment(segment)
+    if parsed is None:
+        return segment
+
+    prefix, opener, content, closer = parsed
+    interpolation_pattern: re.Pattern[str] | None = None
+    if language == "ruby":
+        interpolation_pattern = re.compile(r"#\{([^{}]+)\}")
+    elif language == "python" and re.match(r"(?i)^[rubf]*f[rubf]*(['\"]{1,3})", segment):
+        interpolation_pattern = re.compile(r"\{([^{}]+)\}")
+    elif language in {"javascript", "typescript"} and opener == "`":
+        interpolation_pattern = re.compile(r"\$\{([^{}]+)\}")
+
+    if interpolation_pattern is None:
+        replacement = _normalize_string_fragment(
+            content,
+            string_replacements=string_replacements,
+            next_string_index=next_string_index,
+        )
+        return f"{prefix}{opener}{replacement}{closer}"
+
+    parts: list[str] = []
+    cursor = 0
+    inner_offset = len(prefix) + len(opener)
+    for match in interpolation_pattern.finditer(content):
+        literal_fragment = content[cursor : match.start()]
+        if literal_fragment:
+            parts.append(
+                _normalize_string_fragment(
+                    literal_fragment,
+                    string_replacements=string_replacements,
+                    next_string_index=next_string_index,
+                )
+            )
+        expression_start, expression_end = match.span(1)
+        parts.append(content[match.start() : expression_start])
+        parts.append(
+            _replace_identifiers_in_segment(
+                content[expression_start:expression_end],
+                absolute_start=absolute_start + inner_offset + expression_start,
+                replace_token=replace_token,
+            )
+        )
+        parts.append(content[expression_end : match.end()])
+        cursor = match.end()
+
+    trailing_fragment = content[cursor:]
+    if trailing_fragment:
+        parts.append(
+            _normalize_string_fragment(
+                trailing_fragment,
+                string_replacements=string_replacements,
+                next_string_index=next_string_index,
+            )
+        )
+    return f"{prefix}{opener}{''.join(parts)}{closer}"
+
+
+def _anonymize_class_code(normalized_code: str, symbol_name: str) -> str:
+    if not symbol_name:
+        return normalized_code
+
+    replacement_done = False
+
+    def replace_first(match: re.Match[str]) -> str:
+        nonlocal replacement_done
+        token = match.group(0)
+        if replacement_done or token != symbol_name:
+            return token
+        replacement_done = True
+        return "CLASS_0"
+
+    return IDENTIFIER_RE.sub(replace_first, normalized_code)
+
+
 def _anonymize_code(
     *,
     language: str,
@@ -1367,6 +1499,9 @@ def _anonymize_code(
     local_function_symbols: set[str],
     local_class_symbols: set[str],
 ) -> str:
+    if chunk_type == "class":
+        return _anonymize_class_code(normalized_code, symbol_name)
+
     preserve_exact: set[str] = set(COMMON_RESERVED_WORDS)
     preserve_exact.update(_preserved_symbols_for_language(language))
     preserve_exact.update(imported_symbols)
@@ -1383,6 +1518,8 @@ def _anonymize_code(
     preserve_lowered = {token.lower() for token in preserve_exact}
 
     replacements: dict[str, str] = {}
+    string_replacements: dict[str, str] = {}
+    next_string_index = [0]
     next_var_index = 0
     next_function_index = 1
     next_class_index = 1
@@ -1435,11 +1572,13 @@ def _anonymize_code(
                 )
             )
         parts.append(
-            _anonymize_interpolated_string_segment(
+            _normalize_string_literal_segment(
                 language=language,
                 segment=normalized_code[start:end],
                 absolute_start=start,
                 replace_token=replace_token,
+                string_replacements=string_replacements,
+                next_string_index=next_string_index,
             )
         )
         cursor = end

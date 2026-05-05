@@ -30,6 +30,7 @@
       "param_count": { "type": "integer" },
       "identifier_tokens": { "type": "keyword" },
       "call_tokens": { "type": "keyword" },
+      "api_signatures": { "type": "keyword" },
       "operator_tokens": { "type": "keyword" },
       "control_flow_tags": { "type": "keyword" },
       "structure_signature": { "type": "keyword" },
