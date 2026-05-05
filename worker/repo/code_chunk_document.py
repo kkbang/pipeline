@@ -13,9 +13,38 @@ except ImportError:  # pragma: no cover - optional dependency fallback
     Node = Any
     Tree = Any
 
+try:
+    from tree_sitter_languages import get_parser
+except ImportError:  # pragma: no cover - optional dependency fallback
+    get_parser = None
+
 
 CODE_CHUNK_INDEX_TEMPLATE_NAME = "code_chunk_index"
 CODE_CHUNK_INDEX_ALIAS = settings.code_chunk_index_alias
+VALID_CHUNK_VALIDATION_STATUSES = (
+    "valid",
+    "fallback_conservative",
+    "fallback_normalized",
+)
+
+LANGUAGE_TO_PARSER_KEY = {
+    "python": "python",
+    "javascript": "javascript",
+    "typescript": "typescript",
+    "java": "java",
+    "go": "go",
+    "rust": "rust",
+    "c": "c",
+    "cpp": "cpp",
+    "csharp": "c_sharp",
+    "php": "php",
+    "ruby": "ruby",
+    "swift": "swift",
+    "kotlin": "kotlin",
+    "scala": "scala",
+    "shell": "bash",
+    "sql": "sql",
+}
 
 FUNCTION_NODE_TYPES_BY_LANGUAGE = {
     "python": {"function_definition", "decorated_definition"},
@@ -74,6 +103,8 @@ IDENTIFIER_NODE_TYPES = {
     "name",
     "constant",
     "namespace_identifier",
+    "shorthand_property_identifier",
+    "shorthand_property_identifier_pattern",
 }
 
 SYMBOL_NAME_NODE_TYPES = (
@@ -103,6 +134,7 @@ PARAMETER_BINDING_CONTAINER_TYPES = {
 
 LOCAL_BINDING_FIELD_NAMES = (
     "name",
+    "declarator",
     "left",
     "pattern",
     "alias",
@@ -184,6 +216,7 @@ COMMENT_MARKERS = (
 
 COMMON_RESERVED_WORDS = {
     *keyword.kwlist,
+    "_",
     "true",
     "false",
     "null",
@@ -557,6 +590,12 @@ class AnonymizationContext:
     local_variable_symbols: set[str]
     local_function_symbols: set[str]
     local_class_symbols: set[str]
+
+
+@dataclass(frozen=True, slots=True)
+class AnonymizationResult:
+    code: str
+    replacements: dict[str, str]
 
 
 def build_code_chunk_id(
@@ -1371,13 +1410,23 @@ def _next_non_whitespace_index(text: str, index: int) -> int:
 
 
 def _has_member_or_namespace_prefix(text: str, start: int) -> bool:
-    if start >= 3 and text[start - 3 : start] == "...":
+    previous_index = _previous_non_whitespace_index(text, start)
+    if previous_index < 0:
         return False
-    if start >= 2:
-        two_char_prefix = text[start - 2 : start]
-        if two_char_prefix in {"::", "->"}:
-            return True
-    return _previous_non_whitespace_char(text, start) in {".", "\\"}
+
+    previous_char = text[previous_index]
+    earlier_index = _previous_non_whitespace_index(text, previous_index)
+    earlier_char = text[earlier_index] if earlier_index >= 0 else ""
+
+    if previous_char == ".":
+        if earlier_char == ".":
+            return False
+        return True
+    if previous_char == ":" and earlier_char == ":":
+        return True
+    if previous_char == ">" and earlier_char == "-":
+        return True
+    return previous_char == "\\"
 
 
 def _is_object_key_or_shorthand_context(text: str, start: int, end: int) -> bool:
@@ -1389,15 +1438,88 @@ def _is_object_key_or_shorthand_context(text: str, start: int, end: int) -> bool
     return previous_char in "{," and next_char == ":"
 
 
-def _is_named_value_key_context(text: str, start: int, end: int) -> bool:
+def _find_enclosing_delimiter_index(text: str, index: int, *, opener: str, closer: str) -> int:
+    depth = 0
+    cursor = index - 1
+    while cursor >= 0:
+        char = text[cursor]
+        if char == closer:
+            depth += 1
+        elif char == opener:
+            if depth == 0:
+                return cursor
+            depth -= 1
+        cursor -= 1
+    return -1
+
+
+def _is_probable_python_call_context(text: str, open_index: int) -> bool:
+    prefix = text[:open_index]
+    if re.search(r"\b(def|class)\s+[A-Za-z_][A-Za-z0-9_]*\s*$", prefix):
+        return False
+
+    previous_index = _previous_non_whitespace_index(text, open_index)
+    if previous_index < 0:
+        return False
+
+    previous_char = text[previous_index]
+    if previous_char in {")", "]", "}", "."}:
+        return True
+    return previous_char.isalnum() or previous_char == "_"
+
+
+def _is_python_keyword_argument_context(text: str, start: int, end: int) -> bool:
     previous_index = _previous_non_whitespace_index(text, start)
     previous_char = text[previous_index] if previous_index >= 0 else ""
     next_index = _next_non_whitespace_index(text, end)
-    if next_index < 0 or previous_char not in "{(,":
+    if next_index < 0 or previous_char not in {"(", ","}:
         return False
     if text[next_index : next_index + 2] in {"==", "=>"}:
         return False
-    return text[next_index] == "="
+    if text[next_index] != "=":
+        return False
+
+    open_index = _find_enclosing_delimiter_index(text, start, opener="(", closer=")")
+    if open_index < 0:
+        return False
+    return _is_probable_python_call_context(text, open_index)
+
+
+def _is_csharp_initializer_key_context(text: str, start: int, end: int) -> bool:
+    previous_index = _previous_non_whitespace_index(text, start)
+    previous_char = text[previous_index] if previous_index >= 0 else ""
+    next_index = _next_non_whitespace_index(text, end)
+    if next_index < 0 or previous_char not in {"{", ","}:
+        return False
+    if text[next_index : next_index + 2] in {"==", "=>"}:
+        return False
+    if text[next_index] != "=":
+        return False
+
+    open_index = _find_enclosing_delimiter_index(text, start, opener="{", closer="}")
+    if open_index < 0:
+        return False
+
+    window_start = max(0, open_index - 120)
+    return bool(re.search(r"\bnew\b", text[window_start:open_index]))
+
+
+def _is_named_assignment_key_context(language: str, text: str, start: int, end: int) -> bool:
+    if language == "python":
+        return _is_python_keyword_argument_context(text, start, end)
+    if language == "csharp":
+        return _is_csharp_initializer_key_context(text, start, end)
+    return False
+
+
+def _should_preserve_identifier_context(language: str, text: str, start: int, end: int) -> bool:
+    if _has_member_or_namespace_prefix(text, start):
+        return True
+    if _is_named_assignment_key_context(language, text, start, end):
+        return True
+    if language in {"javascript", "typescript"} and _is_object_key_or_shorthand_context(text, start, end):
+        return True
+    return False
 
 
 def _replace_identifiers_in_segment(
@@ -1757,9 +1879,11 @@ def _anonymize_code(
     local_variable_symbols: set[str],
     local_function_symbols: set[str],
     local_class_symbols: set[str],
-) -> str:
+) -> AnonymizationResult:
     if chunk_type == "class":
-        return _anonymize_class_code(normalized_code, symbol_name)
+        anonymized_code = _anonymize_class_code(normalized_code, symbol_name)
+        replacements = {symbol_name: "CLASS_0"} if symbol_name and anonymized_code != normalized_code else {}
+        return AnonymizationResult(code=anonymized_code, replacements=replacements)
 
     preserve_exact: set[str] = set(COMMON_RESERVED_WORDS)
     preserve_exact.update(_preserved_symbols_for_language(language))
@@ -1787,13 +1911,7 @@ def _anonymize_code(
     def replace_token(token: str, start: int, end: int) -> str:
         nonlocal next_var_index, next_function_index, next_class_index
         lowered = token.lower()
-        if _has_member_or_namespace_prefix(normalized_code, start):
-            return token
-        if _is_named_value_key_context(normalized_code, start, end):
-            return token
-        if language in {"javascript", "typescript"} and _is_object_key_or_shorthand_context(
-            normalized_code, start, end
-        ):
+        if _should_preserve_identifier_context(language, normalized_code, start, end):
             return token
         if token == symbol_name and symbol_name:
             return symbol_alias
@@ -1851,7 +1969,47 @@ def _anonymize_code(
                 replace_token=replace_token,
             )
         )
-    return "".join(parts)
+    return AnonymizationResult(code="".join(parts), replacements=dict(replacements))
+
+
+def _has_unreplaced_local_occurrence(
+    *,
+    language: str,
+    code: str,
+    replacements: dict[str, str],
+) -> bool:
+    if not replacements:
+        return False
+
+    replaced_tokens = set(replacements.keys())
+    cursor = 0
+    for start, end in _iter_string_ranges(code, language=language):
+        if start > cursor:
+            segment = code[cursor:start]
+            for match in IDENTIFIER_RE.finditer(segment):
+                token = match.group(0)
+                if token not in replaced_tokens:
+                    continue
+                absolute_start = cursor + match.start()
+                absolute_end = cursor + match.end()
+                if _should_preserve_identifier_context(language, code, absolute_start, absolute_end):
+                    continue
+                return True
+        cursor = end
+
+    if cursor < len(code):
+        segment = code[cursor:]
+        for match in IDENTIFIER_RE.finditer(segment):
+            token = match.group(0)
+            if token not in replaced_tokens:
+                continue
+            absolute_start = cursor + match.start()
+            absolute_end = cursor + match.end()
+            if _should_preserve_identifier_context(language, code, absolute_start, absolute_end):
+                continue
+            return True
+
+    return False
 
 
 def collect_symbol_spans(content_bytes: bytes, language: str, tree: Tree) -> list[SymbolSpan]:
@@ -2071,7 +2229,7 @@ def build_code_chunk_candidates(
         ):
             filtered_count += 1
             continue
-        anonymized_code = _anonymize_code(
+        anonymization_result = _anonymize_code(
             language=language,
             normalized_code=normalized_code,
             symbol_name=span.symbol_name,
@@ -2083,10 +2241,42 @@ def build_code_chunk_candidates(
             local_class_symbols=anonymization_context.local_class_symbols,
         )
         anonymized_code = _canonicalize_named_arrow_function_code(
-            anonymized_code,
+            anonymization_result.code,
             node_type=span.node_type,
             symbol_name=span.symbol_name,
         )
+        validation_status = "valid"
+        if _has_unreplaced_local_occurrence(
+            language=language,
+            code=anonymized_code,
+            replacements=anonymization_result.replacements,
+        ):
+            conservative_result = _anonymize_code(
+                language=language,
+                normalized_code=normalized_code,
+                symbol_name=span.symbol_name,
+                chunk_type=span.chunk_type,
+                call_tokens=call_tokens,
+                imported_symbols=anonymization_context.imported_symbols,
+                local_variable_symbols=set(),
+                local_function_symbols=set(),
+                local_class_symbols=set(),
+            )
+            conservative_code = _canonicalize_named_arrow_function_code(
+                conservative_result.code,
+                node_type=span.node_type,
+                symbol_name=span.symbol_name,
+            )
+            if _has_unreplaced_local_occurrence(
+                language=language,
+                code=conservative_code,
+                replacements=conservative_result.replacements,
+            ):
+                anonymized_code = normalized_code
+                validation_status = "fallback_normalized"
+            else:
+                anonymized_code = conservative_code
+                validation_status = "fallback_conservative"
 
         candidates.append(
             CodeChunkCandidate(
@@ -2109,7 +2299,7 @@ def build_code_chunk_candidates(
                 raw_hash=hashlib.sha1(raw_code.encode("utf-8")).hexdigest(),
                 normalized_hash=hashlib.sha1(normalized_code.encode("utf-8")).hexdigest(),
                 anonymized_hash=hashlib.sha1(anonymized_code.encode("utf-8")).hexdigest(),
-                validation_status="valid",
+                validation_status=validation_status,
             )
         )
 

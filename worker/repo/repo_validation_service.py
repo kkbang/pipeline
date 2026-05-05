@@ -2,7 +2,10 @@ import logging
 from datetime import datetime, timezone
 
 from worker.common.config import settings
-from worker.repo.code_chunk_document import CODE_CHUNK_INDEX_ALIAS
+from worker.repo.code_chunk_document import (
+    CODE_CHUNK_INDEX_ALIAS,
+    VALID_CHUNK_VALIDATION_STATUSES,
+)
 from worker.repo.repo_pipeline_manifest_service import (
     VALIDATION_COMPLETED_STAGE,
     write_stage_manifest,
@@ -187,7 +190,7 @@ def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) ->
         collection_name=CODE_CHUNK_INDEX,
         query=_repo_chunk_query(
             repo_id,
-            extra_must=[{"term": {"validation_status": "valid"}}],
+            extra_must=[{"terms": {"validation_status": list(VALID_CHUNK_VALIDATION_STATUSES)}}],
         ),
     )
     function_chunk_docs_count = store.count_documents(
