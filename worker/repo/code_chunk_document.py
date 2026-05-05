@@ -125,6 +125,7 @@ LOCAL_VARIABLE_NODE_TYPE_MARKERS = (
     "for",
     "catch",
     "except",
+    "spec",
     "with",
 )
 
@@ -487,6 +488,7 @@ NAMED_ARROW_PARENT_TYPES = {
     "variable_declaration",
     "variable_declarator",
 }
+SHELL_VARIABLE_EXPANSION_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -777,12 +779,12 @@ def _collect_binding_identifier_texts(content_bytes: bytes, node: Node) -> list[
             continue
         current_type = str(current.type or "")
         lowered_type = current_type.lower()
+        if "type" in lowered_type:
+            continue
         if current_type in IDENTIFIER_NODE_TYPES:
             token = _decode_node_text(content_bytes, current).strip()
             if token:
                 tokens.append(token)
-            continue
-        if "type" in lowered_type:
             continue
         stack.extend(reversed(list(current.children)))
     return tokens
@@ -1010,14 +1012,20 @@ def _extract_call_token_from_node(content_bytes: bytes, node: Node, *, language:
         shell_token = _extract_shell_command_name(content_bytes, node)
         if shell_token:
             return shell_token
+    raw_token = _normalize_call_target_text(raw_text)
+    if raw_token and (
+        "." in raw_token or "::" in raw_token or "->" in raw_token or raw_text.lstrip().startswith("new ")
+    ):
+        return raw_token
 
     callee = _find_child_by_field_names(node, CALL_FIELD_NAMES)
     if callee is None:
         named_children = [child for child in node.children if child.is_named]
         if not named_children:
-            return _normalize_call_target_text(raw_text)
+            return raw_token
         callee = named_children[0]
-    return _normalize_call_target_text(_decode_node_text(content_bytes, callee))
+    callee_token = _normalize_call_target_text(_decode_node_text(content_bytes, callee))
+    return callee_token or raw_token
 
 
 def _collect_call_tokens(content_bytes: bytes, node: Node, *, language: str, cap: int) -> list[str]:
@@ -1289,6 +1297,8 @@ def _next_non_whitespace_char(text: str, index: int) -> str:
 
 
 def _has_member_or_namespace_prefix(text: str, start: int) -> bool:
+    if start >= 3 and text[start - 3 : start] == "...":
+        return False
     if start >= 2:
         two_char_prefix = text[start - 2 : start]
         if two_char_prefix in {"::", "->"}:
@@ -1417,6 +1427,56 @@ def _normalize_string_literal_segment(
         return segment
 
     prefix, opener, content, closer = parsed
+    if language == "shell" and "$" in content:
+        parts: list[str] = []
+        cursor = 0
+        inner_offset = len(prefix) + len(opener)
+        for match in SHELL_VARIABLE_EXPANSION_RE.finditer(content):
+            literal_fragment = content[cursor : match.start()]
+            if literal_fragment:
+                parts.append(
+                    _normalize_string_fragment(
+                        literal_fragment,
+                        string_replacements=string_replacements,
+                        next_string_index=next_string_index,
+                    )
+                )
+
+            if match.group(1) is not None:
+                token_start, token_end = match.span(1)
+                parts.append("${")
+                parts.append(
+                    _replace_identifiers_in_segment(
+                        match.group(1),
+                        absolute_start=absolute_start + inner_offset + token_start,
+                        replace_token=replace_token,
+                    )
+                )
+                parts.append("}")
+            else:
+                token_start, token_end = match.span(2)
+                parts.append("$")
+                parts.append(
+                    _replace_identifiers_in_segment(
+                        match.group(2),
+                        absolute_start=absolute_start + inner_offset + token_start,
+                        replace_token=replace_token,
+                    )
+                )
+            cursor = match.end()
+
+        if parts:
+            trailing_fragment = content[cursor:]
+            if trailing_fragment:
+                parts.append(
+                    _normalize_string_fragment(
+                        trailing_fragment,
+                        string_replacements=string_replacements,
+                        next_string_index=next_string_index,
+                    )
+                )
+            return f"{prefix}{opener}{''.join(parts)}{closer}"
+
     interpolation_pattern: re.Pattern[str] | None = None
     if language == "ruby":
         interpolation_pattern = re.compile(r"#\{([^{}]+)\}")
@@ -1485,6 +1545,120 @@ def _anonymize_class_code(normalized_code: str, symbol_name: str) -> str:
         return "CLASS_0"
 
     return IDENTIFIER_RE.sub(replace_first, normalized_code)
+
+
+def _split_top_level_csv(text: str) -> list[str]:
+    if not text.strip():
+        return []
+
+    parts: list[str] = []
+    current: list[str] = []
+    depths = {"(": 0, "[": 0, "{": 0, "<": 0}
+    openers = tuple(depths.keys())
+    closing_to_opening = {
+        ")": "(",
+        "]": "[",
+        "}": "{",
+        ">": "<",
+    }
+    string_delimiter = ""
+    escape = False
+
+    for char in text:
+        if string_delimiter:
+            current.append(char)
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == string_delimiter:
+                string_delimiter = ""
+            continue
+
+        if char in {"'", '"', "`"}:
+            string_delimiter = char
+            current.append(char)
+            continue
+
+        if char in openers:
+            depths[char] += 1
+            current.append(char)
+            continue
+
+        if char in closing_to_opening:
+            opening = closing_to_opening[char]
+            if depths[opening] > 0:
+                depths[opening] -= 1
+            current.append(char)
+            continue
+
+        if char == "," and not any(depths.values()):
+            part = "".join(current).strip()
+            if part:
+                parts.append(part)
+            current = []
+            continue
+
+        current.append(char)
+
+    trailing = "".join(current).strip()
+    if trailing:
+        parts.append(trailing)
+    return parts
+
+
+def _extract_js_ts_header_parameter_names(normalized_code: str) -> set[str]:
+    if not normalized_code.strip():
+        return set()
+
+    header_lines = normalized_code.splitlines()[:4]
+    header_text = " ".join(line.strip() for line in header_lines if line.strip())
+    if not header_text:
+        return set()
+
+    header_end = len(header_text)
+    arrow_index = header_text.find("=>")
+    brace_index = header_text.find("{")
+    if arrow_index >= 0:
+        header_end = min(header_end, arrow_index)
+    if brace_index >= 0:
+        header_end = min(header_end, brace_index)
+    header_text = header_text[:header_end]
+
+    open_index = header_text.find("(")
+    close_index = header_text.rfind(")")
+    if open_index < 0 or close_index <= open_index:
+        return set()
+
+    parameter_names: set[str] = set()
+    parameter_text = header_text[open_index + 1 : close_index]
+    for part in _split_top_level_csv(parameter_text):
+        cleaned = re.sub(r"^\.\.\.", "", part.strip())
+        cleaned = cleaned.split("=", 1)[0].strip()
+        cleaned = cleaned.split(":", 1)[0].strip()
+        if re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*", cleaned):
+            parameter_names.add(cleaned)
+    return parameter_names
+
+
+def _canonicalize_named_arrow_function_code(anonymized_code: str, *, node_type: str, symbol_name: str) -> str:
+    if node_type != "arrow_function" or not symbol_name or not anonymized_code.strip():
+        return anonymized_code
+
+    stripped = anonymized_code.lstrip()
+    if stripped.startswith(("const FUNC_0 =", "let FUNC_0 =", "var FUNC_0 =")):
+        return anonymized_code
+    if not (
+        stripped.startswith("(")
+        or stripped.startswith("async ")
+        or re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*\s*=>", stripped)
+    ):
+        return anonymized_code
+
+    leading = anonymized_code[: len(anonymized_code) - len(stripped)]
+    return f"{leading}const FUNC_0 = {stripped}"
 
 
 def _anonymize_code(
@@ -1784,6 +1958,14 @@ def build_code_chunk_candidates(
         ast_node_sequence = _collect_ast_node_sequence(node, cap=max(1, ast_node_sequence_cap))
         structure_signature = _build_structure_signature(span.chunk_type, ast_node_sequence)
         anonymization_context = _build_anonymization_context(content_bytes, node, language)
+        if language in {"javascript", "typescript"} and span.chunk_type == "function":
+            anonymization_context = AnonymizationContext(
+                imported_symbols=anonymization_context.imported_symbols,
+                local_variable_symbols=anonymization_context.local_variable_symbols
+                | _extract_js_ts_header_parameter_names(normalized_code),
+                local_function_symbols=anonymization_context.local_function_symbols,
+                local_class_symbols=anonymization_context.local_class_symbols,
+            )
         control_flow_tags = _collect_control_flow_tags(
             ast_node_sequence=ast_node_sequence,
             symbol_name=span.symbol_name,
@@ -1812,6 +1994,11 @@ def build_code_chunk_candidates(
             local_variable_symbols=anonymization_context.local_variable_symbols,
             local_function_symbols=anonymization_context.local_function_symbols,
             local_class_symbols=anonymization_context.local_class_symbols,
+        )
+        anonymized_code = _canonicalize_named_arrow_function_code(
+            anonymized_code,
+            node_type=span.node_type,
+            symbol_name=span.symbol_name,
         )
 
         candidates.append(
