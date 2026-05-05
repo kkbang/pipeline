@@ -807,6 +807,22 @@ def _find_child_by_field_names(node: Node, field_names: tuple[str, ...]) -> Node
     return None
 
 
+def _iter_named_children_with_field_names(node: Node) -> list[tuple[Node, str | None]]:
+    field_name_for_child = getattr(node, "field_name_for_child", None)
+    named_children: list[tuple[Node, str | None]] = []
+    for index, child in enumerate(node.children):
+        if not child.is_named:
+            continue
+        field_name = None
+        if callable(field_name_for_child):
+            try:
+                field_name = field_name_for_child(index)
+            except Exception:  # noqa: BLE001 - best effort only
+                field_name = None
+        named_children.append((child, field_name))
+    return named_children
+
+
 def _find_parameter_container(node: Node) -> Node | None:
     for child in node.children:
         if not child.is_named:
@@ -861,7 +877,37 @@ def _collect_binding_identifier_texts(content_bytes: bytes, node: Node) -> list[
             if token:
                 tokens.append(token)
             continue
-        stack.extend(reversed(list(current.children)))
+
+        explicit_binding_children: list[Node] = []
+        if "pair" in lowered_type:
+            pair_value_child = _find_child_by_field_names(current, ("pattern", "value", "name"))
+            if pair_value_child is not None:
+                explicit_binding_children.append(pair_value_child)
+        if not explicit_binding_children:
+            for field_name in LOCAL_BINDING_FIELD_NAMES:
+                child = _find_child_by_field_names(current, (field_name,))
+                if child is not None:
+                    explicit_binding_children.append(child)
+        if explicit_binding_children:
+            seen_ranges: set[tuple[int, int]] = set()
+            for child in reversed(explicit_binding_children):
+                child_range = (int(child.start_byte), int(child.end_byte))
+                if child_range in seen_ranges:
+                    continue
+                seen_ranges.add(child_range)
+                stack.append(child)
+            continue
+
+        for child, field_name in reversed(_iter_named_children_with_field_names(current)):
+            child_type = str(child.type or "")
+            child_lowered_type = child_type.lower()
+            if "type" in child_lowered_type:
+                continue
+            if field_name in {"type", "value", "right", "body", "condition", "argument", "arguments"}:
+                continue
+            if field_name in {"key", "property"} and "pair" in lowered_type:
+                continue
+            stack.append(child)
     return tokens
 
 
@@ -881,6 +927,37 @@ def _is_plain_binding_target(node: Node) -> bool:
     return True
 
 
+def _collect_binding_target_nodes(node: Node) -> list[Node]:
+    current_type = str(node.type or "")
+    lowered_type = current_type.lower()
+    targets: list[Node] = []
+
+    if "declaration" in lowered_type or current_type in {"with_item"} or "spec" in lowered_type:
+        for child, field_name in _iter_named_children_with_field_names(node):
+            child_type = str(child.type or "")
+            child_lowered_type = child_type.lower()
+            if field_name in LOCAL_BINDING_FIELD_NAMES:
+                targets.append(child)
+                continue
+            if "declarator" in child_lowered_type and "abstract" not in child_lowered_type:
+                targets.append(child)
+
+    if not targets:
+        binding_child = _find_child_by_field_names(node, LOCAL_BINDING_FIELD_NAMES)
+        if binding_child is not None:
+            targets.append(binding_child)
+
+    deduped_targets: list[Node] = []
+    seen_ranges: set[tuple[int, int]] = set()
+    for target in targets:
+        target_range = (int(target.start_byte), int(target.end_byte))
+        if target_range in seen_ranges:
+            continue
+        seen_ranges.add(target_range)
+        deduped_targets.append(target)
+    return deduped_targets
+
+
 def _collect_local_binding_symbols(content_bytes: bytes, node: Node, language: str) -> set[str]:
     local_symbols: set[str] = set()
     allow_assignment_bindings = _allows_assignment_bindings(language)
@@ -894,18 +971,21 @@ def _collect_local_binding_symbols(content_bytes: bytes, node: Node, language: s
             stack.extend(reversed(list(current.children)))
             continue
 
-        binding_child = _find_child_by_field_names(current, LOCAL_BINDING_FIELD_NAMES)
+        binding_targets = _collect_binding_target_nodes(current)
         lowered_type = current_type.lower()
-        if binding_child is not None and (
+        if binding_targets and (
             _is_local_variable_like_node(current_type) or "parameter" in lowered_type
         ):
             if _is_assignment_expression_like(current_type):
-                if not allow_assignment_bindings or not _is_plain_binding_target(binding_child):
+                if not allow_assignment_bindings or any(
+                    not _is_plain_binding_target(binding_target) for binding_target in binding_targets
+                ):
                     stack.extend(reversed(list(current.children)))
                     continue
-            local_symbols.update(_ordered_unique_set(_collect_binding_identifier_texts(content_bytes, binding_child)))
-        elif binding_child is None and ("spec" in lowered_type or current_type in {"with_item"}):
-            local_symbols.update(_ordered_unique_set(_collect_binding_identifier_texts(content_bytes, current)))
+            for binding_target in binding_targets:
+                local_symbols.update(
+                    _ordered_unique_set(_collect_binding_identifier_texts(content_bytes, binding_target))
+                )
 
         parameter_child = _find_parameter_container(current)
         if parameter_child is not None:
@@ -1898,7 +1978,7 @@ def _anonymize_code(
         if parts[0] not in local_symbols:
             preserve_exact.add(parts[0])
         preserve_exact.update(parts[1:])
-    preserve_lowered = {token.lower() for token in preserve_exact}
+    preserve_lowered = {token.lower() for token in preserve_exact} if language == "sql" else set()
 
     replacements: dict[str, str] = {}
     string_replacements: dict[str, str] = {}
