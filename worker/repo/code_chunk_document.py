@@ -489,6 +489,29 @@ NAMED_ARROW_PARENT_TYPES = {
     "variable_declarator",
 }
 SHELL_VARIABLE_EXPANSION_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+SINGLE_QUOTED_STRING_LANGUAGES = {
+    "javascript",
+    "typescript",
+    "php",
+    "python",
+    "ruby",
+    "shell",
+    "sql",
+}
+NON_BINDING_TARGET_NODE_MARKERS = (
+    "access",
+    "array",
+    "attribute",
+    "call",
+    "element",
+    "field_expression",
+    "field_identifier",
+    "index",
+    "member",
+    "scope_resolution",
+    "selector",
+    "subscript",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -644,6 +667,12 @@ def _extract_symbol_name(content_bytes: bytes, node: Node) -> str:
         if decorated_target is not None:
             return _extract_symbol_name(content_bytes, decorated_target)
 
+    declarator_child = _find_child_by_field_names(node, ("declarator",))
+    if declarator_child is not None:
+        declarator_name = _extract_symbol_name(content_bytes, declarator_child)
+        if declarator_name:
+            return declarator_name
+
     direct_name_child = _find_child_by_field_names(node, ("name",))
     if direct_name_child is not None:
         direct_name = _decode_node_text(content_bytes, direct_name_child).strip()
@@ -654,7 +683,14 @@ def _extract_symbol_name(content_bytes: bytes, node: Node) -> str:
         if not child.is_named:
             continue
         child_type = str(child.type or "")
-        if child_type in PARAMETER_CONTAINER_TYPES or "body" in child_type or "block" in child_type:
+        lowered_child_type = child_type.lower()
+        if (
+            child_type in PARAMETER_CONTAINER_TYPES
+            or "body" in child_type
+            or "block" in child_type
+            or "type" in lowered_child_type
+            or child_type in {"storage_class_specifier", "visibility_modifier", "modifiers"}
+        ):
             continue
         if child_type in SYMBOL_NAME_NODE_TYPES:
             value = _decode_node_text(content_bytes, child).strip()
@@ -790,8 +826,25 @@ def _collect_binding_identifier_texts(content_bytes: bytes, node: Node) -> list[
     return tokens
 
 
-def _collect_local_binding_symbols(content_bytes: bytes, node: Node) -> set[str]:
+def _allows_assignment_bindings(language: str) -> bool:
+    return language in {"php", "python", "ruby", "shell"}
+
+
+def _is_assignment_expression_like(node_type: str) -> bool:
+    lowered = node_type.lower()
+    return "assignment" in lowered and "declaration" not in lowered and "declarator" not in lowered
+
+
+def _is_plain_binding_target(node: Node) -> bool:
+    node_type = str(node.type or "").lower()
+    if any(marker in node_type for marker in NON_BINDING_TARGET_NODE_MARKERS):
+        return False
+    return True
+
+
+def _collect_local_binding_symbols(content_bytes: bytes, node: Node, language: str) -> set[str]:
     local_symbols: set[str] = set()
+    allow_assignment_bindings = _allows_assignment_bindings(language)
     stack = [node]
     while stack:
         current = stack.pop()
@@ -807,9 +860,13 @@ def _collect_local_binding_symbols(content_bytes: bytes, node: Node) -> set[str]
         if binding_child is not None and (
             _is_local_variable_like_node(current_type) or "parameter" in lowered_type
         ):
-            local_symbols.update(
-                _ordered_unique_set(_collect_binding_identifier_texts(content_bytes, binding_child))
-            )
+            if _is_assignment_expression_like(current_type):
+                if not allow_assignment_bindings or not _is_plain_binding_target(binding_child):
+                    stack.extend(reversed(list(current.children)))
+                    continue
+            local_symbols.update(_ordered_unique_set(_collect_binding_identifier_texts(content_bytes, binding_child)))
+        elif binding_child is None and ("spec" in lowered_type or current_type in {"with_item"}):
+            local_symbols.update(_ordered_unique_set(_collect_binding_identifier_texts(content_bytes, current)))
 
         parameter_child = _find_parameter_container(current)
         if parameter_child is not None:
@@ -831,6 +888,14 @@ def _collect_nested_symbol_names(content_bytes: bytes, node: Node, language: str
             continue
         chunk_type = _node_matches_chunk_type(language, current)
         if chunk_type is not None and not _should_skip_decorated_python_node(language, current):
+            if (
+                language in {"javascript", "typescript"}
+                and chunk_type == "function"
+                and str(current.type or "") == "arrow_function"
+                and _is_inline_callback_arrow_function(current)
+            ):
+                stack.extend(reversed(list(current.children)))
+                continue
             symbol_name = _extract_symbol_name(content_bytes, current).strip()
             if symbol_name:
                 if chunk_type == "function":
@@ -843,7 +908,7 @@ def _collect_nested_symbol_names(content_bytes: bytes, node: Node, language: str
 
 def _build_anonymization_context(content_bytes: bytes, node: Node, language: str) -> AnonymizationContext:
     imported_symbols = _collect_imported_symbols(content_bytes, node)
-    local_variable_symbols = _collect_local_binding_symbols(content_bytes, node)
+    local_variable_symbols = _collect_local_binding_symbols(content_bytes, node, language)
     local_function_symbols, local_class_symbols = _collect_nested_symbol_names(content_bytes, node, language)
     local_variable_symbols -= imported_symbols
     local_function_symbols -= imported_symbols
@@ -1191,14 +1256,15 @@ def _looks_like_external_pascal_symbol(token: str, *, local_symbols: set[str]) -
     return any(char.islower() for char in token[1:])
 
 
-def _iter_string_ranges(code: str) -> list[tuple[int, int]]:
+def _iter_string_ranges(code: str, *, language: str) -> list[tuple[int, int]]:
     ranges: list[tuple[int, int]] = []
     index = 0
     code_length = len(code)
+    allow_single_quote = language in SINGLE_QUOTED_STRING_LANGUAGES
 
     while index < code_length:
         current = code[index]
-        if current not in {"'", '"', "`"}:
+        if current not in {'"', "`"} and not (current == "'" and allow_single_quote):
             index += 1
             continue
 
@@ -1296,6 +1362,14 @@ def _next_non_whitespace_char(text: str, index: int) -> str:
     return text[cursor] if cursor < text_length else ""
 
 
+def _next_non_whitespace_index(text: str, index: int) -> int:
+    cursor = index
+    text_length = len(text)
+    while cursor < text_length and text[cursor].isspace():
+        cursor += 1
+    return cursor if cursor < text_length else -1
+
+
 def _has_member_or_namespace_prefix(text: str, start: int) -> bool:
     if start >= 3 and text[start - 3 : start] == "...":
         return False
@@ -1312,7 +1386,18 @@ def _is_object_key_or_shorthand_context(text: str, start: int, end: int) -> bool
     next_char = _next_non_whitespace_char(text, end)
     if previous_char == "{" and previous_index > 0 and text[previous_index - 1] in {"#", "$"}:
         return False
-    return previous_char in "{," and next_char in {":", ",", "}"}
+    return previous_char in "{," and next_char == ":"
+
+
+def _is_named_value_key_context(text: str, start: int, end: int) -> bool:
+    previous_index = _previous_non_whitespace_index(text, start)
+    previous_char = text[previous_index] if previous_index >= 0 else ""
+    next_index = _next_non_whitespace_index(text, end)
+    if next_index < 0 or previous_char not in "{(,":
+        return False
+    if text[next_index : next_index + 2] in {"==", "=>"}:
+        return False
+    return text[next_index] == "="
 
 
 def _replace_identifiers_in_segment(
@@ -1704,6 +1789,8 @@ def _anonymize_code(
         lowered = token.lower()
         if _has_member_or_namespace_prefix(normalized_code, start):
             return token
+        if _is_named_value_key_context(normalized_code, start, end):
+            return token
         if language in {"javascript", "typescript"} and _is_object_key_or_shorthand_context(
             normalized_code, start, end
         ):
@@ -1736,7 +1823,7 @@ def _anonymize_code(
 
     parts: list[str] = []
     cursor = 0
-    for start, end in _iter_string_ranges(normalized_code):
+    for start, end in _iter_string_ranges(normalized_code, language=language):
         if start > cursor:
             parts.append(
                 _replace_identifiers_in_segment(
