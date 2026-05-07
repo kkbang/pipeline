@@ -188,17 +188,10 @@ with DAG(
     base_ingest_tasks >> normalize_results >> qualify_results
 
     content_rules = load_seed_expansion_rules("repo_content_expansion")
-    relation_rules = load_seed_expansion_rules("repo_relation_enrichment")
 
     if content_rules:
         qualify_results >> TriggerDagRunOperator(
             task_id="trigger_seed_expansion_dag",
             trigger_dag_id="seed_expansion_dag",
-            wait_for_completion=False,
-        )
-    elif relation_rules:
-        qualify_results >> TriggerDagRunOperator(
-            task_id="trigger_repo_relation_dag",
-            trigger_dag_id="repo_relation_dag",
             wait_for_completion=False,
         )

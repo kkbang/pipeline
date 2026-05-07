@@ -132,7 +132,6 @@ class Settings:
     repo_content_expansion_concurrency: int = int(
         os.getenv("REPO_CONTENT_EXPANSION_CONCURRENCY", "4")
     )
-    repo_relation_repo_limit: int = int(os.getenv("REPO_RELATION_REPO_LIMIT", "200"))
     repo_crawl_concurrency: int = int(os.getenv("REPO_CRAWL_CONCURRENCY", "8"))
     repo_crawl_download_concurrency: int = int(
         os.getenv("REPO_CRAWL_DOWNLOAD_CONCURRENCY", str(repo_crawl_concurrency))

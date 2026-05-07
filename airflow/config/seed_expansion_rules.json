@@ -8,14 +8,5 @@
     "expansion_version": "v2_manifest_tree_scan_20260421",
     "include_readme_links": true,
     "include_dependency_manifests": true
-  },
-  "repo_relation_enrichment_v1": {
-    "rule_type": "repo_relation_enrichment",
-    "enabled": true,
-    "max_registered_repos": 3000,
-    "include_same_owner_relations": true,
-    "include_same_project_family_relations": true,
-    "include_fork_relations": true,
-    "max_pairs_per_group": 300
   }
 }

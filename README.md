@@ -102,16 +102,12 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 | Direct Repo Seed | 사용자가 repo URL을 직접 지정 | 예정 |
 | GitHub User Seed | GitHub user 아래 repo 일괄 수집 | 예정 |
 
-### 2. 후속 Expansion / Relation
+### 2. 후속 Expansion
 
 | 기능 | 의미 | 상태 |
 | --- | --- | --- |
 | README External Link Expansion | README 안의 외부 GitHub 링크를 새로운 seed로 확장 | 구현됨 |
 | Dependency Manifest Expansion | manifest/lockfile 안의 repo 힌트를 새로운 seed로 확장 | 구현됨 |
-| Same Owner Relation | 같은 owner 아래 repo 간 관계 생성 | 구현됨 |
-| Same Project Family Relation | 이름 패턴이 유사한 repo 간 관계 생성 | 구현됨 |
-| Fork Relation | fork 관계를 relation graph로 기록 | 구현됨 |
-| Near-Duplicate Relation | 유사 repo 후보를 relation graph로 연결 | 예정 |
 
 현재 `seed_discovery_dag`는 package registry, curated repo, benchmark dataset, GitHub org/search/topic source를 모두 포함할 수 있도록 연결되어 있습니다. 실제 태스크 생성 여부는 config 파일과 `enabled` 플래그에 따라 결정됩니다.
 
@@ -172,10 +168,6 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
   - DAG ID: `seed_expansion_dag`
   - 스케줄: 수동/trigger 전용
   - 역할: README / dependency expansion -> normalization -> qualification
-- [repo_relation_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/repo_relation_dag.py)
-  - DAG ID: `repo_relation_dag`
-  - 스케줄: 수동/trigger 전용
-  - 역할: registered repo 간 관계 그래프 생성
 - [seed_pipeline_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/seed_pipeline_dag.py)
   - DAG ID: `seed_pipeline_dag`
   - 스케줄: 수동/compatibility 전용
@@ -612,7 +604,6 @@ OpenSearch 주요 인덱스:
 - `seed_item_index`
 - `repo_registry_index`
 - `code_chunk_index`
-- `repo_relation_index`
 - `seed_qualification_failure_index`
 - `package_registry_full_metadata_index` (옵션)
 - `benchmark_artifact_fetch_index`
@@ -632,7 +623,6 @@ OpenSearch 주요 인덱스:
 │   │   ├── code_pipeline_dag.py
 │   │   ├── repo_chunk_dag.py
 │   │   ├── repo_extract_dag.py
-│   │   ├── repo_relation_dag.py
 │   │   ├── repo_validation_dag.py
 │   │   ├── seed_dag_support.py
 │   │   ├── seed_discovery_dag.py
@@ -714,12 +704,11 @@ OpenSearch 주요 인덱스:
 3. StackOverflow repo source 추가
 4. qualification 전 canonical repo dedupe 강화
 5. GitHub API rate limit 대응 강화
-6. near-duplicate relation 추가
-7. giant repo 전용 별도 처리 lane 또는 내부 재분배 추가
-8. embedding 모델/차원 확정 및 운영 smoke
-9. similarity retrieval 추가
-10. 탐지 query expansion 추가
-11. license-aware similarity pipeline 연결
+6. giant repo 전용 별도 처리 lane 또는 내부 재분배 추가
+7. embedding 모델/차원 확정 및 운영 smoke
+8. similarity retrieval 추가
+9. 탐지 query expansion 추가
+10. license-aware similarity pipeline 연결
 
 ## 요약
 

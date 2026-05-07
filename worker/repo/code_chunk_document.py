@@ -381,6 +381,16 @@ SHELL_COMMON_SYMBOLS = {
 
 IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 IDENTIFIER_TEXT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+OPENSEARCH_MAX_KEYWORD_BYTES = 32766
+SIMPLE_CALL_PATH_RE = re.compile(
+    r"^(?:"
+    r"\$\.[A-Za-z_][A-Za-z0-9_]*"
+    r"(?:\.[A-Za-z_][A-Za-z0-9_]*[!?=]?)*"
+    r"|"
+    r"[A-Za-z_][A-Za-z0-9_]*"
+    r"(?:(?:\.|::|->)[A-Za-z_][A-Za-z0-9_]*[!?=]?)*"
+    r")$"
+)
 
 OPERATOR_TOKEN_MAP = (
     ("==", "eq"),
@@ -628,7 +638,9 @@ def _ordered_unique(values: list[str], *, cap: int) -> list[str]:
     seen: set[str] = set()
     for value in values:
         normalized = str(value or "").strip()
-        if not normalized or normalized in seen:
+        if not normalized or len(normalized.encode("utf-8")) > OPENSEARCH_MAX_KEYWORD_BYTES:
+            continue
+        if normalized in seen:
             continue
         seen.add(normalized)
         ordered.append(normalized)
@@ -1131,16 +1143,10 @@ def _normalize_call_target_text(raw_text: str) -> str:
 
     if normalized.startswith("$."):
         identifiers = IDENTIFIER_TEXT_RE.findall(normalized)
-        return "$." + ".".join(identifiers)
-    if "." in normalized:
-        identifiers = IDENTIFIER_TEXT_RE.findall(normalized)
-        return ".".join(identifiers)
-    if "::" in normalized:
-        identifiers = IDENTIFIER_TEXT_RE.findall(normalized)
-        return "::".join(identifiers)
-    if "->" in normalized:
-        identifiers = IDENTIFIER_TEXT_RE.findall(normalized)
-        return "->".join(identifiers)
+        candidate = "$." + ".".join(identifiers)
+        return candidate if SIMPLE_CALL_PATH_RE.fullmatch(candidate) else ""
+    if "." in normalized or "::" in normalized or "->" in normalized:
+        return normalized if SIMPLE_CALL_PATH_RE.fullmatch(normalized) else ""
 
     identifier_matches = IDENTIFIER_TEXT_RE.findall(normalized)
     if not identifier_matches:
@@ -1171,6 +1177,12 @@ def _extract_ruby_call_token(raw_text: str) -> str:
 
     normalized = normalized.split("{", 1)[0].strip()
     normalized = re.split(r"\bdo\b", normalized, maxsplit=1)[0].strip()
+    normalized = re.sub(r"\s+", "", normalized)
+
+    previous = None
+    while previous != normalized:
+        previous = normalized
+        normalized = re.sub(r"\([^()]*\)$", "", normalized)
 
     dotted_match = re.match(
         r"((?:self|[A-Za-z_][A-Za-z0-9_]*)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*[!?=]?)*)",
@@ -1178,6 +1190,10 @@ def _extract_ruby_call_token(raw_text: str) -> str:
     )
     if dotted_match:
         return dotted_match.group(1)
+
+    receiver_suffix_match = re.search(r"(?:\.|::)([A-Za-z_][A-Za-z0-9_]*[!?=]?)$", normalized)
+    if receiver_suffix_match:
+        return receiver_suffix_match.group(1)
 
     bare_match = re.match(r"([A-Za-z_][A-Za-z0-9_]*[!?=]?)", normalized)
     if bare_match:
