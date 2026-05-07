@@ -45,6 +45,7 @@ EMBEDDING_BACKFILL_ALLOWED_LANGUAGES = (
     "javascript",
     "go",
 )
+EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT = 50
 EMBEDDING_BACKFILL_SOURCE_FIELDS = [
     "repo_id",
     "owner",
@@ -317,11 +318,13 @@ def _build_embedding_backfill_query(
     *,
     repo_id: str | None = None,
     force_reembed: bool = False,
+    language: str | None = None,
 ) -> dict[str, Any]:
     must_clauses: list[dict[str, Any]] = [
         {"terms": {"validation_status": list(VALID_CHUNK_VALIDATION_STATUSES)}},
-        {"terms": {"language": list(EMBEDDING_BACKFILL_ALLOWED_LANGUAGES)}},
     ]
+    if language:
+        must_clauses.append({"term": {"language": language}})
     if repo_id:
         must_clauses.append(_repo_id_filter(repo_id))
 
@@ -451,40 +454,49 @@ def backfill_code_chunk_embeddings(
     )
     stats = EmbeddingBackfillStats()
     pending_batch: list[tuple[str, dict[str, Any]]] = []
-    query = _build_embedding_backfill_query(
-        repo_id=repo_id,
-        force_reembed=force_reembed,
-    )
-
-    for hit in resolved_store.iterate_documents_by_query(
-        collection_name=CODE_CHUNK_INDEX,
-        query=query,
-        size=safe_scan_size,
-        source_includes=EMBEDDING_BACKFILL_SOURCE_FIELDS,
-    ):
-        doc_id = str(hit.get("_id") or "").strip()
-        if not doc_id:
-            continue
-
-        pending_batch.append((doc_id, dict(hit.get("_source", {}))))
-        stats.seen_count += 1
-
-        if limit > 0 and stats.seen_count >= limit:
+    stop_processing = False
+    for language in EMBEDDING_BACKFILL_ALLOWED_LANGUAGES:
+        if stop_processing:
             break
 
-        if len(pending_batch) < safe_write_batch_size:
-            continue
-
-        _flush_embedding_backfill_batch(
-            store=resolved_store,
-            embedding_client=resolved_embedding_client,
-            batch_docs=pending_batch,
+        language_seen_count = 0
+        query = _build_embedding_backfill_query(
+            repo_id=repo_id,
             force_reembed=force_reembed,
-            refresh_writes=refresh_writes,
-            write_batch_size=safe_write_batch_size,
-            stats=stats,
+            language=language,
         )
-        pending_batch.clear()
+
+        for hit in resolved_store.iterate_documents_by_query(
+            collection_name=CODE_CHUNK_INDEX,
+            query=query,
+            size=safe_scan_size,
+            source_includes=EMBEDDING_BACKFILL_SOURCE_FIELDS,
+        ):
+            doc_id = str(hit.get("_id") or "").strip()
+            if not doc_id:
+                continue
+
+            pending_batch.append((doc_id, dict(hit.get("_source", {}))))
+            stats.seen_count += 1
+            language_seen_count += 1
+
+            if len(pending_batch) >= safe_write_batch_size:
+                _flush_embedding_backfill_batch(
+                    store=resolved_store,
+                    embedding_client=resolved_embedding_client,
+                    batch_docs=pending_batch,
+                    force_reembed=force_reembed,
+                    refresh_writes=refresh_writes,
+                    write_batch_size=safe_write_batch_size,
+                    stats=stats,
+                )
+                pending_batch.clear()
+
+            if language_seen_count >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
+                break
+            if limit > 0 and stats.seen_count >= limit:
+                stop_processing = True
+                break
 
     if pending_batch:
         _flush_embedding_backfill_batch(
