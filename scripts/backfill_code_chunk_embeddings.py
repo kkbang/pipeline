@@ -39,6 +39,12 @@ CODE_CHUNK_INDEX = CODE_CHUNK_INDEX_ALIAS
 CODE_CHUNK_EMBEDDING_INDEX = (
     f"{settings.code_chunk_embedding_index_alias}_{settings.code_chunk_embedding_index_version}"
 )
+EMBEDDING_BACKFILL_ALLOWED_LANGUAGES = (
+    "python",
+    "java",
+    "javascript",
+    "go",
+)
 EMBEDDING_BACKFILL_SOURCE_FIELDS = [
     "repo_id",
     "owner",
@@ -157,6 +163,18 @@ class OpenSearchHttpStore:
                 return
             if "resource_already_exists_exception" in response.text:
                 return
+        response.raise_for_status()
+
+    def delete_index(self, index_name: str) -> None:
+        response = requests.request(
+            method="DELETE",
+            url=f"{self.config.base_url}/{index_name}",
+            auth=self.config.auth,
+            timeout=self.config.timeout_seconds,
+            verify=self.config.verify,
+        )
+        if response.status_code in (200, 202, 404):
+            return
         response.raise_for_status()
 
     def iterate_documents_by_query(
@@ -302,6 +320,7 @@ def _build_embedding_backfill_query(
 ) -> dict[str, Any]:
     must_clauses: list[dict[str, Any]] = [
         {"terms": {"validation_status": list(VALID_CHUNK_VALIDATION_STATUSES)}},
+        {"terms": {"language": list(EMBEDDING_BACKFILL_ALLOWED_LANGUAGES)}},
     ]
     if repo_id:
         must_clauses.append(_repo_id_filter(repo_id))
