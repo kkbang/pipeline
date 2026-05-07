@@ -166,6 +166,13 @@ class Settings:
         os.getenv("CODE_CHUNK_INDEX_ALIAS", "code_chunk_index").strip() or "code_chunk_index"
     )
     code_chunk_index_version: str = os.getenv("CODE_CHUNK_INDEX_VERSION", "v1").strip() or "v1"
+    code_chunk_embedding_index_alias: str = (
+        os.getenv("CODE_CHUNK_EMBEDDING_INDEX_ALIAS", "code_chunk_embedding_index").strip()
+        or "code_chunk_embedding_index"
+    )
+    code_chunk_embedding_index_version: str = (
+        os.getenv("CODE_CHUNK_EMBEDDING_INDEX_VERSION", "v1").strip() or "v1"
+    )
     code_chunk_chunker_version: str = (
         os.getenv("CODE_CHUNK_CHUNKER_VERSION", "ts_chunker_v1").strip() or "ts_chunker_v1"
     )

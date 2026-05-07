@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -35,13 +36,26 @@ from worker.repo.code_chunk_embedding_service import CodeChunkEmbeddingClient
 
 
 CODE_CHUNK_INDEX = CODE_CHUNK_INDEX_ALIAS
+CODE_CHUNK_EMBEDDING_INDEX = (
+    f"{settings.code_chunk_embedding_index_alias}_{settings.code_chunk_embedding_index_version}"
+)
 EMBEDDING_BACKFILL_SOURCE_FIELDS = [
+    "repo_id",
+    "owner",
+    "repo_name",
+    "snapshot_ref",
+    "language",
+    "file_path",
+    "chunk_type",
+    "start_line",
+    "end_line",
+    "symbol_type",
+    "symbol_name",
     "raw_code",
     "raw_hash",
-    "raw_embedding",
     "anonymized_code",
     "anonymized_hash",
-    "anonymized_embedding",
+    "chunked_at",
 ]
 EMBEDDING_BACKFILL_SCAN_SIZE = 200
 EMBEDDING_BACKFILL_WRITE_BATCH_SIZE = 100
@@ -76,6 +90,27 @@ class OpenSearchHttpStore:
             timeout_seconds=max(1, int(settings.request_timeout_seconds)),
         )
 
+    def _index_spec_dir(self) -> Path:
+        return PROJECT_ROOT / "infra" / "opensearch_index"
+
+    def _load_index_spec(self, index_name: str) -> dict[str, Any] | None:
+        spec_path = self._index_spec_dir() / f"{index_name}.json"
+        if not spec_path.exists():
+            return None
+
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        properties = spec.get("mappings", {}).get("properties", {})
+        raw_embedding = properties.get("raw_embedding")
+        anonymized_embedding = properties.get("anonymized_embedding")
+        if isinstance(raw_embedding, dict):
+            raw_embedding["dimension"] = max(1, settings.code_chunk_raw_embedding_dimensions)
+        if isinstance(anonymized_embedding, dict):
+            anonymized_embedding["dimension"] = max(
+                1,
+                settings.code_chunk_anonymized_embedding_dimensions,
+            )
+        return spec
+
     def _request(
         self,
         *,
@@ -99,6 +134,30 @@ class OpenSearchHttpStore:
         if not response.text.strip():
             return {}
         return dict(response.json())
+
+    def ensure_index_created(self, index_name: str) -> None:
+        spec = self._load_index_spec(index_name)
+        if spec is None:
+            raise RuntimeError(f"OpenSearch index spec not found for '{index_name}'")
+
+        response = requests.request(
+            method="PUT",
+            url=f"{self.config.base_url}/{index_name}",
+            auth=self.config.auth,
+            json=spec,
+            timeout=self.config.timeout_seconds,
+            verify=self.config.verify,
+        )
+        if response.status_code in (200, 201):
+            return
+        if response.status_code == 400:
+            payload = response.json()
+            error = payload.get("error")
+            if isinstance(error, dict) and error.get("type") == "resource_already_exists_exception":
+                return
+            if "resource_already_exists_exception" in response.text:
+                return
+        response.raise_for_status()
 
     def iterate_documents_by_query(
         self,
@@ -236,16 +295,6 @@ def _repo_id_filter(repo_id: str) -> dict[str, Any]:
     }
 
 
-def _missing_field_clause(field_name: str) -> dict[str, Any]:
-    return {
-        "bool": {
-            "must_not": [
-                {"exists": {"field": field_name}},
-            ]
-        }
-    }
-
-
 def _build_embedding_backfill_query(
     *,
     repo_id: str | None = None,
@@ -262,12 +311,6 @@ def _build_embedding_backfill_query(
             "must": must_clauses,
         }
     }
-    if not force_reembed:
-        query["bool"]["should"] = [
-            _missing_field_clause("raw_embedding"),
-            _missing_field_clause("anonymized_embedding"),
-        ]
-        query["bool"]["minimum_should_match"] = 1
     return query
 
 
@@ -276,18 +319,13 @@ def _prepare_enrichment_source(
     *,
     force_reembed: bool,
 ) -> dict[str, Any]:
-    prepared = {
+    _ = force_reembed
+    return {
         "raw_code": source.get("raw_code"),
         "raw_hash": source.get("raw_hash"),
         "anonymized_code": source.get("anonymized_code"),
         "anonymized_hash": source.get("anonymized_hash"),
     }
-    if not force_reembed:
-        if "raw_embedding" in source:
-            prepared["raw_embedding"] = source["raw_embedding"]
-        if "anonymized_embedding" in source:
-            prepared["anonymized_embedding"] = source["anonymized_embedding"]
-    return prepared
 
 
 def _flush_embedding_backfill_batch(
@@ -309,27 +347,47 @@ def _flush_embedding_backfill_batch(
     ]
     embedding_client.enrich_documents(docs_for_enrich)
 
+    embedded_at = datetime.now(timezone.utc).isoformat()
     update_docs: list[tuple[str, dict[str, Any]]] = []
     for (doc_id, original_source), (_same_doc_id, enriched_source) in zip(
         batch_docs,
         docs_for_enrich,
         strict=True,
     ):
-        update_source: dict[str, Any] = {}
+        update_source: dict[str, Any] = {
+            "chunk_id": doc_id,
+            "repo_id": original_source.get("repo_id"),
+            "owner": original_source.get("owner"),
+            "repo_name": original_source.get("repo_name"),
+            "snapshot_ref": original_source.get("snapshot_ref"),
+            "language": original_source.get("language"),
+            "file_path": original_source.get("file_path"),
+            "chunk_type": original_source.get("chunk_type"),
+            "start_line": original_source.get("start_line"),
+            "end_line": original_source.get("end_line"),
+            "symbol_type": original_source.get("symbol_type"),
+            "symbol_name": original_source.get("symbol_name"),
+            "raw_hash": original_source.get("raw_hash"),
+            "anonymized_hash": original_source.get("anonymized_hash"),
+            "embedding_model": embedding_client.model,
+            "chunked_at": original_source.get("chunked_at"),
+            "embedded_at": embedded_at,
+        }
+        wrote_embedding = False
 
         raw_embedding = enriched_source.get("raw_embedding")
         if raw_embedding is not None:
-            if force_reembed or "raw_embedding" not in original_source:
-                update_source["raw_embedding"] = raw_embedding
-                stats.raw_embedding_written_count += 1
+            update_source["raw_embedding"] = raw_embedding
+            stats.raw_embedding_written_count += 1
+            wrote_embedding = True
 
         anonymized_embedding = enriched_source.get("anonymized_embedding")
         if anonymized_embedding is not None:
-            if force_reembed or "anonymized_embedding" not in original_source:
-                update_source["anonymized_embedding"] = anonymized_embedding
-                stats.anonymized_embedding_written_count += 1
+            update_source["anonymized_embedding"] = anonymized_embedding
+            stats.anonymized_embedding_written_count += 1
+            wrote_embedding = True
 
-        if update_source:
+        if wrote_embedding:
             update_docs.append((doc_id, update_source))
         else:
             stats.skipped_noop_count += 1
@@ -338,7 +396,7 @@ def _flush_embedding_backfill_batch(
         return
 
     store.bulk_upsert_documents(
-        collection_name=CODE_CHUNK_INDEX,
+        collection_name=CODE_CHUNK_EMBEDDING_INDEX,
         documents=update_docs,
         refresh=refresh_writes,
         chunk_size=max(1, write_batch_size),
@@ -358,6 +416,8 @@ def backfill_code_chunk_embeddings(
     refresh_writes: bool = False,
 ) -> EmbeddingBackfillStats:
     resolved_store = store or OpenSearchHttpStore()
+    if hasattr(resolved_store, "ensure_index_created"):
+        resolved_store.ensure_index_created(CODE_CHUNK_EMBEDDING_INDEX)
     resolved_embedding_client = embedding_client or CodeChunkEmbeddingClient()
     if not resolved_embedding_client.enabled:
         raise RuntimeError(

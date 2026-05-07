@@ -1,0 +1,52 @@
+{
+  "settings": {
+    "index": {
+      "knn": true
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "chunk_id": { "type": "keyword" },
+      "repo_id": { "type": "keyword" },
+      "owner": { "type": "keyword" },
+      "repo_name": { "type": "keyword" },
+      "snapshot_ref": { "type": "keyword" },
+      "language": { "type": "keyword" },
+      "file_path": { "type": "keyword" },
+      "chunk_type": { "type": "keyword" },
+      "start_line": { "type": "integer" },
+      "end_line": { "type": "integer" },
+      "symbol_type": { "type": "keyword" },
+      "symbol_name": {
+        "type": "keyword",
+        "fields": {
+          "text": { "type": "text" }
+        }
+      },
+      "raw_hash": { "type": "keyword" },
+      "anonymized_hash": { "type": "keyword" },
+      "raw_embedding": {
+        "type": "knn_vector",
+        "dimension": 1536,
+        "method": {
+          "name": "hnsw",
+          "space_type": "cosinesimil",
+          "engine": "lucene"
+        }
+      },
+      "anonymized_embedding": {
+        "type": "knn_vector",
+        "dimension": 1536,
+        "method": {
+          "name": "hnsw",
+          "space_type": "cosinesimil",
+          "engine": "lucene"
+        }
+      },
+      "embedding_model": { "type": "keyword" },
+      "chunked_at": { "type": "date" },
+      "embedded_at": { "type": "date" }
+    }
+  }
+}
