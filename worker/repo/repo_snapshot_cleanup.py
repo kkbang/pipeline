@@ -15,6 +15,10 @@ FINAL_SNAPSHOT_CLEANUP_STATUSES = {
     "skipped",
     "missing_confirmed",
 }
+SNAPSHOT_CLEANUP_ELIGIBLE_CHUNK_STATUSES = {
+    "chunked",
+    "chunk_failed",
+}
 
 
 def _is_path_within(path: Path, root_dir: Path) -> bool:
@@ -119,7 +123,10 @@ def prune_local_snapshot_artifacts(*, base_dir: Path, source: dict) -> tuple[boo
 
 
 def needs_snapshot_cleanup_retry(source: dict) -> bool:
-    if str(source.get("chunk_status") or "").strip() != "chunked":
+    if (
+        str(source.get("chunk_status") or "").strip()
+        not in SNAPSHOT_CLEANUP_ELIGIBLE_CHUNK_STATUSES
+    ):
         return False
 
     cleanup_status = str(source.get("snapshot_local_cleanup_status") or "").strip()

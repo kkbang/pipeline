@@ -6,7 +6,10 @@ from airflow.models.dagrun import DagRun
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
-from worker.repo.repo_crawl_service import get_pending_repo_crawl_stats
+from worker.repo.repo_crawl_service import (
+    get_pending_repo_crawl_stats,
+    should_pause_repo_crawl_due_to_backlog,
+)
 from worker.repo.repo_validation_service import run_repo_processing_validation_for_shard
 
 
@@ -47,6 +50,9 @@ with DAG(
     @task.short_circuit(task_id="has_pending_repo_crawl_work")
     def has_pending_repo_crawl_work() -> bool:
         if not settings.repo_pipeline_self_loop_enabled:
+            return False
+        crawl_paused, _pause_reasons = should_pause_repo_crawl_due_to_backlog()
+        if crawl_paused:
             return False
         pending_stats = get_pending_repo_crawl_stats()
         return int(pending_stats.get("pending_count") or 0) > 0

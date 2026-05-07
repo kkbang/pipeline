@@ -207,26 +207,35 @@ def list_repo_ids_for_chunking(
             )
 
         store = OpenSearchStore()
-        for hit in _iter_repo_docs_by_field(store, "chunk_status", "chunked"):
-            doc_id = hit.get("_id")
-            source = hit.get("_source", {})
-            if not (
-                _matches_batch_id(source, "chunk_batch_id", batch_id)
-                or _matches_batch_id(source, "file_extract_batch_id", batch_id)
-                or _matches_batch_id(source, "crawl_batch_id", batch_id)
-            ):
-                continue
-            if not needs_snapshot_cleanup_retry(source):
-                continue
-            if isinstance(doc_id, str) and doc_id.strip():
-                repo_ids.append(doc_id)
+        normalized_shard_index = None
+        if isinstance(shard_index, int) and isinstance(shard_count, int) and shard_count > 0:
+            normalized_shard_index = shard_index % shard_count
+        for chunk_status in ("chunked", "chunk_failed"):
+            for hit in _iter_repo_docs_by_field(store, "chunk_status", chunk_status):
+                doc_id = hit.get("_id")
+                source = hit.get("_source", {})
+                if not (
+                    _matches_batch_id(source, "chunk_batch_id", batch_id)
+                    or _matches_batch_id(source, "file_extract_batch_id", batch_id)
+                    or _matches_batch_id(source, "crawl_batch_id", batch_id)
+                ):
+                    continue
+                if not needs_snapshot_cleanup_retry(source):
+                    continue
+                if (
+                    normalized_shard_index is not None
+                    and isinstance(doc_id, str)
+                    and doc_id.strip()
+                    and repo_id_shard_index(doc_id, shard_count) != normalized_shard_index
+                ):
+                    continue
+                if isinstance(doc_id, str) and doc_id.strip():
+                    repo_ids.append(doc_id)
 
-        return _normalized_repo_ids(
-            repo_ids,
-            batch_limit,
-            shard_index=shard_index,
-            shard_count=shard_count,
-        )
+        # Chunk manifests are already shard-specific assignments. Re-applying
+        # hash partitioning here drops repos that were planner-assigned to this
+        # shard but whose repo_id hashes elsewhere.
+        return _normalized_repo_ids(repo_ids, batch_limit)
 
     store = OpenSearchStore()
     now = datetime.now(timezone.utc)
@@ -237,7 +246,7 @@ def list_repo_ids_for_chunking(
         source = hit.get("_source", {})
         if not _matches_batch_id(source, "file_extract_batch_id", batch_id):
             continue
-        if source.get("chunk_status") == "chunked":
+        if source.get("chunk_status") in {"chunked", "chunk_failed"}:
             if needs_snapshot_cleanup_retry(source):
                 if isinstance(doc_id, str) and doc_id.strip():
                     selected_repo_ids.append(doc_id)

@@ -3,6 +3,8 @@ services:
     image: postgres:16-alpine
     container_name: code-pipeline-postgres
     restart: unless-stopped
+    mem_limit: ${POSTGRES_MEM_LIMIT:-1g}
+    mem_reservation: ${POSTGRES_MEM_RESERVATION:-256m}
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
@@ -20,6 +22,9 @@ services:
       dockerfile: airflow/Dockerfile
     container_name: code-pipeline-airflow
     restart: unless-stopped
+    mem_limit: ${AIRFLOW_MEM_LIMIT:-20g}
+    mem_reservation: ${AIRFLOW_MEM_RESERVATION:-8g}
+    cpus: ${AIRFLOW_CPUS:-12}
     env_file:
       - .env
       - airflow/config/airflow.env
@@ -66,6 +71,9 @@ services:
       dockerfile: airflow/Dockerfile
     container_name: code-pipeline-airflow-init
     restart: "no"
+    mem_limit: ${AIRFLOW_INIT_MEM_LIMIT:-4g}
+    mem_reservation: ${AIRFLOW_INIT_MEM_RESERVATION:-1g}
+    cpus: ${AIRFLOW_INIT_CPUS:-4}
     env_file:
       - .env
       - airflow/config/airflow.env
@@ -94,6 +102,8 @@ services:
   tor-proxy:
     image: dockurr/tor
     container_name: tor-proxy
+    mem_limit: ${TOR_PROXY_MEM_LIMIT:-512m}
+    mem_reservation: ${TOR_PROXY_MEM_RESERVATION:-128m}
     environment:
       - TOR_CONTROL_PORT=9051
     ports:
@@ -104,6 +114,8 @@ services:
     image: opensearchproject/opensearch-dashboards:3.5.0
     container_name: os-dashboards
     restart: unless-stopped
+    mem_limit: ${OS_DASHBOARDS_MEM_LIMIT:-1g}
+    mem_reservation: ${OS_DASHBOARDS_MEM_RESERVATION:-256m}
     environment:
       OPENSEARCH_HOSTS: '["http://100.97.222.61:9200"]'
       DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"

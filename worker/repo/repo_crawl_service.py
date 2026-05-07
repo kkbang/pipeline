@@ -331,16 +331,89 @@ def get_pending_repo_crawl_stats() -> dict:
     now = datetime.now(timezone.utc)
     repo_docs = _load_repo_docs_for_crawl(store, now)
     tier_counts = _repo_tier_counts(repo_docs) if repo_docs else {}
+    backlog_stats = get_repo_processing_backlog_stats(store=store)
+    paused, pause_reasons = should_pause_repo_crawl_due_to_backlog(store=store)
     return {
         "pending_count": len(repo_docs),
         "normal_count": int(tier_counts.get("normal", 0)),
         "whale_hint_count": int(tier_counts.get("whale_hint", 0)),
         "giant_hint_count": int(tier_counts.get("giant_hint", 0)),
+        **backlog_stats,
+        "crawl_paused_due_to_backlog": paused,
+        "crawl_pause_reasons": pause_reasons,
     }
 
 
 def has_pending_repo_crawl_work() -> bool:
     return int(get_pending_repo_crawl_stats().get("pending_count") or 0) > 0
+
+
+def _exact_term_query(field_name: str, value: str) -> dict:
+    return {
+        "bool": {
+            "should": [
+                {"term": {f"{field_name}.keyword": value}},
+                {"term": {field_name: value}},
+            ],
+            "minimum_should_match": 1,
+        }
+    }
+
+
+def get_repo_processing_backlog_stats(*, store: OpenSearchStore | None = None) -> dict[str, int]:
+    local_store = store or OpenSearchStore()
+    downloaded_not_extracted_count = local_store.count_documents(
+        collection_name="repo_registry_index",
+        query={
+            "bool": {
+                "must": [_exact_term_query("crawl_status", "downloaded")],
+                "must_not": [_exact_term_query("file_extract_status", "extracted")],
+            }
+        },
+    )
+    extracted_not_chunked_count = local_store.count_documents(
+        collection_name="repo_registry_index",
+        query={
+            "bool": {
+                "must": [_exact_term_query("file_extract_status", "extracted")],
+                "must_not": [_exact_term_query("chunk_status", "chunked")],
+            }
+        },
+    )
+    return {
+        "downloaded_not_extracted_count": downloaded_not_extracted_count,
+        "extracted_not_chunked_count": extracted_not_chunked_count,
+    }
+
+
+def should_pause_repo_crawl_due_to_backlog(
+    *,
+    store: OpenSearchStore | None = None,
+) -> tuple[bool, list[str]]:
+    max_downloaded_backlog = max(0, int(settings.repo_crawl_max_downloaded_backlog))
+    max_extracted_backlog = max(0, int(settings.repo_crawl_max_extracted_backlog))
+    if max_downloaded_backlog <= 0 and max_extracted_backlog <= 0:
+        return False, []
+
+    backlog_stats = get_repo_processing_backlog_stats(store=store)
+    pause_reasons: list[str] = []
+    if (
+        max_downloaded_backlog > 0
+        and backlog_stats["downloaded_not_extracted_count"] >= max_downloaded_backlog
+    ):
+        pause_reasons.append(
+            f"downloaded_not_extracted_count={backlog_stats['downloaded_not_extracted_count']}"
+            f" threshold={max_downloaded_backlog}"
+        )
+    if (
+        max_extracted_backlog > 0
+        and backlog_stats["extracted_not_chunked_count"] >= max_extracted_backlog
+    ):
+        pause_reasons.append(
+            f"extracted_not_chunked_count={backlog_stats['extracted_not_chunked_count']}"
+            f" threshold={max_extracted_backlog}"
+        )
+    return bool(pause_reasons), pause_reasons
 
 
 def _claim_repo_docs(
@@ -582,6 +655,21 @@ async def _crawl_repo_batch(
 
 def repo_crawler(batch_id: str) -> None:
     store = OpenSearchStore()
+    crawl_paused, pause_reasons = should_pause_repo_crawl_due_to_backlog(store=store)
+    if crawl_paused:
+        logger.warning(
+            "Skipping repo crawl batch due to downstream backlog: batch_id=%s reasons=%s",
+            batch_id,
+            "; ".join(pause_reasons),
+        )
+        write_stage_manifest(
+            base_dir=store.base_dir,
+            batch_id=batch_id,
+            stage_name=CRAWL_DOWNLOADED_STAGE,
+            entries=[],
+        )
+        return
+
     crawl_started_at = datetime.now(timezone.utc)
     repo_docs = _load_repo_docs_for_crawl(store, crawl_started_at)
     success_manifest_entries: list[dict] = []

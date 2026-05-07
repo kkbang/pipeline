@@ -142,6 +142,12 @@ class Settings:
     )
     repo_crawl_lease_seconds: int = int(os.getenv("REPO_CRAWL_LEASE_SECONDS", "1800"))
     repo_crawl_repo_limit: int = int(os.getenv("REPO_CRAWL_REPO_LIMIT", "0"))
+    repo_crawl_max_downloaded_backlog: int = int(
+        os.getenv("REPO_CRAWL_MAX_DOWNLOADED_BACKLOG", "2000")
+    )
+    repo_crawl_max_extracted_backlog: int = int(
+        os.getenv("REPO_CRAWL_MAX_EXTRACTED_BACKLOG", "5000")
+    )
     repo_whale_hint_size_kb: int = int(os.getenv("REPO_WHALE_HINT_SIZE_KB", "50000"))
     repo_giant_hint_size_kb: int = int(os.getenv("REPO_GIANT_HINT_SIZE_KB", "200000"))
     repo_file_extract_repo_limit: int = int(os.getenv("REPO_FILE_EXTRACT_REPO_LIMIT", "1000"))

@@ -10,6 +10,10 @@ from worker.repo.repo_pipeline_manifest_service import (
     EXTRACT_READY_STAGE,
     write_stage_manifest,
 )
+from worker.repo.repo_processing_recovery import (
+    build_crawl_retry_source,
+    is_missing_snapshot_root_error,
+)
 from worker.repo.repo_snapshot_local_paths import (
     resolve_snapshot_root_path,
     strip_local_snapshot_fields,
@@ -510,10 +514,31 @@ def run_repo_file_extraction_for_repo(
         logger.warning("File extraction failed for repo_id=%s error=%s", repo_id, str(exc))
         if store is not None:
             repo_doc = _load_repo_doc_for_extraction(store, repo_id) or {"_source": {}}
+            failure_finished_at = datetime.now(timezone.utc).isoformat()
+            if is_missing_snapshot_root_error(exc):
+                retry_source = build_crawl_retry_source(
+                    dict(repo_doc.get("_source", {})),
+                    error_message=f"requeued_missing_snapshot_root_from_extract: {exc}",
+                    finished_at=failure_finished_at,
+                )
+                store.replace_document(
+                    collection_name=REPO_REGISTRY_INDEX,
+                    doc_id=repo_id,
+                    source=retry_source,
+                    refresh=refresh_writes,
+                )
+                return {
+                    "repo_id": repo_id,
+                    "stage": "extract",
+                    "stage_status": "requeued_for_crawl",
+                    "reason": "missing_snapshot_root",
+                    "error_message": str(exc),
+                }
+
             failed_source = {
                 **strip_local_snapshot_fields(dict(repo_doc.get("_source", {}))),
                 "file_extract_status": "extract_failed",
-                "file_extract_finished_at": datetime.now(timezone.utc).isoformat(),
+                "file_extract_finished_at": failure_finished_at,
                 "file_extract_error_message": str(exc),
             }
             store.replace_document(
@@ -656,10 +681,26 @@ def run_repo_file_extraction() -> None:
             claimed_docs[doc_id]["_source"] = updated_source
         except Exception as exc:  # noqa: BLE001 - repo별 실패를 계속 진행하기 위함
             logger.warning("File extraction failed for repo_id=%s error=%s", doc_id, str(exc))
+            failure_finished_at = datetime.now(timezone.utc).isoformat()
+            if is_missing_snapshot_root_error(exc):
+                retry_source = build_crawl_retry_source(
+                    source,
+                    error_message=f"requeued_missing_snapshot_root_from_extract: {exc}",
+                    finished_at=failure_finished_at,
+                )
+                store.replace_document(
+                    collection_name=REPO_REGISTRY_INDEX,
+                    doc_id=doc_id,
+                    source=retry_source,
+                    refresh=False,
+                )
+                claimed_docs[doc_id]["_source"] = retry_source
+                continue
+
             failed_source = {
                 **source,
                 "file_extract_status": "extract_failed",
-                "file_extract_finished_at": extract_finished_at,
+                "file_extract_finished_at": failure_finished_at,
                 "file_extract_error_message": str(exc),
             }
             store.replace_document(

@@ -19,9 +19,14 @@ from worker.repo.repo_pipeline_manifest_service import (
     CHUNK_COMPLETED_STAGE,
     write_stage_manifest,
 )
+from worker.repo.repo_processing_recovery import (
+    build_crawl_retry_source,
+    is_missing_snapshot_root_error,
+)
 from worker.repo.repo_snapshot_cleanup import (
     needs_snapshot_cleanup_retry,
     prune_local_snapshot_artifacts,
+    SNAPSHOT_CLEANUP_ELIGIBLE_CHUNK_STATUSES,
 )
 from worker.repo.repo_snapshot_local_paths import (
     resolve_snapshot_root_path,
@@ -279,7 +284,7 @@ def _load_repo_docs_for_chunking(store: OpenSearchStore, now: datetime) -> list[
     repo_docs_by_id = {}
     for hit in extracted_docs:
         source = hit.get("_source", {})
-        if source.get("chunk_status") == "chunked":
+        if source.get("chunk_status") in SNAPSHOT_CLEANUP_ELIGIBLE_CHUNK_STATUSES:
             if needs_snapshot_cleanup_retry(source):
                 repo_docs_by_id[hit["_id"]] = hit
             continue
@@ -400,7 +405,7 @@ def _maybe_prune_local_snapshot_artifacts(
     chunk_status: str,
 ) -> tuple[dict, str | None, str | None, str | None]:
     updated_source = dict(source)
-    if chunk_status != "chunked":
+    if chunk_status not in SNAPSHOT_CLEANUP_ELIGIBLE_CHUNK_STATUSES:
         return updated_source, None, None, None
 
     cleanup_finished_at = datetime.now(timezone.utc).isoformat()
@@ -423,6 +428,46 @@ def _maybe_prune_local_snapshot_artifacts(
     updated_source.pop("snapshot_download_path", None)
 
     return updated_source, cleanup_status, cleanup_finished_at, cleanup_error
+
+
+def _retry_terminal_snapshot_cleanup_if_needed(
+    *,
+    store: OpenSearchStore,
+    repo_id: str,
+    source: dict,
+    refresh_writes: bool,
+) -> dict | None:
+    chunk_status = str(source.get("chunk_status") or "").strip()
+    if chunk_status not in SNAPSHOT_CLEANUP_ELIGIBLE_CHUNK_STATUSES:
+        return None
+    if not needs_snapshot_cleanup_retry(source):
+        return None
+
+    updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
+        _maybe_prune_local_snapshot_artifacts(
+            store=store,
+            repo_id=repo_id,
+            source=source,
+            chunk_status=chunk_status,
+        )
+    )
+    updated_source["snapshot_local_cleanup_status"] = cleanup_status
+    updated_source["snapshot_local_cleanup_at"] = cleanup_finished_at
+    updated_source["snapshot_local_cleanup_error"] = cleanup_error
+    store.replace_document(
+        collection_name=REPO_REGISTRY_INDEX,
+        doc_id=repo_id,
+        source=updated_source,
+        refresh=refresh_writes,
+    )
+    return {
+        "repo_id": repo_id,
+        "stage": "chunk",
+        "stage_status": chunk_status,
+        "reason": "cleanup_retried",
+        "snapshot_cleanup_status": cleanup_status,
+        "snapshot_cleanup_error": cleanup_error,
+    }
 
 
 def _best_effort_replace_repo_chunk_doc(
@@ -1195,38 +1240,28 @@ def run_repo_code_chunking_for_repo(
                 "reason": "file_extract_not_extracted",
             }
 
+        cleanup_retry_result = _retry_terminal_snapshot_cleanup_if_needed(
+            store=store,
+            repo_id=repo_id,
+            source=source,
+            refresh_writes=refresh_writes,
+        )
+        if cleanup_retry_result is not None:
+            return cleanup_retry_result
+
         if source.get("chunk_status") == "chunked":
-            if needs_snapshot_cleanup_retry(source):
-                updated_source, cleanup_status, cleanup_finished_at, cleanup_error = (
-                    _maybe_prune_local_snapshot_artifacts(
-                        store=store,
-                        repo_id=repo_id,
-                        source=source,
-                        chunk_status="chunked",
-                    )
-                )
-                updated_source["snapshot_local_cleanup_status"] = cleanup_status
-                updated_source["snapshot_local_cleanup_at"] = cleanup_finished_at
-                updated_source["snapshot_local_cleanup_error"] = cleanup_error
-                store.replace_document(
-                    collection_name=REPO_REGISTRY_INDEX,
-                    doc_id=repo_id,
-                    source=updated_source,
-                    refresh=refresh_writes,
-                )
-                return {
-                    "repo_id": repo_id,
-                    "stage": "chunk",
-                    "stage_status": "chunked",
-                    "reason": "cleanup_retried",
-                    "snapshot_cleanup_status": cleanup_status,
-                    "snapshot_cleanup_error": cleanup_error,
-                }
             return {
                 "repo_id": repo_id,
                 "stage": "chunk",
                 "stage_status": "chunked",
                 "reason": "already_chunked",
+            }
+        if source.get("chunk_status") == "chunk_failed":
+            return {
+                "repo_id": repo_id,
+                "stage": "chunk",
+                "stage_status": "chunk_failed",
+                "reason": "already_chunk_failed",
             }
 
         if source.get("chunk_status") == "chunking":
@@ -1333,10 +1368,31 @@ def run_repo_code_chunking_for_repo(
         }
     except Exception as exc:  # noqa: BLE001 - repo 단위 파이프라인 실패를 상위로 전달하기 위함
         logger.warning("Code chunking failed for repo_id=%s error=%s", repo_id, str(exc))
+        failure_finished_at = datetime.now(timezone.utc).isoformat()
+        if is_missing_snapshot_root_error(exc):
+            retry_source = build_crawl_retry_source(
+                dict(current_source),
+                error_message=f"requeued_missing_snapshot_root_from_chunk: {exc}",
+                finished_at=failure_finished_at,
+            )
+            _best_effort_replace_repo_chunk_doc(
+                store=store,
+                doc_id=repo_id,
+                source=retry_source,
+                refresh=refresh_writes,
+            )
+            return {
+                "repo_id": repo_id,
+                "stage": "chunk",
+                "stage_status": "requeued_for_crawl",
+                "reason": "missing_snapshot_root",
+                "error_message": str(exc),
+            }
+
         failed_source = {
             **strip_local_snapshot_fields(dict(current_source)),
             "chunk_status": "chunk_failed",
-            "chunk_finished_at": datetime.now(timezone.utc).isoformat(),
+            "chunk_finished_at": failure_finished_at,
             "chunk_error_message": str(exc),
             "chunk_max_lines": max_lines,
             "chunk_overlap_lines": overlap_lines,
@@ -1447,9 +1503,26 @@ def run_repo_code_chunking() -> None:
     if not repo_docs:
         return
 
+    claimable_repo_docs = []
+    for hit in repo_docs:
+        doc_id = hit["_id"]
+        source = dict(hit.get("_source", {}))
+        cleanup_retry_result = _retry_terminal_snapshot_cleanup_if_needed(
+            store=store,
+            repo_id=doc_id,
+            source=source,
+            refresh_writes=False,
+        )
+        if cleanup_retry_result is not None:
+            continue
+        claimable_repo_docs.append(hit)
+
+    if not claimable_repo_docs:
+        return
+
     claimed_docs = _claim_repo_docs_for_chunking(
         store=store,
-        repo_docs=repo_docs,
+        repo_docs=claimable_repo_docs,
         started_at=chunk_started_at.isoformat(),
         refresh_writes=False,
     )
@@ -1527,10 +1600,26 @@ def run_repo_code_chunking() -> None:
             claimed_docs[doc_id]["_source"] = updated_source
         except Exception as exc:  # noqa: BLE001 - repo별 실패를 이어서 처리해야 함
             logger.warning("Code chunking failed for repo_id=%s error=%s", doc_id, str(exc))
+            failure_finished_at = datetime.now(timezone.utc).isoformat()
+            if is_missing_snapshot_root_error(exc):
+                retry_source = build_crawl_retry_source(
+                    source,
+                    error_message=f"requeued_missing_snapshot_root_from_chunk: {exc}",
+                    finished_at=failure_finished_at,
+                )
+                _best_effort_replace_repo_chunk_doc(
+                    store=store,
+                    doc_id=doc_id,
+                    source=retry_source,
+                    refresh=False,
+                )
+                claimed_docs[doc_id]["_source"] = retry_source
+                continue
+
             failed_source = {
                 **strip_local_snapshot_fields(source),
                 "chunk_status": "chunk_failed",
-                "chunk_finished_at": chunk_finished_at,
+                "chunk_finished_at": failure_finished_at,
                 "chunk_error_message": str(exc),
                 "chunk_max_lines": max_lines,
                 "chunk_overlap_lines": overlap_lines,
