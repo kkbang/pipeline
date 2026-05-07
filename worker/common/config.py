@@ -194,31 +194,63 @@ class Settings:
         os.getenv("CODE_CHUNK_MAX_SYMBOL_LINES", "800")
     )
     code_chunk_raw_embedding_dimensions: int = int(
-        os.getenv("CODE_CHUNK_RAW_EMBEDDING_DIMENSIONS", "1536")
+        os.getenv(
+            "CODE_CHUNK_RAW_EMBEDDING_DIMENSIONS",
+            os.getenv("OPENSEARCH_EMBEDDING_DIMENSIONS", "1536"),
+        )
     )
     code_chunk_anonymized_embedding_dimensions: int = int(
-        os.getenv("CODE_CHUNK_ANONYMIZED_EMBEDDING_DIMENSIONS", "1536")
+        os.getenv(
+            "CODE_CHUNK_ANONYMIZED_EMBEDDING_DIMENSIONS",
+            os.getenv("OPENSEARCH_EMBEDDING_DIMENSIONS", "1536"),
+        )
     )
     code_chunk_embedding_enabled: bool = (
-        os.getenv("CODE_CHUNK_EMBEDDING_ENABLED", "false").lower() == "true"
+        os.getenv(
+            "CODE_CHUNK_EMBEDDING_ENABLED",
+            os.getenv("OPENSEARCH_EMBEDDING_ENABLED", "false"),
+        ).lower()
+        == "true"
     )
     code_chunk_embedding_endpoint: str = (
-        os.getenv("CODE_CHUNK_EMBEDDING_ENDPOINT", "https://api.openai.com/v1/embeddings").strip()
+        os.getenv(
+            "CODE_CHUNK_EMBEDDING_ENDPOINT",
+            os.getenv("OPENSEARCH_EMBEDDING_ENDPOINT", "https://api.openai.com/v1/embeddings"),
+        ).strip()
     )
     code_chunk_embedding_api_key: str = (
-        os.getenv("CODE_CHUNK_EMBEDDING_API_KEY", os.getenv("OPENAI_API_KEY", "")).strip()
+        os.getenv(
+            "CODE_CHUNK_EMBEDDING_API_KEY",
+            os.getenv(
+                "OPENSEARCH_EMBEDDING_API_KEY",
+                os.getenv("OPENAI_API_KEY", ""),
+            ),
+        ).strip()
     )
     code_chunk_embedding_model: str = (
-        os.getenv("CODE_CHUNK_EMBEDDING_MODEL", "").strip()
+        os.getenv(
+            "CODE_CHUNK_EMBEDDING_MODEL",
+            os.getenv("OPENSEARCH_EMBEDDING_MODEL", ""),
+        ).strip()
     )
     code_chunk_embedding_batch_size: int = int(
-        os.getenv("CODE_CHUNK_EMBEDDING_BATCH_SIZE", "32")
+        os.getenv(
+            "CODE_CHUNK_EMBEDDING_BATCH_SIZE",
+            os.getenv("OPENSEARCH_EMBEDDING_BATCH_SIZE", "32"),
+        )
     )
     code_chunk_embedding_timeout_seconds: int = int(
-        os.getenv("CODE_CHUNK_EMBEDDING_TIMEOUT_SECONDS", str(request_timeout_seconds))
+        os.getenv(
+            "CODE_CHUNK_EMBEDDING_TIMEOUT_SECONDS",
+            os.getenv("OPENSEARCH_EMBEDDING_TIMEOUT_SECONDS", str(request_timeout_seconds)),
+        )
     )
     code_chunk_embedding_fail_hard: bool = (
-        os.getenv("CODE_CHUNK_EMBEDDING_FAIL_HARD", "false").lower() == "true"
+        os.getenv(
+            "CODE_CHUNK_EMBEDDING_FAIL_HARD",
+            os.getenv("OPENSEARCH_EMBEDDING_FAIL_HARD", "false"),
+        ).lower()
+        == "true"
     )
     repo_validation_repo_limit: int = int(os.getenv("REPO_VALIDATION_REPO_LIMIT", "1000"))
     repo_pipeline_batch_size: int = int(os.getenv("REPO_PIPELINE_BATCH_SIZE", "200"))
