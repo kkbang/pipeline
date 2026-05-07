@@ -46,6 +46,7 @@ EMBEDDING_BACKFILL_ALLOWED_LANGUAGES = (
     "go",
 )
 EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT = 50
+EMBEDDING_BACKFILL_MIN_RAW_CODE_LINES = 10
 EMBEDDING_BACKFILL_SOURCE_FIELDS = [
     "repo_id",
     "owner",
@@ -234,6 +235,28 @@ class OpenSearchHttpStore:
                 except Exception:
                     pass
 
+    def get_existing_document_ids(
+        self,
+        collection_name: str,
+        doc_ids: list[str],
+    ) -> set[str]:
+        normalized_ids = [str(doc_id).strip() for doc_id in doc_ids if str(doc_id).strip()]
+        if not normalized_ids:
+            return set()
+
+        result = self._request(
+            method="POST",
+            path=f"/{collection_name}/_mget",
+            json_body={"ids": normalized_ids},
+        )
+        existing_ids: set[str] = set()
+        for doc in result.get("docs") or []:
+            if doc.get("found"):
+                doc_id = str(doc.get("_id") or "").strip()
+                if doc_id:
+                    existing_ids.add(doc_id)
+        return existing_ids
+
     def bulk_upsert_documents(
         self,
         collection_name: str,
@@ -350,6 +373,39 @@ def _prepare_enrichment_source(
     }
 
 
+def _raw_code_line_count(source: dict[str, Any]) -> int:
+    raw_code = str(source.get("raw_code") or "")
+    if not raw_code.strip():
+        return 0
+    return len(raw_code.splitlines())
+
+
+def _is_eligible_source_chunk(source: dict[str, Any]) -> bool:
+    return _raw_code_line_count(source) >= EMBEDDING_BACKFILL_MIN_RAW_CODE_LINES
+
+
+def _filter_missing_embedding_docs(
+    store: Any,
+    docs: list[tuple[str, dict[str, Any]]],
+) -> list[tuple[str, dict[str, Any]]]:
+    if not docs:
+        return []
+    if not hasattr(store, "get_existing_document_ids"):
+        return docs
+
+    existing_ids = store.get_existing_document_ids(
+        CODE_CHUNK_EMBEDDING_INDEX,
+        [doc_id for doc_id, _source in docs],
+    )
+    if not existing_ids:
+        return docs
+    return [
+        (doc_id, source)
+        for doc_id, source in docs
+        if doc_id not in existing_ids
+    ]
+
+
 def _flush_embedding_backfill_batch(
     *,
     store: Any,
@@ -454,6 +510,7 @@ def backfill_code_chunk_embeddings(
     )
     stats = EmbeddingBackfillStats()
     pending_batch: list[tuple[str, dict[str, Any]]] = []
+    candidate_batch: list[tuple[str, dict[str, Any]]] = []
     stop_processing = False
     for language in EMBEDDING_BACKFILL_ALLOWED_LANGUAGES:
         if stop_processing:
@@ -476,9 +533,79 @@ def backfill_code_chunk_embeddings(
             if not doc_id:
                 continue
 
-            pending_batch.append((doc_id, dict(hit.get("_source", {}))))
-            stats.seen_count += 1
-            language_seen_count += 1
+            source = dict(hit.get("_source", {}))
+            if not _is_eligible_source_chunk(source):
+                continue
+
+            candidate_batch.append((doc_id, source))
+
+            should_resolve_candidates = (
+                len(candidate_batch) >= safe_write_batch_size
+                or language_seen_count + len(candidate_batch) >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT
+            )
+            if not should_resolve_candidates:
+                continue
+
+            for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
+                pending_batch.append(missing_doc)
+                stats.seen_count += 1
+                language_seen_count += 1
+
+                if len(pending_batch) >= safe_write_batch_size:
+                    _flush_embedding_backfill_batch(
+                        store=resolved_store,
+                        embedding_client=resolved_embedding_client,
+                        batch_docs=pending_batch,
+                        force_reembed=force_reembed,
+                        refresh_writes=refresh_writes,
+                        write_batch_size=safe_write_batch_size,
+                        stats=stats,
+                    )
+                    pending_batch.clear()
+
+                if language_seen_count >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
+                    break
+                if limit > 0 and stats.seen_count >= limit:
+                    stop_processing = True
+                    break
+
+            candidate_batch.clear()
+
+            if stop_processing or language_seen_count >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
+                break
+
+        if candidate_batch and not stop_processing and language_seen_count < EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
+            for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
+                pending_batch.append(missing_doc)
+                stats.seen_count += 1
+                language_seen_count += 1
+
+                if len(pending_batch) >= safe_write_batch_size:
+                    _flush_embedding_backfill_batch(
+                        store=resolved_store,
+                        embedding_client=resolved_embedding_client,
+                        batch_docs=pending_batch,
+                        force_reembed=force_reembed,
+                        refresh_writes=refresh_writes,
+                        write_batch_size=safe_write_batch_size,
+                        stats=stats,
+                    )
+                    pending_batch.clear()
+
+                if language_seen_count >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
+                    break
+                if limit > 0 and stats.seen_count >= limit:
+                    stop_processing = True
+                    break
+
+            candidate_batch.clear()
+
+        if stop_processing:
+            break
+
+    if candidate_batch:
+        for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
+            pending_batch.append(missing_doc)
 
             if len(pending_batch) >= safe_write_batch_size:
                 _flush_embedding_backfill_batch(
@@ -491,12 +618,7 @@ def backfill_code_chunk_embeddings(
                     stats=stats,
                 )
                 pending_batch.clear()
-
-            if language_seen_count >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
-                break
-            if limit > 0 and stats.seen_count >= limit:
-                stop_processing = True
-                break
+        candidate_batch.clear()
 
     if pending_batch:
         _flush_embedding_backfill_batch(
