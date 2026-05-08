@@ -1,5 +1,6 @@
-import logging
 import hashlib
+import logging
+import math
 from dataclasses import dataclass, field
 
 import requests
@@ -212,6 +213,8 @@ class CodeChunkEmbeddingClient:
                 if not isinstance(embedding, list):
                     raise ValueError("embedding item missing vector")
                 normalized_embedding = [float(value) for value in embedding]
+                if not all(math.isfinite(value) for value in normalized_embedding):
+                    raise ValueError("embedding contains non-finite values")
                 if len(normalized_embedding) != expected_dimensions:
                     raise ValueError(
                         f"embedding dimension mismatch: expected={expected_dimensions} actual={len(normalized_embedding)}"

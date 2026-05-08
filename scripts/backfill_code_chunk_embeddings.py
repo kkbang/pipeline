@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import math
 import os
 import sys
 from dataclasses import dataclass
@@ -143,7 +144,16 @@ class OpenSearchHttpStore:
             timeout=self.config.timeout_seconds,
             verify=self.config.verify,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            body_preview = response.text.strip()
+            if len(body_preview) > 2000:
+                body_preview = body_preview[:2000] + "...<truncated>"
+            raise RuntimeError(
+                f"OpenSearch request failed method={method} path={path} "
+                f"status={response.status_code} body={body_preview}"
+            ) from exc
         if not response.text.strip():
             return {}
         return dict(response.json())
@@ -468,12 +478,18 @@ def _flush_embedding_backfill_batch(
 
         raw_embedding = enriched_source.get("raw_embedding")
         if raw_embedding is not None:
+            if not _is_valid_embedding_vector(raw_embedding):
+                raise ValueError(f"raw_embedding contains non-finite values for chunk_id={doc_id}")
             update_source["raw_embedding"] = raw_embedding
             stats.raw_embedding_written_count += 1
             wrote_embedding = True
 
         anonymized_embedding = enriched_source.get("anonymized_embedding")
         if anonymized_embedding is not None:
+            if not _is_valid_embedding_vector(anonymized_embedding):
+                raise ValueError(
+                    f"anonymized_embedding contains non-finite values for chunk_id={doc_id}"
+                )
             update_source["anonymized_embedding"] = anonymized_embedding
             stats.anonymized_embedding_written_count += 1
             wrote_embedding = True
@@ -645,6 +661,15 @@ def backfill_code_chunk_embeddings(
         )
 
     return stats
+
+
+def _is_valid_embedding_vector(value: object) -> bool:
+    if not isinstance(value, list) or not value:
+        return False
+    try:
+        return all(math.isfinite(float(item)) for item in value)
+    except (TypeError, ValueError):
+        return False
 
 
 def parse_args() -> argparse.Namespace:
