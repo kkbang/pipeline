@@ -131,15 +131,18 @@ class OpenSearchHttpStore:
         method: str,
         path: str,
         json_body: dict[str, Any] | None = None,
-        data_body: str | None = None,
+        data_body: bytes | str | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        request_data = data_body
+        if isinstance(data_body, str):
+            request_data = data_body.encode("utf-8")
         response = requests.request(
             method=method,
             url=f"{self.config.base_url}{path}",
             auth=self.config.auth,
             json=json_body,
-            data=data_body,
+            data=request_data,
             headers=headers,
             timeout=self.config.timeout_seconds,
             verify=self.config.verify,
@@ -309,10 +312,13 @@ class OpenSearchHttpStore:
                     )
                 )
 
+            payload = ("\n".join(lines) + "\n").encode("utf-8")
+            if not payload.endswith(b"\n"):
+                raise RuntimeError("bulk payload is missing final newline")
             result = self._request(
                 method="POST",
                 path=f"/_bulk?refresh={'true' if refresh else 'false'}",
-                data_body="\n".join(lines) + "\n",
+                data_body=payload,
                 headers={"Content-Type": "application/x-ndjson"},
             )
             if result.get("errors"):
