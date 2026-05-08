@@ -213,6 +213,60 @@ COMMENT_MARKERS = (
     "generated file",
     "do not edit",
 )
+PARTIAL_ANONYMIZATION_LANGUAGES = {"python", "javascript", "typescript"}
+PYTHON_WELL_KNOWN_API_SYMBOLS = {
+    "pandas",
+    "numpy",
+    "requests",
+    "torch",
+    "sklearn",
+    "pytest",
+    "django",
+    "flask",
+    "FastAPI",
+}
+JAVASCRIPT_WELL_KNOWN_API_SYMBOLS = {
+    "React",
+    "useState",
+    "useEffect",
+    "useMemo",
+    "useCallback",
+    "express",
+    "axios",
+    "fetch",
+    "map",
+    "filter",
+    "reduce",
+}
+JAVASCRIPT_UI_TAG_LITERALS = {
+    "a",
+    "article",
+    "button",
+    "canvas",
+    "circle",
+    "dialog",
+    "div",
+    "footer",
+    "form",
+    "g",
+    "header",
+    "img",
+    "input",
+    "label",
+    "li",
+    "main",
+    "option",
+    "p",
+    "path",
+    "rect",
+    "section",
+    "select",
+    "span",
+    "svg",
+    "ul",
+}
+JAVASCRIPT_UI_CLASS_LITERAL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[-_:][A-Za-z0-9]+)+$")
+JAVASCRIPT_SELECTOR_LITERAL_RE = re.compile(r"^[.#][A-Za-z0-9_-]+(?:\s+[.#]?[A-Za-z0-9_-]+)*$")
 
 COMMON_RESERVED_WORDS = {
     *keyword.kwlist,
@@ -592,14 +646,21 @@ class CodeChunkCandidate:
     normalized_hash: str
     anonymized_hash: str
     validation_status: str
+    context_imports: list[str]
+    context_decorators: list[str]
+    context_class_signature: str
+    context_parent_class: str
+    context_exports: list[str]
 
 
 @dataclass(frozen=True, slots=True)
 class AnonymizationContext:
     imported_symbols: set[str]
+    parameter_symbols: set[str]
     local_variable_symbols: set[str]
     local_function_symbols: set[str]
     local_class_symbols: set[str]
+    decorator_symbols: set[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -873,6 +934,108 @@ def _collect_imported_symbols(content_bytes: bytes, node: Node) -> set[str]:
     return imported_symbols
 
 
+def _normalize_context_snippet(text: str) -> str:
+    collapsed = " ".join(str(text or "").strip().split())
+    return collapsed[:240].strip()
+
+
+def _collect_parameter_symbols(content_bytes: bytes, node: Node) -> set[str]:
+    parameter_symbols: set[str] = set()
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if not current.is_named:
+            continue
+        parameter_child = _find_parameter_container(current)
+        if parameter_child is not None:
+            parameter_symbols.update(
+                _ordered_unique_set(_collect_binding_identifier_texts(content_bytes, parameter_child))
+            )
+        stack.extend(reversed(list(current.children)))
+    return parameter_symbols
+
+
+def _collect_decorator_symbols(content_bytes: bytes, node: Node, language: str) -> set[str]:
+    if language != "python":
+        return set()
+
+    decorated_node = node if str(node.type or "") == "decorated_definition" else getattr(node, "parent", None)
+    if decorated_node is None or str(getattr(decorated_node, "type", "") or "") != "decorated_definition":
+        return set()
+
+    decorator_symbols: set[str] = set()
+    for child in decorated_node.children:
+        if not child.is_named or str(child.type or "") != "decorator":
+            continue
+        decorator_symbols.update(_ordered_unique_set(_collect_identifier_texts(content_bytes, child)))
+    return decorator_symbols
+
+
+def _collect_file_level_import_snippets(content_bytes: bytes, root: Node) -> list[str]:
+    snippets: list[str] = []
+    for child in getattr(root, "children", []):
+        if not getattr(child, "is_named", False):
+            continue
+        if not _is_import_like_node(str(child.type or "")):
+            continue
+        snippet = _normalize_context_snippet(_decode_node_text(content_bytes, child))
+        if snippet:
+            snippets.append(snippet)
+    return _ordered_unique(snippets, cap=12)
+
+
+def _find_enclosing_class_node(node: Node, language: str) -> Node | None:
+    current = getattr(node, "parent", None)
+    while current is not None:
+        if _node_matches_chunk_type(language, current) == "class":
+            return current
+        current = getattr(current, "parent", None)
+    return None
+
+
+def _extract_parent_class_name_from_signature(language: str, signature: str) -> str:
+    if not signature:
+        return ""
+    if language == "python":
+        match = re.search(r"class\s+[A-Za-z_][A-Za-z0-9_]*\(([^)]*)\)", signature)
+        if match:
+            return match.group(1).strip()
+    if language in {"javascript", "typescript"}:
+        match = re.search(r"class\s+[A-Za-z_$][A-Za-z0-9_$]*\s+extends\s+([A-Za-z_$][A-Za-z0-9_$.]*)", signature)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _extract_enclosing_class_context(content_bytes: bytes, node: Node, language: str) -> tuple[str, str]:
+    class_node = _find_enclosing_class_node(node, language)
+    if class_node is None:
+        return "", ""
+
+    class_text = _decode_node_text(content_bytes, class_node)
+    header_line = ""
+    for line in class_text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            header_line = stripped
+            break
+    signature = _normalize_context_snippet(header_line)
+    return signature, _extract_parent_class_name_from_signature(language, signature)
+
+
+def _extract_context_decorators(content_bytes: bytes, node: Node, language: str) -> list[str]:
+    return sorted(_collect_decorator_symbols(content_bytes, node, language))
+
+
+def _extract_context_exports(raw_code: str, language: str, symbol_name: str) -> list[str]:
+    if language not in {"javascript", "typescript"} or not symbol_name:
+        return []
+    header = "\n".join(raw_code.splitlines()[:4])
+    if "exports." in header or "module.exports" in header or re.search(r"\bexport\b", header):
+        return [symbol_name]
+    return []
+
+
 def _collect_binding_identifier_texts(content_bytes: bytes, node: Node) -> list[str]:
     tokens: list[str] = []
     stack = [node]
@@ -1039,16 +1202,21 @@ def _collect_nested_symbol_names(content_bytes: bytes, node: Node, language: str
 
 def _build_anonymization_context(content_bytes: bytes, node: Node, language: str) -> AnonymizationContext:
     imported_symbols = _collect_imported_symbols(content_bytes, node)
+    parameter_symbols = _collect_parameter_symbols(content_bytes, node)
     local_variable_symbols = _collect_local_binding_symbols(content_bytes, node, language)
     local_function_symbols, local_class_symbols = _collect_nested_symbol_names(content_bytes, node, language)
+    decorator_symbols = _collect_decorator_symbols(content_bytes, node, language)
     local_variable_symbols -= imported_symbols
+    local_variable_symbols -= parameter_symbols
     local_function_symbols -= imported_symbols
     local_class_symbols -= imported_symbols
     return AnonymizationContext(
         imported_symbols=imported_symbols,
+        parameter_symbols=parameter_symbols,
         local_variable_symbols=local_variable_symbols,
         local_function_symbols=local_function_symbols,
         local_class_symbols=local_class_symbols,
+        decorator_symbols=decorator_symbols,
     )
 
 
@@ -1463,9 +1631,9 @@ def _iter_string_ranges(code: str, *, language: str) -> list[tuple[int, int]]:
 def _preserved_symbols_for_language(language: str) -> set[str]:
     normalized_language = str(language or "").strip().lower()
     if normalized_language == "python":
-        return set(PYTHON_BUILTIN_SYMBOLS)
+        return set(PYTHON_BUILTIN_SYMBOLS) | set(PYTHON_WELL_KNOWN_API_SYMBOLS)
     if normalized_language in {"javascript", "typescript"}:
-        return set(JAVASCRIPT_COMMON_GLOBALS)
+        return set(JAVASCRIPT_COMMON_GLOBALS) | set(JAVASCRIPT_WELL_KNOWN_API_SYMBOLS)
     if normalized_language == "ruby":
         return set(RUBY_COMMON_SYMBOLS)
     if normalized_language == "php":
@@ -1716,6 +1884,25 @@ def _normalize_string_fragment(
     return replacement
 
 
+def _should_preserve_string_literal_content(language: str, content: str) -> bool:
+    if language not in {"javascript", "typescript"}:
+        return False
+
+    stripped = str(content or "").strip()
+    if not stripped:
+        return False
+    lowered = stripped.lower()
+    if lowered in JAVASCRIPT_UI_TAG_LITERALS:
+        return True
+    if JAVASCRIPT_UI_CLASS_LITERAL_RE.fullmatch(stripped):
+        return True
+    if JAVASCRIPT_SELECTOR_LITERAL_RE.fullmatch(stripped):
+        return True
+    if "<" in stripped and ">" in stripped and any(marker in lowered for marker in ("<svg", "</", "<div", "<span", "<path", "<button")):
+        return True
+    return False
+
+
 def _normalize_string_literal_segment(
     *,
     language: str,
@@ -1730,6 +1917,8 @@ def _normalize_string_literal_segment(
         return segment
 
     prefix, opener, content, closer = parsed
+    if _should_preserve_string_literal_content(language, content):
+        return segment
     if language == "shell" and "$" in content:
         parts: list[str] = []
         cursor = 0
@@ -1972,11 +2161,16 @@ def _anonymize_code(
     chunk_type: str,
     call_tokens: list[str],
     imported_symbols: set[str],
+    parameter_symbols: set[str],
     local_variable_symbols: set[str],
     local_function_symbols: set[str],
     local_class_symbols: set[str],
+    decorator_symbols: set[str],
 ) -> AnonymizationResult:
+    preserve_top_level_symbol = language in PARTIAL_ANONYMIZATION_LANGUAGES
     if chunk_type == "class":
+        if preserve_top_level_symbol:
+            return AnonymizationResult(code=normalized_code, replacements={})
         anonymized_code = _anonymize_class_code(normalized_code, symbol_name)
         replacements = {symbol_name: "CLASS_0"} if symbol_name and anonymized_code != normalized_code else {}
         return AnonymizationResult(code=anonymized_code, replacements=replacements)
@@ -1984,7 +2178,8 @@ def _anonymize_code(
     preserve_exact: set[str] = set(COMMON_RESERVED_WORDS)
     preserve_exact.update(_preserved_symbols_for_language(language))
     preserve_exact.update(imported_symbols)
-    local_symbols = local_variable_symbols | local_function_symbols | local_class_symbols
+    preserve_exact.update(decorator_symbols)
+    local_symbols = parameter_symbols | local_variable_symbols | local_function_symbols | local_class_symbols
     for token in call_tokens:
         parts = [part for part in token.split(".") if part]
         if not parts:
@@ -1999,13 +2194,14 @@ def _anonymize_code(
     replacements: dict[str, str] = {}
     string_replacements: dict[str, str] = {}
     next_string_index = [0]
+    next_arg_index = 0
     next_var_index = 0
     next_function_index = 1
     next_class_index = 1
-    symbol_alias = "CLASS_0" if chunk_type == "class" else "FUNC_0"
+    symbol_alias = symbol_name if preserve_top_level_symbol and symbol_name else "FUNC_0"
 
     def replace_token(token: str, start: int, end: int) -> str:
-        nonlocal next_var_index, next_function_index, next_class_index
+        nonlocal next_arg_index, next_var_index, next_function_index, next_class_index
         lowered = token.lower()
         if _should_preserve_identifier_context(language, normalized_code, start, end):
             return token
@@ -2020,7 +2216,10 @@ def _anonymize_code(
         if replacement is not None:
             return replacement
 
-        if token in local_class_symbols:
+        if token in parameter_symbols and language in PARTIAL_ANONYMIZATION_LANGUAGES:
+            replacement = f"ARG_{next_arg_index}"
+            next_arg_index += 1
+        elif token in local_class_symbols:
             replacement = f"CLASS_{next_class_index}"
             next_class_index += 1
         elif token in local_function_symbols:
@@ -2251,6 +2450,7 @@ def build_code_chunk_candidates(
     if not spans:
         return candidates, filtered_count
 
+    file_level_imports = _collect_file_level_import_snippets(content_bytes, root)
     spans_by_range = {(span.start_byte, span.end_byte): span for span in spans}
     stack = [root]
     while stack:
@@ -2299,13 +2499,22 @@ def build_code_chunk_candidates(
         ast_node_sequence = _collect_ast_node_sequence(node, cap=max(1, ast_node_sequence_cap))
         structure_signature = _build_structure_signature(span.chunk_type, ast_node_sequence)
         anonymization_context = _build_anonymization_context(content_bytes, node, language)
+        context_decorators = _extract_context_decorators(content_bytes, node, language)
+        context_class_signature, context_parent_class = _extract_enclosing_class_context(
+            content_bytes,
+            node,
+            language,
+        )
+        context_exports = _extract_context_exports(raw_code, language, span.symbol_name)
         if language in {"javascript", "typescript"} and span.chunk_type == "function":
+            header_parameter_symbols = _extract_js_ts_header_parameter_names(normalized_code)
             anonymization_context = AnonymizationContext(
                 imported_symbols=anonymization_context.imported_symbols,
-                local_variable_symbols=anonymization_context.local_variable_symbols
-                | _extract_js_ts_header_parameter_names(normalized_code),
+                parameter_symbols=anonymization_context.parameter_symbols | header_parameter_symbols,
+                local_variable_symbols=anonymization_context.local_variable_symbols - header_parameter_symbols,
                 local_function_symbols=anonymization_context.local_function_symbols,
                 local_class_symbols=anonymization_context.local_class_symbols,
+                decorator_symbols=anonymization_context.decorator_symbols,
             )
         control_flow_tags = _collect_control_flow_tags(
             ast_node_sequence=ast_node_sequence,
@@ -2332,9 +2541,11 @@ def build_code_chunk_candidates(
             chunk_type=span.chunk_type,
             call_tokens=call_tokens,
             imported_symbols=anonymization_context.imported_symbols,
+            parameter_symbols=anonymization_context.parameter_symbols,
             local_variable_symbols=anonymization_context.local_variable_symbols,
             local_function_symbols=anonymization_context.local_function_symbols,
             local_class_symbols=anonymization_context.local_class_symbols,
+            decorator_symbols=anonymization_context.decorator_symbols,
         )
         anonymized_code = _canonicalize_named_arrow_function_code(
             anonymization_result.code,
@@ -2354,9 +2565,11 @@ def build_code_chunk_candidates(
                 chunk_type=span.chunk_type,
                 call_tokens=call_tokens,
                 imported_symbols=anonymization_context.imported_symbols,
+                parameter_symbols=anonymization_context.parameter_symbols,
                 local_variable_symbols=set(),
                 local_function_symbols=set(),
                 local_class_symbols=set(),
+                decorator_symbols=anonymization_context.decorator_symbols,
             )
             conservative_code = _canonicalize_named_arrow_function_code(
                 conservative_result.code,
@@ -2396,6 +2609,11 @@ def build_code_chunk_candidates(
                 normalized_hash=hashlib.sha1(normalized_code.encode("utf-8")).hexdigest(),
                 anonymized_hash=hashlib.sha1(anonymized_code.encode("utf-8")).hexdigest(),
                 validation_status=validation_status,
+                context_imports=file_level_imports,
+                context_decorators=context_decorators,
+                context_class_signature=context_class_signature,
+                context_parent_class=context_parent_class,
+                context_exports=context_exports,
             )
         )
 

@@ -63,6 +63,11 @@ EMBEDDING_BACKFILL_SOURCE_FIELDS = [
     "raw_hash",
     "anonymized_code",
     "anonymized_hash",
+    "context_imports",
+    "context_decorators",
+    "context_class_signature",
+    "context_parent_class",
+    "context_exports",
     "chunked_at",
 ]
 EMBEDDING_BACKFILL_SCAN_SIZE = 200
@@ -366,10 +371,18 @@ def _prepare_enrichment_source(
 ) -> dict[str, Any]:
     _ = force_reembed
     return {
+        "language": source.get("language"),
+        "file_path": source.get("file_path"),
+        "symbol_name": source.get("symbol_name"),
         "raw_code": source.get("raw_code"),
         "raw_hash": source.get("raw_hash"),
         "anonymized_code": source.get("anonymized_code"),
         "anonymized_hash": source.get("anonymized_hash"),
+        "context_imports": source.get("context_imports"),
+        "context_decorators": source.get("context_decorators"),
+        "context_class_signature": source.get("context_class_signature"),
+        "context_parent_class": source.get("context_parent_class"),
+        "context_exports": source.get("context_exports"),
     }
 
 
@@ -377,7 +390,7 @@ def _raw_code_line_count(source: dict[str, Any]) -> int:
     raw_code = str(source.get("raw_code") or "")
     if not raw_code.strip():
         return 0
-    return len(raw_code.splitlines())
+    return sum(1 for line in raw_code.splitlines() if line.strip())
 
 
 def _is_eligible_source_chunk(source: dict[str, Any]) -> bool:

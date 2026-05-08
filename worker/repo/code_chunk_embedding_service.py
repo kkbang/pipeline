@@ -1,4 +1,5 @@
 import logging
+import hashlib
 from dataclasses import dataclass, field
 
 import requests
@@ -7,6 +8,7 @@ from worker.common.config import settings
 
 
 logger = logging.getLogger(__name__)
+CONTEXT_AWARE_EMBEDDING_LANGUAGES = {"python", "javascript", "typescript"}
 
 
 @dataclass(slots=True)
@@ -69,10 +71,10 @@ class CodeChunkEmbeddingClient:
         for _doc_id, source in documents:
             if embedding_field in source:
                 continue
-            text = str(source.get(text_field) or "").strip()
-            hash_value = str(source.get(hash_field) or "").strip()
-            if not text or not hash_value:
+            text = self._build_embedding_text(source, text_field=text_field)
+            if not text:
                 continue
+            hash_value = hashlib.sha1(text.encode("utf-8")).hexdigest()
             cache_key = (embedding_field, hash_value)
             cached_embedding = self._cache.get(cache_key)
             if cached_embedding is not None:
@@ -101,12 +103,78 @@ class CodeChunkEmbeddingClient:
                 self._cache[(embedding_field, hash_value)] = embedding
 
         for _doc_id, source in documents:
-            hash_value = str(source.get(hash_field) or "").strip()
-            if not hash_value:
+            text = self._build_embedding_text(source, text_field=text_field)
+            if not text:
                 continue
+            hash_value = hashlib.sha1(text.encode("utf-8")).hexdigest()
             embedding = self._cache.get((embedding_field, hash_value))
             if embedding is not None:
                 source[embedding_field] = embedding
+
+    def _build_embedding_text(self, source: dict, *, text_field: str) -> str:
+        code = str(source.get(text_field) or "").strip()
+        if not code:
+            return ""
+
+        language = str(source.get("language") or "").strip().lower()
+        if language not in CONTEXT_AWARE_EMBEDDING_LANGUAGES:
+            return code
+
+        context_lines: list[str] = []
+        imports = self._normalize_context_values(source.get("context_imports"))
+        decorators = self._normalize_context_values(source.get("context_decorators"))
+        exports = self._normalize_context_values(source.get("context_exports"))
+        class_signature = str(source.get("context_class_signature") or "").strip()
+        parent_class = str(source.get("context_parent_class") or "").strip()
+        symbol_name = str(source.get("symbol_name") or "").strip()
+        module_path = str(source.get("file_path") or "").strip()
+
+        if imports:
+            context_lines.append(f"imports: {', '.join(imports)}")
+        if decorators:
+            context_lines.append(f"decorators: {', '.join(decorators)}")
+        if class_signature:
+            context_lines.append(f"class: {class_signature}")
+        if parent_class:
+            context_lines.append(f"parent_class: {parent_class}")
+        if exports:
+            context_lines.append(f"exports: {', '.join(exports)}")
+        if symbol_name:
+            context_lines.append(f"symbol: {symbol_name}")
+        if module_path:
+            context_lines.append(f"module_path: {module_path}")
+
+        if not context_lines:
+            return code
+
+        return "\n".join(
+            [
+                "<CONTEXT>",
+                *context_lines,
+                "</CONTEXT>",
+                "",
+                "<CODE>",
+                code,
+                "</CODE>",
+            ]
+        )
+
+    def _normalize_context_values(self, value: object) -> list[str]:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return [normalized] if normalized else []
+        if not isinstance(value, list):
+            return []
+
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            normalized = str(item or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered.append(normalized)
+        return ordered
 
     def _request_embeddings(
         self,
