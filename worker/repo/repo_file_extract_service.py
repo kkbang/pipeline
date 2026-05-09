@@ -14,6 +14,13 @@ from worker.repo.repo_processing_recovery import (
     build_crawl_retry_source,
     is_missing_snapshot_root_error,
 )
+from worker.repo.repo_retry_state import (
+    REPO_PROCESSING_RETRY_STAGE_CRAWL,
+    REPO_PROCESSING_RETRY_STAGE_EXTRACT,
+    clear_repo_processing_retry_state,
+    is_repo_processing_retry_managed,
+    mark_repo_processing_retry_pending,
+)
 from worker.repo.repo_snapshot_local_paths import (
     resolve_snapshot_root_path,
     strip_local_snapshot_fields,
@@ -155,35 +162,15 @@ def _load_repo_docs_for_extraction(store: OpenSearchStore, now: datetime) -> lis
         value="downloaded",
         size=max(1, settings.repo_file_extract_repo_limit),
     )
-    extracting_docs = store.find_documents_by_field(
-        collection_name=REPO_REGISTRY_INDEX,
-        field_name="file_extract_status",
-        value="extracting",
-        size=max(1, settings.repo_file_extract_repo_limit),
-    )
 
     repo_docs_by_id = {}
     for hit in downloaded_docs:
         source = hit.get("_source", {})
-        if source.get("file_extract_status") == "extracted":
+        if source.get("file_extract_status") in {"extracted", "extract_failed", "extracting"}:
+            continue
+        if is_repo_processing_retry_managed(source):
             continue
         repo_docs_by_id[hit["_id"]] = hit
-
-    stale_docs = []
-    for hit in extracting_docs:
-        source = hit.get("_source", {})
-        if source.get("crawl_status") != "downloaded":
-            continue
-        if _is_stale_extracting(source, now):
-            repo_docs_by_id[hit["_id"]] = hit
-            stale_docs.append(hit)
-
-    if stale_docs:
-        logger.warning(
-            "Reclaiming stale repo extraction leases: count=%s lease_seconds=%s",
-            len(stale_docs),
-            settings.repo_crawl_lease_seconds,
-        )
 
     return list(repo_docs_by_id.values())
 
@@ -447,7 +434,32 @@ def run_repo_file_extraction_for_repo(
 
         if source.get("file_extract_status") == "extracting":
             if _is_stale_extracting(source, datetime.now(timezone.utc)):
-                logger.warning("Reclaiming stale extraction lease for repo_id=%s", repo_id)
+                pending_source = mark_repo_processing_retry_pending(
+                    {
+                        **strip_local_snapshot_fields(source),
+                        "file_extract_status": "extract_failed",
+                        "file_extract_finished_at": extraction_started_at,
+                        "file_extract_error_message": (
+                            str(source.get("file_extract_error_message") or "").strip()
+                            or "stale_extracting_lease_expired"
+                        ),
+                    },
+                    stage=REPO_PROCESSING_RETRY_STAGE_EXTRACT,
+                    reason="stale_extracting_lease_expired",
+                    marked_at=extraction_started_at,
+                )
+                store.replace_document(
+                    collection_name=REPO_REGISTRY_INDEX,
+                    doc_id=repo_id,
+                    source=pending_source,
+                    refresh=refresh_writes,
+                )
+                return {
+                    "repo_id": repo_id,
+                    "stage": "extract",
+                    "stage_status": "retry_pending",
+                    "reason": "stale_extracting_lease_expired",
+                }
             else:
                 return {
                     "repo_id": repo_id,
@@ -480,7 +492,7 @@ def run_repo_file_extraction_for_repo(
             final_status = "extract_failed"
 
         updated_source = {
-            **strip_local_snapshot_fields(claimed_source),
+            **clear_repo_processing_retry_state(claimed_source),
             "file_extract_status": final_status,
             "file_extract_finished_at": extract_finished_at,
             "file_extract_error_message": validation_error,
@@ -493,6 +505,13 @@ def run_repo_file_extraction_for_repo(
             "file_extract_skipped_non_utf8_files": stats.skipped_non_utf8_files,
             "file_extract_deleted_previous_docs": stats.deleted_previous_docs,
         }
+        if final_status == "extract_failed":
+            updated_source = mark_repo_processing_retry_pending(
+                updated_source,
+                stage=REPO_PROCESSING_RETRY_STAGE_EXTRACT,
+                reason=str(validation_error or "extract_failed"),
+                marked_at=extract_finished_at,
+            )
         store.replace_document(
             collection_name=REPO_REGISTRY_INDEX,
             doc_id=repo_id,
@@ -516,10 +535,15 @@ def run_repo_file_extraction_for_repo(
             repo_doc = _load_repo_doc_for_extraction(store, repo_id) or {"_source": {}}
             failure_finished_at = datetime.now(timezone.utc).isoformat()
             if is_missing_snapshot_root_error(exc):
-                retry_source = build_crawl_retry_source(
+                retry_source = mark_repo_processing_retry_pending(
+                    build_crawl_retry_source(
                     dict(repo_doc.get("_source", {})),
                     error_message=f"requeued_missing_snapshot_root_from_extract: {exc}",
                     finished_at=failure_finished_at,
+                    ),
+                    stage=REPO_PROCESSING_RETRY_STAGE_CRAWL,
+                    reason=f"missing_snapshot_root_from_extract: {exc}",
+                    marked_at=failure_finished_at,
                 )
                 store.replace_document(
                     collection_name=REPO_REGISTRY_INDEX,
@@ -535,12 +559,17 @@ def run_repo_file_extraction_for_repo(
                     "error_message": str(exc),
                 }
 
-            failed_source = {
+            failed_source = mark_repo_processing_retry_pending(
+                {
                 **strip_local_snapshot_fields(dict(repo_doc.get("_source", {}))),
                 "file_extract_status": "extract_failed",
                 "file_extract_finished_at": failure_finished_at,
                 "file_extract_error_message": str(exc),
-            }
+                },
+                stage=REPO_PROCESSING_RETRY_STAGE_EXTRACT,
+                reason=str(exc),
+                marked_at=failure_finished_at,
+            )
             store.replace_document(
                 collection_name=REPO_REGISTRY_INDEX,
                 doc_id=repo_id,
@@ -659,7 +688,7 @@ def run_repo_file_extraction() -> None:
                 final_status = "extract_failed"
 
             updated_source = {
-                **source,
+                **clear_repo_processing_retry_state(source),
                 "file_extract_status": final_status,
                 "file_extract_finished_at": extract_finished_at,
                 "file_extract_error_message": validation_error,
@@ -672,6 +701,13 @@ def run_repo_file_extraction() -> None:
                 "file_extract_skipped_non_utf8_files": stats.skipped_non_utf8_files,
                 "file_extract_deleted_previous_docs": stats.deleted_previous_docs,
             }
+            if final_status == "extract_failed":
+                updated_source = mark_repo_processing_retry_pending(
+                    updated_source,
+                    stage=REPO_PROCESSING_RETRY_STAGE_EXTRACT,
+                    reason=str(validation_error or "extract_failed"),
+                    marked_at=extract_finished_at,
+                )
             store.replace_document(
                 collection_name=REPO_REGISTRY_INDEX,
                 doc_id=doc_id,
@@ -683,10 +719,15 @@ def run_repo_file_extraction() -> None:
             logger.warning("File extraction failed for repo_id=%s error=%s", doc_id, str(exc))
             failure_finished_at = datetime.now(timezone.utc).isoformat()
             if is_missing_snapshot_root_error(exc):
-                retry_source = build_crawl_retry_source(
+                retry_source = mark_repo_processing_retry_pending(
+                    build_crawl_retry_source(
                     source,
                     error_message=f"requeued_missing_snapshot_root_from_extract: {exc}",
                     finished_at=failure_finished_at,
+                    ),
+                    stage=REPO_PROCESSING_RETRY_STAGE_CRAWL,
+                    reason=f"missing_snapshot_root_from_extract: {exc}",
+                    marked_at=failure_finished_at,
                 )
                 store.replace_document(
                     collection_name=REPO_REGISTRY_INDEX,
@@ -697,12 +738,17 @@ def run_repo_file_extraction() -> None:
                 claimed_docs[doc_id]["_source"] = retry_source
                 continue
 
-            failed_source = {
+            failed_source = mark_repo_processing_retry_pending(
+                {
                 **source,
                 "file_extract_status": "extract_failed",
                 "file_extract_finished_at": failure_finished_at,
                 "file_extract_error_message": str(exc),
-            }
+                },
+                stage=REPO_PROCESSING_RETRY_STAGE_EXTRACT,
+                reason=str(exc),
+                marked_at=failure_finished_at,
+            )
             store.replace_document(
                 collection_name=REPO_REGISTRY_INDEX,
                 doc_id=doc_id,

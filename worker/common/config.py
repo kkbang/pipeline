@@ -147,6 +147,10 @@ class Settings:
     repo_crawl_max_extracted_backlog: int = int(
         os.getenv("REPO_CRAWL_MAX_EXTRACTED_BACKLOG", "5000")
     )
+    repo_retry_repo_limit: int = int(os.getenv("REPO_RETRY_REPO_LIMIT", "500"))
+    repo_retry_stale_after_seconds: int = int(
+        os.getenv("REPO_RETRY_STALE_AFTER_SECONDS", str(repo_crawl_lease_seconds))
+    )
     repo_whale_hint_size_kb: int = int(os.getenv("REPO_WHALE_HINT_SIZE_KB", "50000"))
     repo_giant_hint_size_kb: int = int(os.getenv("REPO_GIANT_HINT_SIZE_KB", "200000"))
     repo_file_extract_repo_limit: int = int(os.getenv("REPO_FILE_EXTRACT_REPO_LIMIT", "1000"))

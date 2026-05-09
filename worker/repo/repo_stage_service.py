@@ -10,6 +10,7 @@ from worker.repo.repo_pipeline_manifest_service import (
     repo_id_shard_index,
     resolve_pipeline_base_dir,
 )
+from worker.repo.repo_retry_state import is_repo_processing_retry_managed
 from worker.repo.repo_snapshot_cleanup import needs_snapshot_cleanup_retry
 from worker.storage.opensearch_store import OpenSearchStore
 
@@ -148,27 +149,15 @@ def list_repo_ids_for_extraction(
         )
 
     store = OpenSearchStore()
-    now = datetime.now(timezone.utc)
-
     selected_repo_ids = []
     for hit in _iter_repo_docs_by_field(store, "crawl_status", "downloaded"):
         doc_id = hit.get("_id")
         source = hit.get("_source", {})
         if not _matches_batch_id(source, "crawl_batch_id", batch_id):
             continue
-        if source.get("file_extract_status") == "extracted":
+        if source.get("file_extract_status") in {"extracted", "extracting", "extract_failed"}:
             continue
-        if isinstance(doc_id, str) and doc_id.strip():
-            selected_repo_ids.append(doc_id)
-
-    for hit in _iter_repo_docs_by_field(store, "file_extract_status", "extracting"):
-        doc_id = hit.get("_id")
-        source = hit.get("_source", {})
-        if source.get("crawl_status") != "downloaded":
-            continue
-        if not _matches_batch_id(source, "crawl_batch_id", batch_id):
-            continue
-        if not _is_stale(source.get("file_extract_started_at"), now):
+        if is_repo_processing_retry_managed(source):
             continue
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)

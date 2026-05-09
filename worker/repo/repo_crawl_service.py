@@ -21,6 +21,14 @@ from worker.repo.repo_pipeline_manifest_service import (
     repo_id_shard_index,
     write_stage_manifest,
 )
+from worker.repo.repo_retry_state import (
+    REPO_PROCESSING_RETRY_STATE_PENDING,
+    REPO_PROCESSING_RETRY_STATE_RETRYING,
+    REPO_PROCESSING_RETRY_STAGE_CRAWL,
+    clear_repo_processing_retry_state,
+    mark_repo_processing_retry_pending,
+    refresh_repo_processing_retry_candidates,
+)
 from worker.repo.repo_snapshot_local_paths import (
     normalize_repo_identity,
     resolve_extracted_root,
@@ -223,25 +231,9 @@ def _load_repo_docs_for_crawl(
     now: datetime,
 ) -> list[dict]:
     repo_docs_by_id = {}
-    stale_count = 0
 
     for hit in _iter_repo_docs_by_field(store, "crawl_status", "scheduled"):
         repo_docs_by_id[hit["_id"]] = hit
-
-    for hit in _iter_repo_docs_by_field(store, "crawl_status", "downloading"):
-        if _is_stale_downloading(hit.get("_source", {}), now):
-            stale_count += 1
-            repo_docs_by_id[hit["_id"]] = hit
-
-    for hit in _iter_repo_docs_by_field(store, "crawl_status", "crawl_failed"):
-        repo_docs_by_id[hit["_id"]] = hit
-
-    if stale_count > 0:
-        logger.warning(
-            "Reclaiming stale repo crawl leases: count=%s lease_seconds=%s",
-            stale_count,
-            settings.repo_crawl_lease_seconds,
-        )
 
     repo_docs = sorted(
         repo_docs_by_id.values(),
@@ -328,6 +320,7 @@ def _split_repo_docs_for_crawl_phases(
 
 def get_pending_repo_crawl_stats() -> dict:
     store = OpenSearchStore()
+    refresh_repo_processing_retry_candidates(store=store, refresh_writes=False)
     now = datetime.now(timezone.utc)
     repo_docs = _load_repo_docs_for_crawl(store, now)
     tier_counts = _repo_tier_counts(repo_docs) if repo_docs else {}
@@ -367,7 +360,11 @@ def get_repo_processing_backlog_stats(*, store: OpenSearchStore | None = None) -
         query={
             "bool": {
                 "must": [_exact_term_query("crawl_status", "downloaded")],
-                "must_not": [_exact_term_query("file_extract_status", "extracted")],
+                "must_not": [
+                    _exact_term_query("file_extract_status", "extracted"),
+                    _exact_term_query("processing_retry_state", REPO_PROCESSING_RETRY_STATE_PENDING),
+                    _exact_term_query("processing_retry_state", REPO_PROCESSING_RETRY_STATE_RETRYING),
+                ],
             }
         },
     )
@@ -376,7 +373,11 @@ def get_repo_processing_backlog_stats(*, store: OpenSearchStore | None = None) -
         query={
             "bool": {
                 "must": [_exact_term_query("file_extract_status", "extracted")],
-                "must_not": [_exact_term_query("chunk_status", "chunked")],
+                "must_not": [
+                    _exact_term_query("chunk_status", "chunked"),
+                    _exact_term_query("processing_retry_state", REPO_PROCESSING_RETRY_STATE_PENDING),
+                    _exact_term_query("processing_retry_state", REPO_PROCESSING_RETRY_STATE_RETRYING),
+                ],
             }
         },
     )
@@ -531,9 +532,9 @@ def _mark_repo_downloaded(
 ) -> None:
     store = OpenSearchStore(base_dir=base_dir)
     crawl_finished_at = datetime.now(timezone.utc).isoformat()
-    reset_source = _reset_downstream_processing_fields(
+    reset_source = clear_repo_processing_retry_state(_reset_downstream_processing_fields(
         strip_local_snapshot_fields(claimed_source)
-    )
+    ))
     downloaded_source = {
         **reset_source,
         "crawl_batch_id": batch_id,
@@ -655,6 +656,7 @@ async def _crawl_repo_batch(
 
 def repo_crawler(batch_id: str) -> None:
     store = OpenSearchStore()
+    refresh_repo_processing_retry_candidates(store=store, refresh_writes=False)
     crawl_paused, pause_reasons = should_pause_repo_crawl_due_to_backlog(store=store)
     if crawl_paused:
         logger.warning(
@@ -732,6 +734,15 @@ def repo_crawler(batch_id: str) -> None:
                 "snapshot_ref": snapshot_metadata.get("ref"),
                 "snapshot_archive_url": snapshot_metadata.get("archive_url"),
             }
+            if crawl_status == "crawl_failed":
+                updated_source = mark_repo_processing_retry_pending(
+                    updated_source,
+                    stage=REPO_PROCESSING_RETRY_STAGE_CRAWL,
+                    reason=str(crawl_result.error),
+                    marked_at=crawl_finished_at,
+                )
+            else:
+                updated_source = clear_repo_processing_retry_state(updated_source)
             claimed_docs[doc_id]["_source"] = updated_source
             pending_registry_docs.append((doc_id, updated_source))
             if len(pending_registry_docs) >= bulk_flush_docs:
@@ -811,3 +822,114 @@ def repo_crawler(batch_id: str) -> None:
                 entries=shard_entries,
                 shard_index=shard_index,
             )
+
+
+def run_repo_snapshot_download_for_repo(
+    repo_id: str,
+    *,
+    store: OpenSearchStore | None = None,
+    refresh_writes: bool = False,
+    batch_id: str | None = None,
+) -> dict:
+    if store is None:
+        store = OpenSearchStore()
+
+    repo_doc = store.get_document(collection_name="repo_registry_index", doc_id=repo_id)
+    if not repo_doc or not repo_doc.get("_source"):
+        return {
+            "repo_id": repo_id,
+            "stage": "crawl",
+            "stage_status": "skipped",
+            "reason": "repo_not_found",
+        }
+
+    source = dict(repo_doc.get("_source", {}))
+    crawl_status = str(source.get("crawl_status") or "").strip()
+    if crawl_status == "downloaded":
+        return {
+            "repo_id": repo_id,
+            "stage": "crawl",
+            "stage_status": "downloaded",
+            "reason": "already_downloaded",
+        }
+
+    if crawl_status == "downloading" and not _is_stale_downloading(source, datetime.now(timezone.utc)):
+        return {
+            "repo_id": repo_id,
+            "stage": "crawl",
+            "stage_status": "skipped",
+            "reason": "already_downloading",
+        }
+
+    started_at = datetime.now(timezone.utc).isoformat()
+    retry_batch_id = batch_id or f"retry:{started_at}"
+    claimed_docs = _claim_repo_docs(
+        store=store,
+        repo_docs=[repo_doc],
+        started_at=started_at,
+        batch_id=retry_batch_id,
+    )
+    claimed_source = dict(claimed_docs[repo_id]["_source"])
+    semaphores = _build_crawl_semaphores()
+    download_concurrency = max(
+        1,
+        int(settings.repo_crawl_download_concurrency or settings.repo_crawl_concurrency),
+    )
+
+    async def _run_single_repo() -> RepoSnapshotCrawlResult:
+        async with _build_async_client(download_concurrency) as client:
+            return await _crawl_single_repo(
+                client=client,
+                base_dir=store.base_dir,
+                hit={"_id": repo_id, "_source": claimed_source},
+                semaphores=semaphores,
+                batch_id=retry_batch_id,
+            )
+
+    crawl_result = asyncio.run(_run_single_repo())
+    crawl_finished_at = datetime.now(timezone.utc).isoformat()
+    snapshot_metadata = crawl_result.snapshot_metadata or {}
+    if crawl_result.error is None:
+        return {
+            "repo_id": repo_id,
+            "stage": "crawl",
+            "stage_status": "downloaded",
+            "snapshot_ref": snapshot_metadata.get("ref"),
+            "snapshot_archive_url": snapshot_metadata.get("archive_url"),
+        }
+
+    final_crawl_status = "crawl_failed"
+    if (
+        isinstance(crawl_result.error, httpx.HTTPStatusError)
+        and crawl_result.error.response.status_code == 404
+    ):
+        final_crawl_status = "crawl_not_found"
+    updated_source = {
+        **strip_local_snapshot_fields(claimed_source),
+        "crawl_status": final_crawl_status,
+        "crawl_finished_at": crawl_finished_at,
+        "crawl_error_message": str(crawl_result.error),
+        "snapshot_ref": snapshot_metadata.get("ref"),
+        "snapshot_archive_url": snapshot_metadata.get("archive_url"),
+    }
+    if final_crawl_status == "crawl_failed":
+        updated_source = mark_repo_processing_retry_pending(
+            updated_source,
+            stage=REPO_PROCESSING_RETRY_STAGE_CRAWL,
+            reason=str(crawl_result.error),
+            marked_at=crawl_finished_at,
+        )
+    else:
+        updated_source = clear_repo_processing_retry_state(updated_source)
+    store.replace_document(
+        collection_name="repo_registry_index",
+        doc_id=repo_id,
+        source=updated_source,
+        refresh=refresh_writes,
+    )
+    return {
+        "repo_id": repo_id,
+        "stage": "crawl",
+        "stage_status": final_crawl_status,
+        "error_message": str(crawl_result.error),
+    }
