@@ -8,6 +8,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from worker.common.config import settings
+from worker.repo.repo_chunk_phase import (
+    CHUNK_PHASE_LIGHT,
+    is_whale_repo,
+    normalize_chunk_phase,
+)
 from worker.repo.code_chunk_document import (
     CODE_CHUNK_INDEX_ALIAS,
     CodeChunkCandidate,
@@ -363,10 +368,6 @@ def _chunk_parameters() -> tuple[int, int]:
     if overlap_lines >= max_lines:
         overlap_lines = max(0, max_lines - 1)
     return max_lines, overlap_lines
-
-
-def _whale_repo_threshold_code_bytes() -> int:
-    return max(1, int(settings.repo_chunk_whale_repo_min_code_bytes))
 
 
 def _whale_file_parallelism() -> int:
@@ -1042,9 +1043,11 @@ def _resolve_chunk_execution(
     if code_file_count <= 1:
         return "repo_sequential", 1, repo_total_code_bytes
 
-    whale_threshold = _whale_repo_threshold_code_bytes()
     whale_parallelism = min(_whale_file_parallelism(), code_file_count)
-    if repo_total_code_bytes >= whale_threshold and whale_parallelism > 1:
+    if (
+        is_whale_repo(total_code_bytes=repo_total_code_bytes, code_file_count=code_file_count)
+        and whale_parallelism > 1
+    ):
         return "file_parallel_whale", whale_parallelism, repo_total_code_bytes
 
     return "repo_sequential", 1, repo_total_code_bytes
@@ -1429,7 +1432,9 @@ def run_repo_code_chunking_for_shard(
     shard_count: int | None = None,
     batch_size: int | None = None,
     batch_id: str | None = None,
+    phase: str | None = None,
 ) -> dict:
+    normalized_phase = normalize_chunk_phase(phase, default=CHUNK_PHASE_LIGHT)
     resolved_shard_count = (
         shard_count
         if isinstance(shard_count, int) and shard_count > 0
@@ -1441,6 +1446,7 @@ def run_repo_code_chunking_for_shard(
         batch_id=batch_id,
         shard_index=shard_index,
         shard_count=resolved_shard_count,
+        phase=normalized_phase,
     )
 
     processed_count = 0
@@ -1465,6 +1471,7 @@ def run_repo_code_chunking_for_shard(
                     "stage_status": stage_status,
                     "recorded_at": datetime.now(timezone.utc).isoformat(),
                     "shard_index": shard_index,
+                    "chunk_phase": normalized_phase,
                 }
             )
         elif stage_status == "chunk_failed":
@@ -1476,6 +1483,7 @@ def run_repo_code_chunking_for_shard(
                     "stage_status": stage_status,
                     "recorded_at": datetime.now(timezone.utc).isoformat(),
                     "shard_index": shard_index,
+                    "chunk_phase": normalized_phase,
                 }
             )
         else:
@@ -1491,6 +1499,7 @@ def run_repo_code_chunking_for_shard(
 
     return {
         "stage": "chunk",
+        "phase": normalized_phase,
         "shard_index": shard_index,
         "shard_count": resolved_shard_count,
         "processed_count": processed_count,

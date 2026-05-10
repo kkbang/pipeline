@@ -6,6 +6,7 @@ from airflow.models.dagrun import DagRun
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
+from worker.repo.repo_chunk_phase import CHUNK_PHASE_LIGHT
 from worker.repo.repo_chunk_planning_service import plan_chunk_shards_for_batch
 from worker.repo.repo_file_extract_service import run_repo_file_extraction_for_shard
 
@@ -29,6 +30,7 @@ with DAG(
     tags=["repo", "extract", "parallel"],
 ) as dag:
     shard_count = max(1, settings.repo_pipeline_parallelism)
+    whale_shard_count = max(1, settings.repo_chunk_whale_phase_parallelism)
 
     @task(
         task_id="extract_shard",
@@ -50,6 +52,7 @@ with DAG(
         return plan_chunk_shards_for_batch(
             batch_id=batch_id,
             shard_count=shard_count,
+            whale_shard_count=whale_shard_count,
         )
 
     chunk_plan = plan_chunk_shards()
@@ -57,7 +60,10 @@ with DAG(
     trigger_repo_chunk = TriggerDagRunOperator(
         task_id="trigger_repo_chunk_dag",
         trigger_dag_id="repo_chunk_dag",
-        conf={"batch_id": "{{ dag_run.conf.get('batch_id') if dag_run and dag_run.conf else None }}"},
+        conf={
+            "batch_id": "{{ dag_run.conf.get('batch_id') if dag_run and dag_run.conf else None }}",
+            "phase": CHUNK_PHASE_LIGHT,
+        },
     )
 
     extract_results >> chunk_plan >> trigger_repo_chunk

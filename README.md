@@ -183,11 +183,15 @@ LLM이 생성한 코드나 대규모 코드 코퍼스 안의 유사 코드를 �
 - [repo_chunk_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/repo_chunk_dag.py)
   - DAG ID: `repo_chunk_dag`
   - 스케줄: `repo_extract_dag`에서 trigger
-  - 역할: 추출된 코드를 chunk 단위로 분할
+  - 역할: 추출된 코드를 `light -> whale` 2-phase로 chunk 단위 분할
 - [repo_validation_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/repo_validation_dag.py)
   - DAG ID: `repo_validation_dag`
   - 스케줄: `repo_chunk_dag`에서 trigger
   - 역할: repo 처리 결과 검증 및 다음 crawl 필요 여부 판단
+- [repo_retry_dag.py](/Users/xxuchan/Desktop/kkbang/airflow/dags/repo_retry_dag.py)
+  - DAG ID: `repo_retry_dag`
+  - 스케줄: 수동/trigger 전용
+  - 역할: `crawl_failed`, `extract_failed`, stale lease, 오래 방치된 대기 건을 별도 retry queue로 처리
 
 현재 seed discovery DAG는 config-driven 구조입니다.
 
@@ -221,11 +225,29 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 [code_pipeline_dag]
   -> [repo_snapshot_download]
   -> [repo_extract_dag]
+  -> [repo_chunk_dag(light)]
+  -> [repo_chunk_dag(whale, optional)]
+  -> [repo_validation_dag]
+```
+
+retry 전용 실행 순서는 다음과 같습니다.
+
+```text
+[repo_retry_dag]
+  -> [retry crawl/extract]
   -> [repo_chunk_dag]
   -> [repo_validation_dag]
 ```
 
 현재 repo processing DAG는 각 단계가 `batch_id`를 넘기며 연결되고, extract/chunk/validation 단계는 shard fan-out 방식으로 병렬 처리됩니다. `repo_validation_dag`가 끝난 뒤 pending crawl 대상이 남아 있으면 `code_pipeline_dag`를 다시 trigger 하는 self-draining 구조로 이어집니다.
+
+운영 원칙은 다음과 같습니다.
+
+- `code_pipeline_dag`는 신규 repo 처리 전용입니다.
+- 메인 pipeline은 `scheduled -> downloaded -> extracted -> chunked -> validated` 흐름만 담당합니다.
+- `crawl_failed`, `extract_failed`, stale `downloading/extracting`, 오래 방치된 `downloaded but not extracted`는 메인 pipeline에서 즉시 재시도하지 않습니다.
+- 이런 문서는 `repo_registry_index.processing_retry_*` 상태로만 기록하고, `repo_retry_dag`가 다시 처리합니다.
+- backlog pause 기준도 retry 후보를 제외한 신규 처리 backlog만 기준으로 봅니다.
 
 ## 단계별 역할
 
@@ -302,12 +324,14 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 역할:
 
-- `repo_registry_index`에서 `crawl_status`가 `scheduled`, `crawl_failed`, 또는 stale `downloading`인 repo를 선택합니다.
+- `repo_registry_index`에서 `crawl_status=scheduled`인 신규 repo만 선택합니다.
 - `repo_size_kb` 기반 `normal / whale_hint / giant_hint` tier를 참고해 crawl batch를 구성합니다.
 - `normal` repo를 먼저 처리하고, 그 다음 `whale/giant hint` repo를 처리하는 2-phase scheduling을 사용합니다.
 - download concurrency와 extract concurrency를 분리해 큰 repo의 압축 해제가 download 슬롯을 오래 점유하지 않게 합니다.
 - GitHub snapshot tarball을 내려받고 `local_data/raw/repo_snapshot_download/`와 `local_data/raw/repo_snapshot/` 아래에 저장합니다.
 - 성공 시 `crawl_status=downloaded`로 갱신해 다음 extract 단계가 이어서 처리할 수 있게 합니다.
+- 실패 시에는 즉시 재시도하지 않고 `processing_retry_state=retry_pending`, `processing_retry_stage=crawl` 상태로 남겨 별도 retry DAG가 처리합니다.
+- downstream backlog가 임계치를 넘으면 새 crawl batch는 pause되지만, retry 대상은 이 backlog 계산에서 제외됩니다.
 
 ### 5. File Extraction
 
@@ -322,6 +346,8 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 - snapshot 내부를 순회하면서 텍스트/코드 파일을 분류하고 메타데이터를 집계합니다.
 - `file_extract_total_code_bytes`, `file_extract_code_files_count` 같은 chunk planning용 통계를 함께 저장합니다.
 - 성공 시 `file_extract_status=extracted` 로 갱신합니다.
+- `extract_failed`, stale `extracting`, 오래 방치된 `downloaded but not extracted`는 메인 extract에서 즉시 reclaim하지 않고 `processing_retry_stage=extract`로 분리합니다.
+- extract retry가 필요한 문서는 `processing_retry_reason`, `processing_retry_marked_at`, `processing_retry_attempt_count` 같은 상태 필드를 남겨 추후 retry DAG가 다시 처리합니다.
 
 ### 6. Code Chunking
 
@@ -329,11 +355,13 @@ repo processing 기본 실행 순서는 다음과 같습니다.
 
 - [repo_chunk_service.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_chunk_service.py)
 - [repo_chunk_planning_service.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_chunk_planning_service.py)
+- [repo_chunk_phase.py](/Users/xxuchan/Desktop/kkbang/worker/repo/repo_chunk_phase.py)
 
 역할:
 
 - `file_extract_status=extracted` 인 repo를 읽어 code chunk를 생성합니다.
-- extract 결과의 `file_extract_total_code_bytes`를 기준으로 shard를 다시 배분합니다.
+- extract 결과의 `file_extract_total_code_bytes`, `file_extract_code_files_count`를 기준으로 `light` / `whale` phase를 먼저 나눕니다.
+- `light` phase는 일반 shard fan-out으로 먼저 처리하고, `whale` phase는 별도 DAG run에서 더 낮은 동시성으로 처리합니다.
 - tree-sitter 기반 `function/class` symbol chunk를 만들고, 각 chunk에 `raw_code`, `normalized_code`, `anonymized_code`를 저장합니다.
 - `identifier_tokens`, `call_tokens`, `operator_tokens`, `control_flow_tags`, `structure_signature`, `ast_node_sequence` 같은 검색용 summary feature를 함께 생성합니다.
 - `raw_hash`, `normalized_hash`, `anonymized_hash`와 stable `chunk_id`를 생성합니다.
@@ -583,6 +611,18 @@ docker compose exec airflow airflow dags trigger code_pipeline_dag
 `code_pipeline_dag`는 한 번만 trigger 하면 되고, 이후에는 `repo_validation_dag`가 pending crawl 대상이 남아 있는 동안 다음 배치를 자동으로 이어서 실행합니다.
 단, 이 동작은 `REPO_PIPELINE_SELF_LOOP_ENABLED=true`일 때만 활성화됩니다.
 
+retry backlog만 따로 처리:
+
+```bash
+docker compose exec airflow airflow dags trigger repo_retry_dag
+```
+
+운영 중 유용한 구분은 다음과 같습니다.
+
+- 신규 repo를 계속 처리하고 싶으면 `code_pipeline_dag`
+- `crawl_failed`, `extract_failed`, stale `downloading/extracting`, 오래된 `downloaded but not extracted`를 정리하고 싶으면 `repo_retry_dag`
+- `repo_extract_dag`, `repo_chunk_dag`를 `conf` 없이 수동 실행하면 batch manifest가 아니라 global backlog를 기준으로 backlog drain 모드처럼 사용할 수 있습니다.
+
 ### 4. 특정 태스크만 테스트 실행
 
 예를 들어 curated repo ingestion 태스크만 보고 싶다면:
@@ -603,8 +643,11 @@ OpenSearch 주요 인덱스:
 
 - `seed_item_index`
 - `repo_registry_index`
+- `repo_file_index`
 - `code_chunk_index`
+- `code_chunk_embedding_index`
 - `seed_qualification_failure_index`
+- `repo_processing_validation_index`
 - `package_registry_full_metadata_index` (옵션)
 - `benchmark_artifact_fetch_index`
 - repo processing 관련 상태는 주로 `repo_registry_index`에 누적 저장됩니다.
@@ -623,6 +666,7 @@ OpenSearch 주요 인덱스:
 │   │   ├── code_pipeline_dag.py
 │   │   ├── repo_chunk_dag.py
 │   │   ├── repo_extract_dag.py
+│   │   ├── repo_retry_dag.py
 │   │   ├── repo_validation_dag.py
 │   │   ├── seed_dag_support.py
 │   │   ├── seed_discovery_dag.py
@@ -664,6 +708,7 @@ OpenSearch 주요 인덱스:
 - repo processing DAG는 self-loop를 켤 수 있는 구조라서 병렬도 설정이 높으면 load spike가 생길 수 있습니다.
 - whale repo는 task 내부 file-level parallelism으로 완화하고 있지만, giant repo를 여러 Airflow task로 다시 쪼개는 전용 lane은 아직 없습니다.
 - local snapshot cleanup과 OpenSearch 문서 상태가 항상 완벽히 동기화되지는 않아, 운영 보조 스크립트가 필요합니다.
+- retry는 현재 `crawl` / `extract` 단계만 분리되어 있고, `chunk_failed` 전용 retry lane은 아직 별도 설계가 더 필요합니다.
 
 ## 탐지 Query Expansion 방향
 
@@ -690,10 +735,14 @@ OpenSearch 주요 인덱스:
 - benchmark source는 수동 repo 목록이 아니라, 실제 dataset artifact에서 repo를 추출하는 구조로 바꿨습니다. 그래야 논문/benchmark에 등장한 repo라는 근거가 코드와 데이터에 함께 남습니다.
 - repo processing 단계에서는 처리량과 서버 안정성의 균형이 중요했습니다. 실제 운영 중 load spike가 있었기 때문에, 현재는 shard 수와 Airflow parallelism을 다소 보수적으로 낮추고 안정적인 fan-out 범위를 먼저 찾는 방향으로 조정했습니다.
 - crawl 단계는 repo 크기 편차가 커서, `repo_size_kb` 기반 `normal / whale_hint / giant_hint` 분류와 `normal -> whale/giant hint` 2-phase scheduling, download/extract concurrency 분리를 추가했습니다.
+- 초기에는 `crawl_failed`, `extract_failed`, stale lease, `downloaded but not extracted`까지 메인 pipeline에서 다시 집어가게 만들었는데, 이들이 backlog 계산에 섞이면서 신규 crawl이 임계치에서 자주 멈추는 문제가 있었습니다. 결국 메인 `code_pipeline`은 신규 `scheduled` repo만 처리하고, 실패/지연은 상태만 남긴 뒤 `repo_retry_dag`로 분리하는 쪽이 운영상 더 단순하고 예측 가능했습니다.
+- backlog를 볼 때도 "이번 batch가 끝났는가"만 보면 안 되고, `repo_registry_index` 전체 누적 상태가 pause 조건에 어떻게 들어가는지를 같이 봐야 했습니다. 특히 `downloaded_not_extracted`에 `extract_failed`가 섞여 있으면 메인 crawl을 괜히 멈출 수 있어서, retry 대상은 backlog 집계에서 제외하는 쪽으로 정리했습니다.
+- Airflow의 manifest 기반 batch 처리와 `conf` 없이 수동 trigger했을 때의 global backlog drain 동작이 다르다는 점도 운영 중에 중요했습니다. `code_pipeline_dag`에서 넘기는 `batch_id`는 해당 batch manifest만 처리하지만, `repo_extract_dag`나 `repo_chunk_dag`를 `conf` 없이 직접 실행하면 registry 전체 backlog를 스캔합니다.
 - chunk 단계는 해시 기반 shard fan-out만으로는 tail latency가 커졌기 때문에, extract 이후 `file_extract_total_code_bytes` 기반 재분배와 whale repo file-level parallel chunking을 추가했습니다.
 - code chunk는 단순 텍스트 보관보다 검색 중심이 중요하다고 봤기 때문에, `repo_chunk_index` 성격에서 `code_chunk_index` 성격으로 옮겨 왔습니다. 현재는 symbol-level chunk, normalization/anonymization, summary feature, optional embedding enrich를 한 문서에 모아 retrieval-ready 형태로 저장합니다.
 - OpenSearch 쪽도 운영 중 race가 있었기 때문에, shard recovering 시점의 짧은 503 재시도와 `_id` 정렬 회피를 저장소 레이어에 넣어 seed/repo 파이프라인이 덜 깨지게 조정했습니다.
 - local snapshot cleanup이 항상 문서 상태와 동시에 맞춰지지 않는 문제도 있었습니다. 그래서 cleanup 자체뿐 아니라, 나중에 OpenSearch 문서를 reconcile하는 운영 스크립트까지 같이 두는 방향을 선택했습니다.
+- Airflow served log URL이 `http://:8793/...`처럼 host 없이 깨지는 문제도 겪었습니다. 이건 task 자체 실패가 아니라 Airflow log-serving host 설정 문제였고, `hostname_callable`과 webserver/log 관련 환경변수를 명시하는 쪽이 안전했습니다.
 
 ## 다음 단계
 

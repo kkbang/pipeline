@@ -1,6 +1,13 @@
 from datetime import datetime, timezone
 
 from worker.common.config import settings
+from worker.repo.repo_chunk_phase import (
+    CHUNK_PHASE_LIGHT,
+    CHUNK_PHASE_WHALE,
+    is_whale_repo,
+    normalize_chunk_phase,
+    parse_non_negative_int,
+)
 from worker.repo.repo_pipeline_manifest_service import (
     CRAWL_DOWNLOADED_STAGE,
     EXTRACT_READY_STAGE,
@@ -87,6 +94,30 @@ def _resolve_batch_limit(batch_size: int | None) -> int | None:
     return batch_size
 
 
+def _chunk_phase_from_manifest_entry(entry: dict) -> str:
+    if not isinstance(entry, dict):
+        return CHUNK_PHASE_LIGHT
+
+    normalized_phase = normalize_chunk_phase(entry.get("chunk_phase"), default="")
+    if normalized_phase:
+        return normalized_phase
+    if bool(entry.get("is_whale_repo")):
+        return CHUNK_PHASE_WHALE
+    return CHUNK_PHASE_LIGHT
+
+
+def _chunk_phase_for_repo_source(source: dict) -> str:
+    total_code_bytes = parse_non_negative_int(
+        source.get("file_extract_total_code_bytes") or source.get("chunk_repo_total_code_bytes")
+    )
+    code_file_count = parse_non_negative_int(
+        source.get("file_extract_code_files_count") or source.get("chunk_code_files_count")
+    )
+    if is_whale_repo(total_code_bytes=total_code_bytes, code_file_count=code_file_count):
+        return CHUNK_PHASE_WHALE
+    return CHUNK_PHASE_LIGHT
+
+
 def _normalized_repo_ids(
     repo_ids: list[str],
     batch_limit: int | None,
@@ -114,8 +145,10 @@ def _repo_ids_from_manifest(
     batch_limit: int | None,
     shard_index: int | None,
     shard_count: int | None,
+    phase: str | None = None,
 ) -> list[str]:
     repo_ids = []
+    normalized_phase = normalize_chunk_phase(phase, default="") if phase is not None else ""
     resolved_base_dir = resolve_pipeline_base_dir()
     for entry in iter_stage_manifest_entries(
         base_dir=resolved_base_dir,
@@ -123,6 +156,11 @@ def _repo_ids_from_manifest(
         stage_name=stage_name,
         shard_index=shard_index,
     ) or []:
+        if normalized_phase and stage_name == CHUNK_READY_STAGE:
+            if _chunk_phase_from_manifest_entry(entry) != normalized_phase:
+                continue
+        elif normalized_phase == CHUNK_PHASE_WHALE and stage_name == EXTRACT_READY_STAGE:
+            continue
         repo_id = entry.get("repo_id")
         if isinstance(repo_id, str) and repo_id.strip():
             repo_ids.append(repo_id)
@@ -176,8 +214,10 @@ def list_repo_ids_for_chunking(
     batch_id: str | None = None,
     shard_index: int | None = None,
     shard_count: int | None = None,
+    phase: str | None = None,
 ) -> list[str]:
     batch_limit = _resolve_batch_limit(batch_size)
+    normalized_phase = normalize_chunk_phase(phase) if phase is not None else ""
     if batch_id:
         repo_ids = _repo_ids_from_manifest(
             batch_id=batch_id,
@@ -185,6 +225,7 @@ def list_repo_ids_for_chunking(
             batch_limit=batch_limit,
             shard_index=shard_index,
             shard_count=shard_count,
+            phase=normalized_phase,
         )
         if not repo_ids:
             repo_ids = _repo_ids_from_manifest(
@@ -193,6 +234,7 @@ def list_repo_ids_for_chunking(
                 batch_limit=batch_limit,
                 shard_index=shard_index,
                 shard_count=shard_count,
+                phase=normalized_phase,
             )
 
         store = OpenSearchStore()
@@ -240,6 +282,8 @@ def list_repo_ids_for_chunking(
                 if isinstance(doc_id, str) and doc_id.strip():
                     selected_repo_ids.append(doc_id)
             continue
+        if normalized_phase and _chunk_phase_for_repo_source(source) != normalized_phase:
+            continue
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)
 
@@ -252,6 +296,8 @@ def list_repo_ids_for_chunking(
             continue
         if not _is_stale(source.get("chunk_started_at"), now):
             continue
+        if normalized_phase and _chunk_phase_for_repo_source(source) != normalized_phase:
+            continue
         if isinstance(doc_id, str) and doc_id.strip():
             selected_repo_ids.append(doc_id)
 
@@ -260,6 +306,38 @@ def list_repo_ids_for_chunking(
         batch_limit,
         shard_index=shard_index,
         shard_count=shard_count,
+    )
+
+
+def has_pending_chunk_work(
+    *,
+    batch_id: str | None = None,
+    phase: str = CHUNK_PHASE_LIGHT,
+    require_light_phase_cleared: bool = False,
+) -> bool:
+    normalized_phase = normalize_chunk_phase(phase)
+    if batch_id:
+        return bool(
+            _repo_ids_from_manifest(
+                batch_id=batch_id,
+                stage_name=CHUNK_READY_STAGE,
+                batch_limit=1,
+                shard_index=None,
+                shard_count=None,
+                phase=normalized_phase,
+            )
+        )
+
+    if require_light_phase_cleared and normalized_phase == CHUNK_PHASE_WHALE:
+        if list_repo_ids_for_chunking(batch_size=1, batch_id=None, phase=CHUNK_PHASE_LIGHT):
+            return False
+
+    return bool(
+        list_repo_ids_for_chunking(
+            batch_size=1,
+            batch_id=None,
+            phase=normalized_phase,
+        )
     )
 
 

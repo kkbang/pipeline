@@ -163,6 +163,12 @@ class Settings:
     repo_chunk_whale_repo_min_code_bytes: int = int(
         os.getenv("REPO_CHUNK_WHALE_REPO_MIN_CODE_BYTES", "25000000")
     )
+    repo_chunk_whale_repo_min_code_files: int = int(
+        os.getenv("REPO_CHUNK_WHALE_REPO_MIN_CODE_FILES", "500")
+    )
+    repo_chunk_whale_phase_parallelism: int = int(
+        os.getenv("REPO_CHUNK_WHALE_PHASE_PARALLELISM", "1")
+    )
     repo_chunk_whale_file_parallelism: int = int(
         os.getenv("REPO_CHUNK_WHALE_FILE_PARALLELISM", "8")
     )
