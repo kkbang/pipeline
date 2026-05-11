@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import math
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 import requests
@@ -9,7 +10,6 @@ from worker.common.config import settings
 
 
 logger = logging.getLogger(__name__)
-CONTEXT_AWARE_EMBEDDING_LANGUAGES = {"python", "javascript", "typescript"}
 
 
 @dataclass(slots=True)
@@ -23,7 +23,7 @@ class CodeChunkEmbeddingClient:
     fail_hard: bool = field(init=False)
     raw_dimensions: int = field(init=False)
     anonymized_dimensions: int = field(init=False)
-    _cache: dict[tuple[str, str], list[float]] = field(default_factory=dict, init=False)
+    _cache: dict[tuple[str, str, str], list[float]] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         self.endpoint = settings.code_chunk_embedding_endpoint
@@ -75,113 +75,61 @@ class CodeChunkEmbeddingClient:
             text = self._build_embedding_text(source, text_field=text_field)
             if not text:
                 continue
+            language = str(source.get("language") or "python").strip().lower() or "python"
             hash_value = hashlib.sha1(text.encode("utf-8")).hexdigest()
-            cache_key = (embedding_field, hash_value)
+            cache_key = (embedding_field, language, hash_value)
             cached_embedding = self._cache.get(cache_key)
             if cached_embedding is not None:
                 source[embedding_field] = cached_embedding
                 continue
-            pending_items.append((hash_value, text, cache_key[0]))
+            pending_items.append((language, hash_value, text))
 
         if not pending_items:
             return
 
-        deduped_items: list[tuple[str, str]] = []
-        seen_hashes: set[str] = set()
-        for hash_value, text, _embedding_field_name in pending_items:
-            if hash_value in seen_hashes:
+        deduped_items_by_language: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        seen_keys: set[tuple[str, str]] = set()
+        for language, hash_value, text in pending_items:
+            dedupe_key = (language, hash_value)
+            if dedupe_key in seen_keys:
                 continue
-            seen_hashes.add(hash_value)
-            deduped_items.append((hash_value, text))
+            seen_keys.add(dedupe_key)
+            deduped_items_by_language[language].append((hash_value, text))
 
-        for start in range(0, len(deduped_items), self.batch_size):
-            batch = deduped_items[start : start + self.batch_size]
-            texts = [text for _hash_value, text in batch]
-            embeddings = self._request_embeddings(texts, expected_dimensions=expected_dimensions)
-            if embeddings is None:
-                continue
-            for (hash_value, _text), embedding in zip(batch, embeddings, strict=True):
-                self._cache[(embedding_field, hash_value)] = embedding
+        for language, deduped_items in deduped_items_by_language.items():
+            for start in range(0, len(deduped_items), self.batch_size):
+                batch = deduped_items[start : start + self.batch_size]
+                texts = [text for _hash_value, text in batch]
+                embeddings = self._request_embeddings(
+                    texts,
+                    expected_dimensions=expected_dimensions,
+                    language=language,
+                )
+                if embeddings is None:
+                    continue
+                for (hash_value, _text), embedding in zip(batch, embeddings, strict=True):
+                    self._cache[(embedding_field, language, hash_value)] = embedding
 
         for _doc_id, source in documents:
             text = self._build_embedding_text(source, text_field=text_field)
             if not text:
                 continue
+            language = str(source.get("language") or "python").strip().lower() or "python"
             hash_value = hashlib.sha1(text.encode("utf-8")).hexdigest()
-            embedding = self._cache.get((embedding_field, hash_value))
+            embedding = self._cache.get((embedding_field, language, hash_value))
             if embedding is not None:
                 source[embedding_field] = embedding
 
     def _build_embedding_text(self, source: dict, *, text_field: str) -> str:
         code = str(source.get(text_field) or "").strip()
-        if not code:
-            return ""
-
-        language = str(source.get("language") or "").strip().lower()
-        if language not in CONTEXT_AWARE_EMBEDDING_LANGUAGES:
-            return code
-
-        context_lines: list[str] = []
-        imports = self._normalize_context_values(source.get("context_imports"))
-        decorators = self._normalize_context_values(source.get("context_decorators"))
-        exports = self._normalize_context_values(source.get("context_exports"))
-        class_signature = str(source.get("context_class_signature") or "").strip()
-        parent_class = str(source.get("context_parent_class") or "").strip()
-        symbol_name = str(source.get("symbol_name") or "").strip()
-        module_path = str(source.get("file_path") or "").strip()
-
-        if imports:
-            context_lines.append(f"imports: {', '.join(imports)}")
-        if decorators:
-            context_lines.append(f"decorators: {', '.join(decorators)}")
-        if class_signature:
-            context_lines.append(f"class: {class_signature}")
-        if parent_class:
-            context_lines.append(f"parent_class: {parent_class}")
-        if exports:
-            context_lines.append(f"exports: {', '.join(exports)}")
-        if symbol_name:
-            context_lines.append(f"symbol: {symbol_name}")
-        if module_path:
-            context_lines.append(f"module_path: {module_path}")
-
-        if not context_lines:
-            return code
-
-        return "\n".join(
-            [
-                "<CONTEXT>",
-                *context_lines,
-                "</CONTEXT>",
-                "",
-                "<CODE>",
-                code,
-                "</CODE>",
-            ]
-        )
-
-    def _normalize_context_values(self, value: object) -> list[str]:
-        if isinstance(value, str):
-            normalized = value.strip()
-            return [normalized] if normalized else []
-        if not isinstance(value, list):
-            return []
-
-        ordered: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            normalized = str(item or "").strip()
-            if not normalized or normalized in seen:
-                continue
-            seen.add(normalized)
-            ordered.append(normalized)
-        return ordered
+        return code
 
     def _request_embeddings(
         self,
         texts: list[str],
         *,
         expected_dimensions: int,
+        language: str = "python",
     ) -> list[list[float]] | None:
         try:
             headers = {
@@ -194,7 +142,13 @@ class CodeChunkEmbeddingClient:
                 headers=headers,
                 json={
                     "model": self.model,
-                    "input": texts,
+                    "input": [
+                        {
+                            "code": text,
+                            "language": language,
+                        }
+                        for text in texts
+                    ],
                 },
                 timeout=self.timeout_seconds,
             )
