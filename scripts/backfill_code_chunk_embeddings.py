@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+from concurrent.futures import Future, ThreadPoolExecutor
 import json
 import math
 import os
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,6 +84,7 @@ EMBEDDING_BACKFILL_SOURCE_FIELDS = [
 ]
 EMBEDDING_BACKFILL_SCAN_SIZE = 200
 EMBEDDING_BACKFILL_WRITE_BATCH_SIZE = 100
+EMBEDDING_BACKFILL_WRITE_BUFFER_SIZE = 5000
 # Keep one invocation bounded to a single fixed-size slice.
 EMBEDDING_BACKFILL_RUN_LIMIT = sum(EMBEDDING_BACKFILL_PER_LANGUAGE_LIMITS.values())
 OPENSEARCH_SCROLL_TTL = "2m"
@@ -344,14 +347,24 @@ class EmbeddingBackfillStats:
     raw_embedding_written_count: int = 0
     anonymized_embedding_written_count: int = 0
     skipped_noop_count: int = 0
+    embedding_doc_count: int = 0
+    embedding_elapsed_seconds: float = 0.0
 
-    def as_dict(self) -> dict[str, int]:
+    def as_dict(self) -> dict[str, int | float]:
+        embedding_items_per_second = 0.0
+        if self.embedding_elapsed_seconds > 0:
+            embedding_items_per_second = (
+                self.embedding_doc_count / self.embedding_elapsed_seconds
+            )
         return {
             "seen_count": self.seen_count,
             "updated_doc_count": self.updated_doc_count,
             "raw_embedding_written_count": self.raw_embedding_written_count,
             "anonymized_embedding_written_count": self.anonymized_embedding_written_count,
             "skipped_noop_count": self.skipped_noop_count,
+            "embedding_doc_count": self.embedding_doc_count,
+            "embedding_elapsed_seconds": round(self.embedding_elapsed_seconds, 6),
+            "embedding_items_per_second": round(embedding_items_per_second, 3),
         }
 
 
@@ -460,7 +473,10 @@ def _flush_embedding_backfill_batch(
         (doc_id, _prepare_enrichment_source(source, force_reembed=force_reembed))
         for doc_id, source in batch_docs
     ]
+    embedding_started_at = time.perf_counter()
     embedding_client.enrich_documents(docs_for_enrich)
+    stats.embedding_elapsed_seconds += time.perf_counter() - embedding_started_at
+    stats.embedding_doc_count += len(docs_for_enrich)
 
     embedded_at = datetime.now(timezone.utc).isoformat()
     update_docs: list[tuple[str, dict[str, Any]]] = []
@@ -516,9 +532,11 @@ def backfill_code_chunk_embeddings(
     repo_id: str | None = None,
     scan_size: int = 500,
     write_batch_size: int | None = None,
+    write_buffer_size: int | None = None,
     limit: int = 0,
     force_reembed: bool = False,
     refresh_writes: bool = False,
+    skip_writes: bool = False,
 ) -> EmbeddingBackfillStats:
     resolved_store = store or OpenSearchHttpStore()
     if hasattr(resolved_store, "ensure_index_created"):
@@ -535,78 +553,143 @@ def backfill_code_chunk_embeddings(
         1,
         int(write_batch_size or settings.opensearch_bulk_flush_docs),
     )
+    safe_write_buffer_size = max(
+        safe_write_batch_size,
+        int(write_buffer_size or EMBEDDING_BACKFILL_WRITE_BUFFER_SIZE),
+    )
     stats = EmbeddingBackfillStats()
     pending_batch: list[tuple[str, dict[str, Any]]] = []
     candidate_batch: list[tuple[str, dict[str, Any]]] = []
     pending_update_docs: list[tuple[str, dict[str, Any]]] = []
-    stop_processing = False
-    for language in EMBEDDING_BACKFILL_ALLOWED_LANGUAGES:
-        if stop_processing:
-            break
+    write_executor = ThreadPoolExecutor(max_workers=1)
+    write_future: Future[None] | None = None
 
-        language_limit = _per_language_limit(language)
-        if language_limit <= 0:
-            continue
-        language_seen_count = 0
-        query = _build_embedding_backfill_query(
-            repo_id=repo_id,
-            force_reembed=force_reembed,
-            language=language,
+    def _await_write_completion() -> None:
+        nonlocal write_future
+        if write_future is None:
+            return
+        write_future.result()
+        write_future = None
+
+    def _flush_update_buffer_async(*, force: bool = False) -> None:
+        nonlocal write_future
+        if skip_writes:
+            pending_update_docs.clear()
+            return
+        if not pending_update_docs:
+            return
+        if not force and len(pending_update_docs) < safe_write_buffer_size:
+            return
+
+        _await_write_completion()
+        docs_to_write = list(pending_update_docs)
+        pending_update_docs.clear()
+
+        # Keep a single writer thread so OpenSearch writes overlap with embedding
+        # work without allowing an unbounded queue of bulk requests to build up.
+        write_future = write_executor.submit(
+            resolved_store.bulk_upsert_documents,
+            collection_name=CODE_CHUNK_EMBEDDING_INDEX,
+            documents=docs_to_write,
+            refresh=refresh_writes,
+            chunk_size=max(1, len(docs_to_write)),
         )
 
-        for hit in resolved_store.iterate_documents_by_query(
-            collection_name=CODE_CHUNK_INDEX,
-            query=query,
-            size=safe_scan_size,
-            source_includes=EMBEDDING_BACKFILL_SOURCE_FIELDS,
-        ):
-            doc_id = str(hit.get("_id") or "").strip()
-            if not doc_id:
-                continue
-
-            source = dict(hit.get("_source", {}))
-            if not _is_eligible_source_chunk(source):
-                continue
-
-            candidate_batch.append((doc_id, source))
-
-            should_resolve_candidates = (
-                len(candidate_batch) >= safe_write_batch_size
-                or language_seen_count + len(candidate_batch) >= language_limit
-            )
-            if not should_resolve_candidates:
-                continue
-
-            for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
-                pending_batch.append(missing_doc)
-                stats.seen_count += 1
-                language_seen_count += 1
-
-                if len(pending_batch) >= safe_write_batch_size:
-                    pending_update_docs.extend(_flush_embedding_backfill_batch(
-                        embedding_client=resolved_embedding_client,
-                        batch_docs=pending_batch,
-                        force_reembed=force_reembed,
-                        stats=stats,
-                    ))
-                    pending_batch.clear()
-
-                if language_seen_count >= language_limit:
-                    break
-                if limit > 0 and stats.seen_count >= limit:
-                    stop_processing = True
-                    break
-
-            candidate_batch.clear()
-
-            if stop_processing or language_seen_count >= language_limit:
+    stop_processing = False
+    try:
+        for language in EMBEDDING_BACKFILL_ALLOWED_LANGUAGES:
+            if stop_processing:
                 break
 
-        if candidate_batch and not stop_processing and language_seen_count < language_limit:
+            language_limit = _per_language_limit(language)
+            if language_limit <= 0:
+                continue
+            language_seen_count = 0
+            query = _build_embedding_backfill_query(
+                repo_id=repo_id,
+                force_reembed=force_reembed,
+                language=language,
+            )
+
+            for hit in resolved_store.iterate_documents_by_query(
+                collection_name=CODE_CHUNK_INDEX,
+                query=query,
+                size=safe_scan_size,
+                source_includes=EMBEDDING_BACKFILL_SOURCE_FIELDS,
+            ):
+                doc_id = str(hit.get("_id") or "").strip()
+                if not doc_id:
+                    continue
+
+                source = dict(hit.get("_source", {}))
+                if not _is_eligible_source_chunk(source):
+                    continue
+
+                candidate_batch.append((doc_id, source))
+
+                should_resolve_candidates = (
+                    len(candidate_batch) >= safe_write_batch_size
+                    or language_seen_count + len(candidate_batch) >= language_limit
+                )
+                if not should_resolve_candidates:
+                    continue
+
+                for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
+                    pending_batch.append(missing_doc)
+                    stats.seen_count += 1
+                    language_seen_count += 1
+
+                    if len(pending_batch) >= safe_write_batch_size:
+                        pending_update_docs.extend(_flush_embedding_backfill_batch(
+                            embedding_client=resolved_embedding_client,
+                            batch_docs=pending_batch,
+                            force_reembed=force_reembed,
+                            stats=stats,
+                        ))
+                        pending_batch.clear()
+                        _flush_update_buffer_async()
+
+                    if language_seen_count >= language_limit:
+                        break
+                    if limit > 0 and stats.seen_count >= limit:
+                        stop_processing = True
+                        break
+
+                candidate_batch.clear()
+
+                if stop_processing or language_seen_count >= language_limit:
+                    break
+
+            if candidate_batch and not stop_processing and language_seen_count < language_limit:
+                for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
+                    pending_batch.append(missing_doc)
+                    stats.seen_count += 1
+                    language_seen_count += 1
+
+                    if len(pending_batch) >= safe_write_batch_size:
+                        pending_update_docs.extend(_flush_embedding_backfill_batch(
+                            embedding_client=resolved_embedding_client,
+                            batch_docs=pending_batch,
+                            force_reembed=force_reembed,
+                            stats=stats,
+                        ))
+                        pending_batch.clear()
+                        _flush_update_buffer_async()
+
+                    if language_seen_count >= language_limit:
+                        break
+                    if limit > 0 and stats.seen_count >= limit:
+                        stop_processing = True
+                        break
+
+                candidate_batch.clear()
+
+            if stop_processing:
+                break
+
+        if candidate_batch:
             for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
                 pending_batch.append(missing_doc)
-                stats.seen_count += 1
-                language_seen_count += 1
 
                 if len(pending_batch) >= safe_write_batch_size:
                     pending_update_docs.extend(_flush_embedding_backfill_batch(
@@ -616,49 +699,22 @@ def backfill_code_chunk_embeddings(
                         stats=stats,
                     ))
                     pending_batch.clear()
-
-                if language_seen_count >= language_limit:
-                    break
-                if limit > 0 and stats.seen_count >= limit:
-                    stop_processing = True
-                    break
-
+                    _flush_update_buffer_async()
             candidate_batch.clear()
 
-        if stop_processing:
-            break
+        if pending_batch:
+            pending_update_docs.extend(_flush_embedding_backfill_batch(
+                embedding_client=resolved_embedding_client,
+                batch_docs=pending_batch,
+                force_reembed=force_reembed,
+                stats=stats,
+            ))
 
-    if candidate_batch:
-        for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
-            pending_batch.append(missing_doc)
-
-            if len(pending_batch) >= safe_write_batch_size:
-                pending_update_docs.extend(_flush_embedding_backfill_batch(
-                    embedding_client=resolved_embedding_client,
-                    batch_docs=pending_batch,
-                    force_reembed=force_reembed,
-                    stats=stats,
-                ))
-                pending_batch.clear()
-        candidate_batch.clear()
-
-    if pending_batch:
-        pending_update_docs.extend(_flush_embedding_backfill_batch(
-            embedding_client=resolved_embedding_client,
-            batch_docs=pending_batch,
-            force_reembed=force_reembed,
-            stats=stats,
-        ))
-
-    if pending_update_docs:
-        resolved_store.bulk_upsert_documents(
-            collection_name=CODE_CHUNK_EMBEDDING_INDEX,
-            documents=pending_update_docs,
-            refresh=refresh_writes,
-            chunk_size=max(1, len(pending_update_docs)),
-        )
-
-    return stats
+        _flush_update_buffer_async(force=True)
+        _await_write_completion()
+        return stats
+    finally:
+        write_executor.shutdown(wait=True, cancel_futures=False)
 
 
 def _is_valid_embedding_vector(value: object) -> bool:
@@ -689,6 +745,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Refresh the OpenSearch index after each bulk update batch.",
     )
+    parser.add_argument(
+        "--skip-writes",
+        action="store_true",
+        help="Measure embedding throughput without writing results to OpenSearch.",
+    )
     return parser.parse_args()
 
 
@@ -701,6 +762,7 @@ def main() -> None:
         limit=EMBEDDING_BACKFILL_RUN_LIMIT,
         force_reembed=args.force_reembed,
         refresh_writes=args.refresh,
+        skip_writes=args.skip_writes,
     )
     print(json.dumps(stats.as_dict(), ensure_ascii=False, indent=2))
 
