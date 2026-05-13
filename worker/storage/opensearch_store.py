@@ -532,3 +532,16 @@ class OpenSearchStore:
             value=status,
             size=size,
         )
+
+    def search_documents(
+        self,
+        collection_name: str,
+        body: dict,
+    ) -> dict:
+        self._ensure_index(collection_name)
+        return self._run_with_transient_retry(
+            lambda: self.client.search(
+                index=collection_name,
+                body=body,
+            )
+        )
