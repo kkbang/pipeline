@@ -13,6 +13,8 @@ except ModuleNotFoundError:  # pragma: no cover - optional in script/http-only e
 DEFAULT_RETRIEVAL_VERSION = "retrieval_v1"
 DEFAULT_PER_VARIANT_K = 10
 DEFAULT_TOP_K = 20
+DEFAULT_INCLUDE_SAME_REPO = False
+DEFAULT_INCLUDE_LOW_CONFIDENCE = False
 MAX_EVIDENCE_PER_CANDIDATE = 8
 REPO_REGISTRY_INDEX = "repo_registry_index"
 RETRIEVAL_SOURCE_FIELDS = [
@@ -129,6 +131,7 @@ def _build_variant_search_body(
     variant: QueryVariant,
     bundle: QueryBundle,
     per_variant_k: int,
+    include_same_repo: bool,
 ) -> dict[str, Any]:
     filter_clauses: list[dict[str, Any]] = [
         {"terms": {"validation_status": list(VALID_CHUNK_VALIDATION_STATUSES)}},
@@ -139,6 +142,8 @@ def _build_variant_search_body(
     must_not_clauses: list[dict[str, Any]] = []
     if bundle.source_chunk_id:
         must_not_clauses.append({"term": {"chunk_id": bundle.source_chunk_id}})
+    if not include_same_repo and bundle.source_repo_id:
+        must_not_clauses.append({"term": {"repo_id": bundle.source_repo_id}})
 
     query_clause = _build_variant_query_clause(variant)
     body: dict[str, Any] = {
@@ -171,15 +176,7 @@ def _build_exact_query_clause(variant: QueryVariant) -> dict[str, Any]:
         if "raw_hash" in variant.query_payload:
             return {"term": {"raw_hash": variant.query_payload["raw_hash"]}}
     if variant.query_text:
-        return {
-            "bool": {
-                "should": [
-                    {"match_phrase": {"raw_code": {"query": variant.query_text, "boost": 4.0}}},
-                    {"match": {"raw_code": {"query": variant.query_text, "boost": 1.0}}},
-                ],
-                "minimum_should_match": 1,
-            }
-        }
+        return {"match_phrase": {"raw_code": {"query": variant.query_text, "slop": 0}}}
     raise ValueError("exact query variant is missing payload and text")
 
 
@@ -194,15 +191,7 @@ def _build_normalized_query_clause(variant: QueryVariant) -> dict[str, Any]:
     if "anonymize_identifiers" in variant.normalization_steps:
         field_name = "anonymized_code"
     if variant.query_text:
-        return {
-            "bool": {
-                "should": [
-                    { "match_phrase": {field_name: {"query": variant.query_text, "boost": 3.0}} },
-                    { "match": {field_name: {"query": variant.query_text, "boost": 1.0}} },
-                ],
-                "minimum_should_match": 1,
-            }
-        }
+        return {"match_phrase": {field_name: {"query": variant.query_text, "slop": 0}}}
     raise ValueError("normalized query variant is missing payload and text")
 
 
@@ -269,10 +258,10 @@ def _strongest_evidence_type(evidences: list[RetrievalEvidence]) -> tuple[str, f
         ("exact", "raw_hash"): ("raw_hash_match", 0.99),
         ("normalized", "normalized_hash"): ("normalized_hash_match", 0.95),
         ("normalized", "anonymized_hash"): ("anonymized_hash_match", 0.92),
-        ("exact", "raw_code"): ("raw_code_phrase_match", 0.82),
-        ("normalized", "normalized_code"): ("normalized_code_match", 0.74),
-        ("normalized", "anonymized_code"): ("anonymized_code_match", 0.7),
-        ("structural", "structural_summary"): ("structural_similarity", 0.42),
+        ("exact", "raw_code"): ("raw_code_match", 0.56),
+        ("normalized", "normalized_code"): ("normalized_code_match", 0.6),
+        ("normalized", "anonymized_code"): ("anonymized_code_match", 0.58),
+        ("structural", "summary"): ("structural_similarity", 0.22),
     }
     strongest_type = "unknown"
     strongest_score = 0.0
@@ -329,7 +318,7 @@ def _build_license_review(
         reasons.append("Exact raw hash match indicates near-certain copied code.")
     elif strongest_evidence_type in {"normalized_hash_match", "anonymized_hash_match"}:
         reasons.append("Hash-level match survives normalization/anonymization, indicating strong code reuse.")
-    elif strongest_evidence_type in {"raw_code_phrase_match", "normalized_code_match", "anonymized_code_match"}:
+    elif strongest_evidence_type in {"raw_code_match", "normalized_code_match", "anonymized_code_match"}:
         reasons.append("Lexical match indicates a high-overlap candidate that should be reviewed.")
     else:
         reasons.append("Structural similarity indicates a weaker reuse candidate that still merits review.")
@@ -360,6 +349,36 @@ def _build_license_review(
     }
 
 
+def _should_keep_candidate(
+    *,
+    candidate_source: Mapping[str, Any],
+    license_review: Mapping[str, Any],
+    include_same_repo: bool,
+    include_low_confidence: bool,
+) -> bool:
+    if not include_same_repo and bool(license_review.get("same_repo")):
+        return False
+
+    risk_level = _clean_text(license_review.get("risk_level"))
+    evidence_type = _clean_text(license_review.get("strongest_evidence_type"))
+    if not include_low_confidence:
+        if risk_level in {"low", "same_repo"}:
+            return False
+        if evidence_type == "structural_similarity":
+            return False
+
+    file_path = _clean_text(candidate_source.get("file_path")).lower()
+    symbol_name = _clean_text(candidate_source.get("symbol_name"))
+    if not include_low_confidence and (
+        ".min.js" in file_path
+        or file_path.endswith(".min.js")
+        or (len(symbol_name) <= 1 and "javascript" == _clean_text(candidate_source.get("language")).lower())
+    ):
+        return False
+
+    return True
+
+
 def _summarize_license_review(candidates: list[RetrievalCandidate]) -> dict[str, Any]:
     counts = {
         "critical": 0,
@@ -381,6 +400,8 @@ def retrieve_similar_chunks(
     store: OpenSearchStore | None = None,
     top_k: int = DEFAULT_TOP_K,
     per_variant_k: int = DEFAULT_PER_VARIANT_K,
+    include_same_repo: bool = DEFAULT_INCLUDE_SAME_REPO,
+    include_low_confidence: bool = DEFAULT_INCLUDE_LOW_CONFIDENCE,
 ) -> RetrievalResult:
     resolved_store = store or OpenSearchStore()
     bundle = build_query_bundle(source_doc)
@@ -392,6 +413,7 @@ def retrieve_similar_chunks(
             variant=variant,
             bundle=bundle,
             per_variant_k=per_variant_k,
+            include_same_repo=include_same_repo,
         )
         response = resolved_store.search_documents(
             collection_name=CODE_CHUNK_INDEX_ALIAS,
@@ -453,6 +475,13 @@ def retrieve_similar_chunks(
             evidences=evidences,
             repo_doc=repo_doc,
         )
+        if not _should_keep_candidate(
+            candidate_source=candidate_source,
+            license_review=license_review,
+            include_same_repo=include_same_repo,
+            include_low_confidence=include_low_confidence,
+        ):
+            continue
         ranked_candidates.append(
             RetrievalCandidate(
                 chunk_id=chunk_id,
@@ -497,6 +526,8 @@ def retrieve_similar_chunks_by_chunk_id(
     store: OpenSearchStore | None = None,
     top_k: int = DEFAULT_TOP_K,
     per_variant_k: int = DEFAULT_PER_VARIANT_K,
+    include_same_repo: bool = DEFAULT_INCLUDE_SAME_REPO,
+    include_low_confidence: bool = DEFAULT_INCLUDE_LOW_CONFIDENCE,
 ) -> RetrievalResult:
     resolved_store = store or OpenSearchStore()
     source_doc = resolved_store.get_document(CODE_CHUNK_INDEX_ALIAS, chunk_id)
@@ -512,4 +543,6 @@ def retrieve_similar_chunks_by_chunk_id(
         store=resolved_store,
         top_k=top_k,
         per_variant_k=per_variant_k,
+        include_same_repo=include_same_repo,
+        include_low_confidence=include_low_confidence,
     )
