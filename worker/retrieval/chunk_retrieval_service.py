@@ -570,6 +570,7 @@ def _build_license_review(
     aggregate_bonus = min(max(aggregate_score, 0.0), 1.0) * 0.1
     risk_score = min(1.0, base_score + evidence_bonus + aggregate_bonus)
     reasons: list[str] = []
+    lexical_evidence_types = {"raw_code_match", "normalized_code_match", "anonymized_code_match"}
 
     if same_repo:
         return {
@@ -584,7 +585,7 @@ def _build_license_review(
         reasons.append("Exact raw hash match indicates near-certain copied code.")
     elif strongest_evidence_type in {"normalized_hash_match", "anonymized_hash_match"}:
         reasons.append("Hash-level match survives normalization/anonymization, indicating strong code reuse.")
-    elif strongest_evidence_type in {"raw_code_match", "normalized_code_match", "anonymized_code_match"}:
+    elif strongest_evidence_type in lexical_evidence_types:
         reasons.append("Lexical match indicates a high-overlap candidate that should be reviewed.")
     else:
         reasons.append("Structural similarity indicates a weaker reuse candidate that still merits review.")
@@ -607,27 +608,47 @@ def _build_license_review(
         risk_score = min(risk_score, 0.35)
 
     domain_alignment_terms = list(match_analysis.get("domain_alignment_terms") or [])
+    high_signal_domain_terms = list(match_analysis.get("high_signal_domain_terms") or [])
+    call_overlap_count = int(match_analysis.get("call_token_overlap_count") or 0)
     operator_overlap_count = int(match_analysis.get("operator_token_overlap_count") or 0)
     identifier_overlap_count = int(match_analysis.get("identifier_term_overlap_count") or 0)
+    ranking_score = float(match_analysis.get("ranking_score") or 0.0)
     medium_support = bool(domain_alignment_terms) or (
         operator_overlap_count >= 4 and identifier_overlap_count >= 3
     )
+
+    if strongest_evidence_type in lexical_evidence_types:
+        semantic_bonus = min(len(domain_alignment_terms), 3) * 0.02
+        semantic_bonus += min(len(high_signal_domain_terms), 4) * 0.025
+        semantic_bonus += min(operator_overlap_count, 6) * 0.008
+        semantic_bonus += min(identifier_overlap_count, 4) * 0.004
+        semantic_bonus += min(call_overlap_count, 2) * 0.02
+        semantic_bonus += min(max(ranking_score - aggregate_score, 0.0), 1.0) * 0.12
+        risk_score = min(1.0, risk_score + semantic_bonus)
 
     if domain_alignment_terms:
         reasons.append(
             "Interaction-domain terms matched: " + ", ".join(domain_alignment_terms) + "."
         )
-    elif strongest_evidence_type in {"raw_code_match", "normalized_code_match", "anonymized_code_match"}:
+    elif strongest_evidence_type in lexical_evidence_types:
         reasons.append("No interaction-domain match was found, so lexical similarity alone is treated conservatively.")
 
     if (
-        strongest_evidence_type in {"raw_code_match", "normalized_code_match", "anonymized_code_match"}
+        strongest_evidence_type in lexical_evidence_types
         and not medium_support
     ):
         risk_score = min(risk_score, 0.55)
         reasons.append(
             "Candidate lacks enough domain overlap or combined operator/identifier overlap for medium risk."
         )
+
+    if strongest_evidence_type in lexical_evidence_types and call_overlap_count == 0:
+        no_call_cap = 0.68
+        no_call_cap += min(len(high_signal_domain_terms), 4) * 0.015
+        no_call_cap += min(operator_overlap_count, 6) * 0.005
+        no_call_cap += min(identifier_overlap_count, 4) * 0.003
+        risk_score = min(risk_score, min(no_call_cap, 0.79))
+        reasons.append("No direct call-token overlap was found, so risk is capped below high.")
 
     if risk_score >= 0.95:
         risk_level = "critical"
