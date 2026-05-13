@@ -1,3 +1,5 @@
+import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -17,6 +19,40 @@ DEFAULT_INCLUDE_SAME_REPO = False
 DEFAULT_INCLUDE_LOW_CONFIDENCE = False
 MAX_EVIDENCE_PER_CANDIDATE = 8
 REPO_REGISTRY_INDEX = "repo_registry_index"
+GENERIC_CALL_TOKENS = {"this.setdata", "setdata"}
+GENERIC_IDENTIFIER_TERMS = {
+    "this",
+    "data",
+    "event",
+    "option",
+    "value",
+    "currenttarget",
+    "dataset",
+    "properties",
+    "popup",
+    "close",
+    "open",
+    "x",
+}
+INTERACTION_DOMAIN_KEYWORDS = {
+    "touch",
+    "touchstart",
+    "touchmove",
+    "touchend",
+    "swipe",
+    "slide",
+    "gesture",
+    "drag",
+    "threshold",
+    "pagex",
+    "pagey",
+    "changedtouches",
+    "targettouches",
+    "clientx",
+    "clienty",
+    "open",
+    "close",
+}
 RETRIEVAL_SOURCE_FIELDS = [
     "chunk_id",
     "repo_id",
@@ -78,6 +114,7 @@ class RetrievalCandidate:
     evidences: tuple[RetrievalEvidence, ...]
     source_repo: dict[str, Any]
     license_review: dict[str, Any]
+    match_analysis: dict[str, Any]
     source: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
@@ -93,6 +130,7 @@ class RetrievalCandidate:
             "evidences": [evidence.as_dict() for evidence in self.evidences],
             "source_repo": dict(self.source_repo),
             "license_review": dict(self.license_review),
+            "match_analysis": dict(self.match_analysis),
             "source": dict(self.source),
         }
 
@@ -295,6 +333,127 @@ def _normalized_variant_score(raw_score: float, max_score: float, rank: int, pri
     return ((score_ratio * 0.7) + (rank_ratio * 0.3)) * priority_weight
 
 
+def _normalize_token(value: object) -> str:
+    return _clean_text(value).lower()
+
+
+def _split_identifier_terms(value: object) -> set[str]:
+    raw = _clean_text(value)
+    if not raw:
+        return set()
+    parts = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+", raw.replace(".", "_").replace("-", "_"))
+    terms = {_normalize_token(part) for part in parts if _normalize_token(part)}
+    if not terms and raw:
+        terms = {_normalize_token(raw)}
+    return {term for term in terms if term and term not in GENERIC_IDENTIFIER_TERMS}
+
+
+def _extract_identifier_term_set(source: Mapping[str, Any]) -> set[str]:
+    terms: set[str] = set()
+    for value in source.get("identifier_tokens") or []:
+        terms.update(_split_identifier_terms(value))
+    terms.update(_split_identifier_terms(source.get("symbol_name")))
+    return terms
+
+
+def _extract_call_token_set(source: Mapping[str, Any], *, include_generic: bool) -> set[str]:
+    tokens = {
+        _normalize_token(value)
+        for value in (source.get("call_tokens") or [])
+        if _normalize_token(value)
+    }
+    if include_generic:
+        return tokens
+    return {token for token in tokens if token not in GENERIC_CALL_TOKENS}
+
+
+def _extract_operator_token_set(source: Mapping[str, Any]) -> set[str]:
+    return {
+        _normalize_token(value)
+        for value in (source.get("operator_tokens") or [])
+        if _normalize_token(value)
+    }
+
+
+def _extract_domain_terms(source: Mapping[str, Any]) -> set[str]:
+    terms = _extract_identifier_term_set(source)
+    for call_token in source.get("call_tokens") or []:
+        terms.update(_split_identifier_terms(call_token))
+    return terms & INTERACTION_DOMAIN_KEYWORDS
+
+
+def _build_match_analysis(
+    *,
+    source_doc: Mapping[str, Any],
+    candidate_source: Mapping[str, Any],
+    evidences: list[RetrievalEvidence],
+    aggregate_score: float,
+) -> dict[str, Any]:
+    source_calls = _extract_call_token_set(source_doc, include_generic=False)
+    candidate_calls = _extract_call_token_set(candidate_source, include_generic=False)
+    filtered_call_overlap = source_calls & candidate_calls
+
+    source_all_calls = _extract_call_token_set(source_doc, include_generic=True)
+    candidate_all_calls = _extract_call_token_set(candidate_source, include_generic=True)
+    boilerplate_call_overlap = (source_all_calls & candidate_all_calls) & GENERIC_CALL_TOKENS
+
+    source_identifier_terms = _extract_identifier_term_set(source_doc)
+    candidate_identifier_terms = _extract_identifier_term_set(candidate_source)
+    identifier_overlap = source_identifier_terms & candidate_identifier_terms
+
+    source_operator_tokens = _extract_operator_token_set(source_doc)
+    candidate_operator_tokens = _extract_operator_token_set(candidate_source)
+    operator_overlap = source_operator_tokens & candidate_operator_tokens
+
+    source_domain_terms = _extract_domain_terms(source_doc)
+    candidate_domain_terms = _extract_domain_terms(candidate_source)
+    domain_alignment_terms = candidate_domain_terms if source_domain_terms else set()
+
+    support_category_count = sum(
+        1
+        for overlap_count in (
+            len(filtered_call_overlap),
+            len(identifier_overlap),
+            len(operator_overlap),
+        )
+        if overlap_count > 0
+    )
+
+    strongest_evidence_type, _ = _strongest_evidence_type(evidences)
+    domain_bonus = min(len(domain_alignment_terms), 3) * 0.05
+    call_bonus = min(len(filtered_call_overlap), 2) * 0.05
+    identifier_bonus = min(len(identifier_overlap), 4) * 0.02
+    operator_bonus = min(len(operator_overlap), 3) * 0.015
+    boilerplate_penalty = 0.08 if boilerplate_call_overlap and not filtered_call_overlap else 0.0
+    anonymized_only_penalty = (
+        0.1 if strongest_evidence_type == "anonymized_code_match" and support_category_count < 2 else 0.0
+    )
+
+    ranking_score = aggregate_score + domain_bonus + call_bonus + identifier_bonus + operator_bonus
+    ranking_score -= boilerplate_penalty + anonymized_only_penalty
+
+    return {
+        "ranking_score": round(ranking_score, 6),
+        "support_category_count": support_category_count,
+        "call_token_overlap_count": len(filtered_call_overlap),
+        "identifier_term_overlap_count": len(identifier_overlap),
+        "operator_token_overlap_count": len(operator_overlap),
+        "boilerplate_call_overlap_count": len(boilerplate_call_overlap),
+        "domain_alignment_terms": sorted(domain_alignment_terms),
+        "filtered_call_overlap": sorted(filtered_call_overlap),
+        "identifier_term_overlap": sorted(identifier_overlap),
+        "operator_token_overlap": sorted(operator_overlap),
+    }
+
+
+def _build_cluster_key(candidate_source: Mapping[str, Any]) -> str:
+    for field_name in ("raw_hash", "normalized_hash", "anonymized_hash"):
+        field_value = _clean_text(candidate_source.get(field_name))
+        if field_value:
+            return f"{field_name}:{field_value}"
+    return f"chunk:{_clean_text(candidate_source.get('chunk_id'))}"
+
+
 def _strongest_evidence_type(evidences: list[RetrievalEvidence]) -> tuple[str, float]:
     ranked_types = {
         ("exact", "raw_hash"): ("raw_hash_match", 0.99),
@@ -339,6 +498,7 @@ def _build_license_review(
     aggregate_score: float,
     evidences: list[RetrievalEvidence],
     repo_doc: Mapping[str, Any] | None,
+    match_analysis: Mapping[str, Any],
 ) -> dict[str, Any]:
     strongest_evidence_type, base_score = _strongest_evidence_type(evidences)
     same_repo = _clean_text(candidate_source.get("repo_id")) == source_repo_id and bool(source_repo_id)
@@ -373,6 +533,20 @@ def _build_license_review(
     else:
         reasons.append("Source repository license metadata is missing, so manual review is required.")
 
+    if strongest_evidence_type == "anonymized_code_match" and match_analysis["support_category_count"] < 2:
+        risk_score = min(risk_score, 0.55)
+        reasons.append(
+            "Anonymized-code-only match lacks enough call/operator/identifier overlap, so confidence is capped."
+        )
+
+    if strongest_evidence_type == "structural_similarity":
+        risk_score = min(risk_score, 0.35)
+
+    if match_analysis["domain_alignment_terms"]:
+        reasons.append(
+            "Interaction-domain terms matched: " + ", ".join(match_analysis["domain_alignment_terms"]) + "."
+        )
+
     if risk_score >= 0.95:
         risk_level = "critical"
     elif risk_score >= 0.8:
@@ -395,6 +569,7 @@ def _should_keep_candidate(
     *,
     candidate_source: Mapping[str, Any],
     license_review: Mapping[str, Any],
+    match_analysis: Mapping[str, Any],
     include_same_repo: bool,
     include_low_confidence: bool,
 ) -> bool:
@@ -407,6 +582,18 @@ def _should_keep_candidate(
         if risk_level in {"low", "same_repo"}:
             return False
         if evidence_type == "structural_similarity":
+            return False
+        if (
+            evidence_type == "anonymized_code_match"
+            and int(match_analysis.get("support_category_count") or 0) < 2
+        ):
+            return False
+        if (
+            int(match_analysis.get("boilerplate_call_overlap_count") or 0) > 0
+            and int(match_analysis.get("call_token_overlap_count") or 0) == 0
+            and int(match_analysis.get("identifier_term_overlap_count") or 0) == 0
+            and not list(match_analysis.get("domain_alignment_terms") or [])
+        ):
             return False
 
     file_path = _clean_text(candidate_source.get("file_path")).lower()
@@ -504,6 +691,13 @@ def retrieve_similar_chunks(
             payload["evidences"],
             key=lambda item: (-item.normalized_score, item.rank, item.variant_id),
         )
+        aggregate_score = float(payload["aggregate_score"])
+        match_analysis = _build_match_analysis(
+            source_doc=source_doc,
+            candidate_source=candidate_source,
+            evidences=evidences,
+            aggregate_score=aggregate_score,
+        )
         candidate_repo_id = _clean_text(candidate_source.get("repo_id"))
         if candidate_repo_id not in repo_registry_cache:
             repo_doc = resolved_store.get_document(REPO_REGISTRY_INDEX, candidate_repo_id) if candidate_repo_id else {}
@@ -513,13 +707,15 @@ def retrieve_similar_chunks(
         license_review = _build_license_review(
             candidate_source=candidate_source,
             source_repo_id=bundle.source_repo_id,
-            aggregate_score=float(payload["aggregate_score"]),
+            aggregate_score=aggregate_score,
             evidences=evidences,
             repo_doc=repo_doc,
+            match_analysis=match_analysis,
         )
         if not _should_keep_candidate(
             candidate_source=candidate_source,
             license_review=license_review,
+            match_analysis=match_analysis,
             include_same_repo=include_same_repo,
             include_low_confidence=include_low_confidence,
         ):
@@ -532,27 +728,57 @@ def retrieve_similar_chunks(
                 file_path=_clean_text(candidate_source.get("file_path")),
                 chunk_type=_clean_text(candidate_source.get("chunk_type")),
                 symbol_name=_clean_text(candidate_source.get("symbol_name")),
-                aggregate_score=float(payload["aggregate_score"]),
+                aggregate_score=aggregate_score,
                 evidence_count=len(evidences),
                 evidences=tuple(evidences),
                 source_repo=source_repo,
                 license_review=license_review,
+                match_analysis=match_analysis,
                 source=candidate_source,
             )
         )
 
+    cluster_sizes = Counter(_build_cluster_key(candidate.source) for candidate in ranked_candidates)
     ranked_candidates.sort(
         key=lambda candidate: (
             candidate.license_review.get("risk_level") != "critical",
             candidate.license_review.get("risk_level") != "high",
             candidate.license_review.get("risk_level") != "medium",
-            -candidate.aggregate_score,
+            -float(candidate.match_analysis.get("ranking_score") or 0.0),
             -candidate.evidence_count,
             candidate.chunk_id,
         )
     )
 
-    trimmed_candidates = tuple(ranked_candidates[: max(1, int(top_k))])
+    deduped_candidates: list[RetrievalCandidate] = []
+    seen_cluster_keys: set[str] = set()
+    for candidate in ranked_candidates:
+        cluster_key = _build_cluster_key(candidate.source)
+        if cluster_key in seen_cluster_keys:
+            continue
+        seen_cluster_keys.add(cluster_key)
+        match_analysis = dict(candidate.match_analysis)
+        match_analysis["cluster_key"] = cluster_key
+        match_analysis["cluster_size"] = int(cluster_sizes.get(cluster_key, 1))
+        deduped_candidates.append(
+            RetrievalCandidate(
+                chunk_id=candidate.chunk_id,
+                repo_id=candidate.repo_id,
+                language=candidate.language,
+                file_path=candidate.file_path,
+                chunk_type=candidate.chunk_type,
+                symbol_name=candidate.symbol_name,
+                aggregate_score=candidate.aggregate_score,
+                evidence_count=candidate.evidence_count,
+                evidences=candidate.evidences,
+                source_repo=candidate.source_repo,
+                license_review=candidate.license_review,
+                match_analysis=match_analysis,
+                source=candidate.source,
+            )
+        )
+
+    trimmed_candidates = tuple(deduped_candidates[: max(1, int(top_k))])
     return RetrievalResult(
         retrieval_version=DEFAULT_RETRIEVAL_VERSION,
         query_bundle=bundle,
