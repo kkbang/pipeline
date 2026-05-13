@@ -3,7 +3,11 @@ from typing import Any, Mapping
 
 from worker.repo.code_chunk_document import CODE_CHUNK_INDEX_ALIAS, VALID_CHUNK_VALIDATION_STATUSES
 from worker.retrieval.query_expansion_service import QueryBundle, QueryVariant, build_query_bundle
-from worker.storage.opensearch_store import OpenSearchStore
+
+try:
+    from worker.storage.opensearch_store import OpenSearchStore
+except ModuleNotFoundError:  # pragma: no cover - optional in script/http-only envs
+    OpenSearchStore = Any  # type: ignore[misc,assignment]
 
 
 DEFAULT_RETRIEVAL_VERSION = "retrieval_v1"
