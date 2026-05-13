@@ -85,6 +85,7 @@ EMBEDDING_BACKFILL_SOURCE_FIELDS = [
 EMBEDDING_BACKFILL_SCAN_SIZE = 200
 EMBEDDING_BACKFILL_WRITE_BATCH_SIZE = 100
 EMBEDDING_BACKFILL_WRITE_BUFFER_SIZE = 5000
+EMBEDDING_BACKFILL_EXISTING_CHECK_BATCH_SIZE = 5000
 # Keep one invocation bounded to a single fixed-size slice.
 EMBEDDING_BACKFILL_RUN_LIMIT = sum(EMBEDDING_BACKFILL_PER_LANGUAGE_LIMITS.values())
 OPENSEARCH_SCROLL_TTL = "2m"
@@ -557,6 +558,10 @@ def backfill_code_chunk_embeddings(
         safe_write_batch_size,
         int(write_buffer_size or EMBEDDING_BACKFILL_WRITE_BUFFER_SIZE),
     )
+    safe_existing_check_batch_size = max(
+        safe_write_batch_size,
+        EMBEDDING_BACKFILL_EXISTING_CHECK_BATCH_SIZE,
+    )
     stats = EmbeddingBackfillStats()
     pending_batch: list[tuple[str, dict[str, Any]]] = []
     candidate_batch: list[tuple[str, dict[str, Any]]] = []
@@ -628,7 +633,7 @@ def backfill_code_chunk_embeddings(
                 candidate_batch.append((doc_id, source))
 
                 should_resolve_candidates = (
-                    len(candidate_batch) >= safe_write_batch_size
+                    len(candidate_batch) >= safe_existing_check_batch_size
                     or language_seen_count + len(candidate_batch) >= language_limit
                 )
                 if not should_resolve_candidates:
