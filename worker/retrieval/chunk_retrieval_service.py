@@ -184,8 +184,8 @@ def _build_exact_query_clause(variant: QueryVariant) -> dict[str, Any]:
                         "match": {
                             "raw_code": {
                                 "query": variant.query_text,
-                                "operator": "and",
-                                "minimum_should_match": "85%",
+                                "operator": "or",
+                                "minimum_should_match": "60%",
                                 "boost": 1.5,
                             }
                         }
@@ -224,8 +224,8 @@ def _build_normalized_query_clause(variant: QueryVariant) -> dict[str, Any]:
                         "match": {
                             field_name: {
                                 "query": variant.query_text,
-                                "operator": "and",
-                                "minimum_should_match": "80%",
+                                "operator": "or",
+                                "minimum_should_match": "55%",
                                 "boost": 1.5,
                             }
                         }

@@ -129,6 +129,16 @@ def parse_args() -> argparse.Namespace:
         default=10,
         help="Per query variant search size.",
     )
+    parser.add_argument(
+        "--include-same-repo",
+        action="store_true",
+        help="Include matches from the same source repository.",
+    )
+    parser.add_argument(
+        "--include-low-confidence",
+        action="store_true",
+        help="Include low-confidence and structural-only candidates for debugging.",
+    )
     return parser.parse_args()
 
 
@@ -145,6 +155,8 @@ def main() -> None:
             store=store,
             top_k=max(1, args.top_k),
             per_variant_k=max(1, args.per_variant_k),
+            include_same_repo=bool(args.include_same_repo),
+            include_low_confidence=bool(args.include_low_confidence),
         )
     else:
         source_doc = _load_input_json(args.input_json.strip())
@@ -153,6 +165,8 @@ def main() -> None:
             store=store,
             top_k=max(1, args.top_k),
             per_variant_k=max(1, args.per_variant_k),
+            include_same_repo=bool(args.include_same_repo),
+            include_low_confidence=bool(args.include_low_confidence),
         )
 
     print(json.dumps(result.as_dict(), ensure_ascii=False, indent=2))
