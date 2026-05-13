@@ -90,12 +90,49 @@ class OpenSearchHttpStore:
             "_source": payload.get("_source", {}),
         }
 
+    def multi_get_documents(self, collection_name: str, doc_ids: list[str]) -> dict[str, dict[str, Any]]:
+        payload = self._request(
+            method="POST",
+            path=f"/{collection_name}/_mget",
+            json_body={"ids": [doc_id for doc_id in dict.fromkeys(doc_ids) if str(doc_id or "").strip()]},
+        )
+        docs: dict[str, dict[str, Any]] = {}
+        for item in payload.get("docs", []):
+            doc_id = str(item.get("_id") or "").strip()
+            if not doc_id or not item.get("found", False):
+                continue
+            docs[doc_id] = {
+                "_id": doc_id,
+                "_source": item.get("_source", {}),
+            }
+        return docs
+
     def search_documents(self, collection_name: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._request(
             method="POST",
             path=f"/{collection_name}/_search",
             json_body=body,
         )
+
+    def multi_search_documents(self, collection_name: str, bodies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not bodies:
+            return []
+        payload_lines: list[str] = []
+        for body in bodies:
+            payload_lines.append(json.dumps({}))
+            payload_lines.append(json.dumps(body))
+        response = requests.request(
+            method="POST",
+            url=f"{self.base_url}/{collection_name}/_msearch",
+            auth=self.auth,
+            data="\n".join(payload_lines) + "\n",
+            headers={"Content-Type": "application/x-ndjson"},
+            timeout=self.timeout_seconds,
+            verify=self.verify,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return list(payload.get("responses", []))
 
 
 def _load_input_json(path: str) -> dict:

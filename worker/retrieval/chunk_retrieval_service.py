@@ -97,28 +97,16 @@ COMPOUND_DOMAIN_KEYWORDS = {
     "clientx",
     "clienty",
 }
-RETRIEVAL_SOURCE_FIELDS = [
+RETRIEVAL_SEARCH_SOURCE_FIELDS = [
     "chunk_id",
     "repo_id",
-    "repo_url",
-    "owner",
-    "repo_name",
     "language",
     "file_path",
     "chunk_type",
-    "start_line",
-    "end_line",
-    "symbol_type",
     "symbol_name",
-    "raw_code",
-    "normalized_code",
-    "anonymized_code",
     "identifier_tokens",
     "call_tokens",
     "operator_tokens",
-    "control_flow_tags",
-    "structure_signature",
-    "ast_node_sequence",
     "raw_hash",
     "normalized_hash",
     "anonymized_hash",
@@ -230,7 +218,8 @@ def _build_variant_search_body(
     query_clause = _build_variant_query_clause(variant)
     body: dict[str, Any] = {
         "size": max(1, int(per_variant_k)),
-        "_source": RETRIEVAL_SOURCE_FIELDS,
+        "track_total_hits": False,
+        "_source": RETRIEVAL_SEARCH_SOURCE_FIELDS,
         "query": {
             "bool": {
                 "filter": filter_clauses,
@@ -726,6 +715,60 @@ def _summarize_license_review(candidates: list[RetrievalCandidate]) -> dict[str,
     return counts
 
 
+def _multi_search_documents(
+    *,
+    store: OpenSearchStore,
+    collection_name: str,
+    bodies: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not bodies:
+        return []
+
+    multi_search = getattr(store, "multi_search_documents", None)
+    if callable(multi_search):
+        responses = [dict(response or {}) for response in multi_search(collection_name, bodies)]
+        if len(responses) < len(bodies):
+            responses.extend({} for _ in range(len(bodies) - len(responses)))
+        return responses[: len(bodies)]
+
+    return [
+        dict(
+            store.search_documents(
+                collection_name=collection_name,
+                body=body,
+            )
+            or {}
+        )
+        for body in bodies
+    ]
+
+
+def _multi_get_documents(
+    *,
+    store: OpenSearchStore,
+    collection_name: str,
+    doc_ids: list[str],
+) -> dict[str, dict[str, Any] | None]:
+    unique_doc_ids = [doc_id for doc_id in dict.fromkeys(doc_ids) if _clean_text(doc_id)]
+    if not unique_doc_ids:
+        return {}
+
+    multi_get = getattr(store, "multi_get_documents", None)
+    if callable(multi_get):
+        response = multi_get(collection_name, unique_doc_ids) or {}
+        return {
+            _clean_text(doc_id): (doc if isinstance(doc, dict) else None)
+            for doc_id, doc in dict(response).items()
+            if _clean_text(doc_id)
+        }
+
+    docs: dict[str, dict[str, Any] | None] = {}
+    for doc_id in unique_doc_ids:
+        doc = store.get_document(collection_name, doc_id)
+        docs[doc_id] = doc if isinstance(doc, dict) else None
+    return docs
+
+
 def retrieve_similar_chunks(
     source_doc: Mapping[str, Any],
     *,
@@ -738,19 +781,22 @@ def retrieve_similar_chunks(
     resolved_store = store or OpenSearchStore()
     bundle = build_query_bundle(source_doc)
     merged_candidates: dict[str, dict[str, Any]] = {}
-    repo_registry_cache: dict[str, dict[str, Any] | None] = {}
-
-    for variant in bundle.variants:
-        body = _build_variant_search_body(
+    variant_bodies = [
+        _build_variant_search_body(
             variant=variant,
             bundle=bundle,
             per_variant_k=per_variant_k,
             include_same_repo=include_same_repo,
         )
-        response = resolved_store.search_documents(
-            collection_name=CODE_CHUNK_INDEX_ALIAS,
-            body=body,
-        )
+        for variant in bundle.variants
+    ]
+    responses = _multi_search_documents(
+        store=resolved_store,
+        collection_name=CODE_CHUNK_INDEX_ALIAS,
+        bodies=variant_bodies,
+    )
+
+    for variant, response in zip(bundle.variants, responses):
         hits = response.get("hits", {}).get("hits", [])
         max_score = max((float(hit.get("_score") or 0.0) for hit in hits), default=0.0)
 
@@ -801,18 +847,13 @@ def retrieve_similar_chunks(
             evidences=evidences,
             aggregate_score=aggregate_score,
         )
-        candidate_repo_id = _clean_text(candidate_source.get("repo_id"))
-        if candidate_repo_id not in repo_registry_cache:
-            repo_doc = resolved_store.get_document(REPO_REGISTRY_INDEX, candidate_repo_id) if candidate_repo_id else {}
-            repo_registry_cache[candidate_repo_id] = repo_doc if isinstance(repo_doc, dict) else None
-        repo_doc = repo_registry_cache.get(candidate_repo_id)
-        source_repo = _build_source_repo_summary(candidate_source, repo_doc)
+        source_repo = _build_source_repo_summary(candidate_source, None)
         license_review = _build_license_review(
             candidate_source=candidate_source,
             source_repo_id=bundle.source_repo_id,
             aggregate_score=aggregate_score,
             evidences=evidences,
-            repo_doc=repo_doc,
+            repo_doc=None,
             match_analysis=match_analysis,
         )
         if not _should_keep_candidate(
@@ -881,13 +922,49 @@ def retrieve_similar_chunks(
             )
         )
 
-    trimmed_candidates = tuple(deduped_candidates[: max(1, int(top_k))])
+    trimmed_candidates = deduped_candidates[: max(1, int(top_k))]
+    repo_registry_docs = _multi_get_documents(
+        store=resolved_store,
+        collection_name=REPO_REGISTRY_INDEX,
+        doc_ids=[candidate.repo_id for candidate in trimmed_candidates],
+    )
+    enriched_candidates: list[RetrievalCandidate] = []
+    for candidate in trimmed_candidates:
+        repo_doc = repo_registry_docs.get(candidate.repo_id)
+        source_repo = _build_source_repo_summary(candidate.source, repo_doc)
+        license_review = _build_license_review(
+            candidate_source=candidate.source,
+            source_repo_id=bundle.source_repo_id,
+            aggregate_score=candidate.aggregate_score,
+            evidences=list(candidate.evidences),
+            repo_doc=repo_doc,
+            match_analysis=candidate.match_analysis,
+        )
+        enriched_candidates.append(
+            RetrievalCandidate(
+                chunk_id=candidate.chunk_id,
+                repo_id=candidate.repo_id,
+                language=candidate.language,
+                file_path=candidate.file_path,
+                chunk_type=candidate.chunk_type,
+                symbol_name=candidate.symbol_name,
+                aggregate_score=candidate.aggregate_score,
+                evidence_count=candidate.evidence_count,
+                evidences=candidate.evidences,
+                source_repo=source_repo,
+                license_review=license_review,
+                match_analysis=candidate.match_analysis,
+                source=candidate.source,
+            )
+        )
+
+    final_candidates = tuple(enriched_candidates)
     return RetrievalResult(
         retrieval_version=DEFAULT_RETRIEVAL_VERSION,
         query_bundle=bundle,
-        candidate_count=len(trimmed_candidates),
-        license_review_summary=_summarize_license_review(list(trimmed_candidates)),
-        candidates=trimmed_candidates,
+        candidate_count=len(final_candidates),
+        license_review_summary=_summarize_license_review(list(final_candidates)),
+        candidates=final_candidates,
     )
 
 

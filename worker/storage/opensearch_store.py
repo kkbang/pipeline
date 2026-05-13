@@ -206,6 +206,44 @@ class OpenSearchStore:
             "_source": result.get("_source", {}),
         }
 
+    def multi_get_documents(self, collection_name: str, doc_ids: list[str]) -> dict[str, dict]:
+        self._ensure_index(collection_name)
+        unique_doc_ids = [doc_id for doc_id in dict.fromkeys(doc_ids) if str(doc_id or "").strip()]
+        if not unique_doc_ids:
+            return {}
+        response = self._run_with_transient_retry(
+            lambda: self.client.mget(
+                index=collection_name,
+                body={"ids": unique_doc_ids},
+            )
+        )
+        docs: dict[str, dict] = {}
+        for item in response.get("docs", []):
+            doc_id = str(item.get("_id") or "").strip()
+            if not doc_id or not item.get("found", False):
+                continue
+            docs[doc_id] = {
+                "_id": doc_id,
+                "_source": item.get("_source", {}),
+            }
+        return docs
+
+    def multi_search_documents(self, collection_name: str, bodies: list[dict]) -> list[dict]:
+        self._ensure_index(collection_name)
+        if not bodies:
+            return []
+        payload: list[dict] = []
+        for body in bodies:
+            payload.append({})
+            payload.append(body)
+        response = self._run_with_transient_retry(
+            lambda: self.client.msearch(
+                index=collection_name,
+                body=payload,
+            )
+        )
+        return list(response.get("responses", []))
+
     def upsert_document(
         self,
         collection_name: str,
