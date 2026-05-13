@@ -2,6 +2,7 @@ import hashlib
 import logging
 import math
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 import requests
@@ -19,6 +20,7 @@ class CodeChunkEmbeddingClient:
     api_key: str = field(init=False)
     model: str = field(init=False)
     batch_size: int = field(init=False)
+    parallelism: int = field(init=False)
     timeout_seconds: int = field(init=False)
     fail_hard: bool = field(init=False)
     raw_dimensions: int = field(init=False)
@@ -30,6 +32,7 @@ class CodeChunkEmbeddingClient:
         self.api_key = settings.code_chunk_embedding_api_key
         self.model = settings.code_chunk_embedding_model
         self.batch_size = max(1, int(settings.code_chunk_embedding_batch_size))
+        self.parallelism = max(1, int(settings.code_chunk_embedding_parallelism))
         self.timeout_seconds = max(1, int(settings.code_chunk_embedding_timeout_seconds))
         self.fail_hard = settings.code_chunk_embedding_fail_hard
         self.raw_dimensions = max(1, int(settings.code_chunk_raw_embedding_dimensions))
@@ -97,18 +100,45 @@ class CodeChunkEmbeddingClient:
             deduped_items_by_language[language].append((hash_value, text))
 
         for language, deduped_items in deduped_items_by_language.items():
-            for start in range(0, len(deduped_items), self.batch_size):
-                batch = deduped_items[start : start + self.batch_size]
-                texts = [text for _hash_value, text in batch]
-                embeddings = self._request_embeddings(
-                    texts,
-                    expected_dimensions=expected_dimensions,
-                    language=language,
-                )
-                if embeddings is None:
-                    continue
-                for (hash_value, _text), embedding in zip(batch, embeddings, strict=True):
-                    self._cache[(embedding_field, language, hash_value)] = embedding
+            batches = [
+                deduped_items[start : start + self.batch_size]
+                for start in range(0, len(deduped_items), self.batch_size)
+            ]
+            if not batches:
+                continue
+
+            if len(batches) == 1 or self.parallelism == 1:
+                for batch in batches:
+                    texts = [text for _hash_value, text in batch]
+                    embeddings = self._request_embeddings(
+                        texts,
+                        expected_dimensions=expected_dimensions,
+                        language=language,
+                    )
+                    if embeddings is None:
+                        continue
+                    for (hash_value, _text), embedding in zip(batch, embeddings, strict=True):
+                        self._cache[(embedding_field, language, hash_value)] = embedding
+                continue
+
+            max_workers = min(self.parallelism, len(batches))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        self._request_embeddings,
+                        [text for _hash_value, text in batch],
+                        expected_dimensions=expected_dimensions,
+                        language=language,
+                    ): batch
+                    for batch in batches
+                }
+                for future in as_completed(futures):
+                    embeddings = future.result()
+                    if embeddings is None:
+                        continue
+                    batch = futures[future]
+                    for (hash_value, _text), embedding in zip(batch, embeddings, strict=True):
+                        self._cache[(embedding_field, language, hash_value)] = embedding
 
         for _doc_id, source in documents:
             text = self._build_embedding_text(source, text_field=text_field)

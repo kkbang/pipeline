@@ -256,6 +256,12 @@ class Settings:
             os.getenv("OPENSEARCH_EMBEDDING_BATCH_SIZE", "32"),
         )
     )
+    code_chunk_embedding_parallelism: int = int(
+        os.getenv(
+            "CODE_CHUNK_EMBEDDING_PARALLELISM",
+            os.getenv("OPENSEARCH_EMBEDDING_PARALLELISM", "4"),
+        )
+    )
     code_chunk_embedding_timeout_seconds: int = int(
         os.getenv(
             "CODE_CHUNK_EMBEDDING_TIMEOUT_SECONDS",
