@@ -176,7 +176,24 @@ def _build_exact_query_clause(variant: QueryVariant) -> dict[str, Any]:
         if "raw_hash" in variant.query_payload:
             return {"term": {"raw_hash": variant.query_payload["raw_hash"]}}
     if variant.query_text:
-        return {"match_phrase": {"raw_code": {"query": variant.query_text, "slop": 0}}}
+        return {
+            "bool": {
+                "should": [
+                    {"match_phrase": {"raw_code": {"query": variant.query_text, "boost": 4.0, "slop": 0}}},
+                    {
+                        "match": {
+                            "raw_code": {
+                                "query": variant.query_text,
+                                "operator": "and",
+                                "minimum_should_match": "85%",
+                                "boost": 1.5,
+                            }
+                        }
+                    },
+                ],
+                "minimum_should_match": 1,
+            }
+        }
     raise ValueError("exact query variant is missing payload and text")
 
 
@@ -191,7 +208,32 @@ def _build_normalized_query_clause(variant: QueryVariant) -> dict[str, Any]:
     if "anonymize_identifiers" in variant.normalization_steps:
         field_name = "anonymized_code"
     if variant.query_text:
-        return {"match_phrase": {field_name: {"query": variant.query_text, "slop": 0}}}
+        return {
+            "bool": {
+                "should": [
+                    {
+                        "match_phrase": {
+                            field_name: {
+                                "query": variant.query_text,
+                                "boost": 3.5,
+                                "slop": 0,
+                            }
+                        }
+                    },
+                    {
+                        "match": {
+                            field_name: {
+                                "query": variant.query_text,
+                                "operator": "and",
+                                "minimum_should_match": "80%",
+                                "boost": 1.5,
+                            }
+                        }
+                    },
+                ],
+                "minimum_should_match": 1,
+            }
+        }
     raise ValueError("normalized query variant is missing payload and text")
 
 
