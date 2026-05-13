@@ -399,8 +399,6 @@ def _prepare_enrichment_source(
         "language": source.get("language"),
         "file_path": source.get("file_path"),
         "symbol_name": source.get("symbol_name"),
-        "raw_code": source.get("raw_code"),
-        "raw_hash": source.get("raw_hash"),
         "anonymized_code": source.get("anonymized_code"),
         "anonymized_hash": source.get("anonymized_hash"),
         "context_imports": source.get("context_imports"),
@@ -494,14 +492,6 @@ def _flush_embedding_backfill_batch(
             "embedded_at": embedded_at,
         }
         wrote_embedding = False
-
-        raw_embedding = enriched_source.get("raw_embedding")
-        if raw_embedding is not None:
-            if not _is_valid_embedding_vector(raw_embedding):
-                raise ValueError(f"raw_embedding contains non-finite values for chunk_id={doc_id}")
-            update_source["raw_embedding"] = raw_embedding
-            stats.raw_embedding_written_count += 1
-            wrote_embedding = True
 
         anonymized_embedding = enriched_source.get("anonymized_embedding")
         if anonymized_embedding is not None:

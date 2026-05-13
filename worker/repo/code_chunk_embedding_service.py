@@ -23,7 +23,6 @@ class CodeChunkEmbeddingClient:
     parallelism: int = field(init=False)
     timeout_seconds: int = field(init=False)
     fail_hard: bool = field(init=False)
-    raw_dimensions: int = field(init=False)
     anonymized_dimensions: int = field(init=False)
     _cache: dict[tuple[str, str, str], list[float]] = field(default_factory=dict, init=False)
 
@@ -35,7 +34,6 @@ class CodeChunkEmbeddingClient:
         self.parallelism = max(1, int(settings.code_chunk_embedding_parallelism))
         self.timeout_seconds = max(1, int(settings.code_chunk_embedding_timeout_seconds))
         self.fail_hard = settings.code_chunk_embedding_fail_hard
-        self.raw_dimensions = max(1, int(settings.code_chunk_raw_embedding_dimensions))
         self.anonymized_dimensions = max(1, int(settings.code_chunk_anonymized_embedding_dimensions))
         self.enabled = bool(
             settings.code_chunk_embedding_enabled
@@ -47,13 +45,6 @@ class CodeChunkEmbeddingClient:
         if not self.enabled or not documents:
             return
 
-        self._populate_embedding_field(
-            documents,
-            text_field="raw_code",
-            hash_field="raw_hash",
-            embedding_field="raw_embedding",
-            expected_dimensions=self.raw_dimensions,
-        )
         self._populate_embedding_field(
             documents,
             text_field="anonymized_code",
