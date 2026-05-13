@@ -448,16 +448,13 @@ def _filter_missing_embedding_docs(
 
 def _flush_embedding_backfill_batch(
     *,
-    store: Any,
     embedding_client: CodeChunkEmbeddingClient,
     batch_docs: list[tuple[str, dict[str, Any]]],
     force_reembed: bool,
-    refresh_writes: bool,
-    write_batch_size: int,
     stats: EmbeddingBackfillStats,
-) -> None:
+) -> list[tuple[str, dict[str, Any]]]:
     if not batch_docs:
-        return
+        return []
 
     docs_for_enrich = [
         (doc_id, _prepare_enrichment_source(source, force_reembed=force_reembed))
@@ -508,16 +505,8 @@ def _flush_embedding_backfill_batch(
         else:
             stats.skipped_noop_count += 1
 
-    if not update_docs:
-        return
-
-    store.bulk_upsert_documents(
-        collection_name=CODE_CHUNK_EMBEDDING_INDEX,
-        documents=update_docs,
-        refresh=refresh_writes,
-        chunk_size=max(1, write_batch_size),
-    )
     stats.updated_doc_count += len(update_docs)
+    return update_docs
 
 
 def backfill_code_chunk_embeddings(
@@ -549,6 +538,7 @@ def backfill_code_chunk_embeddings(
     stats = EmbeddingBackfillStats()
     pending_batch: list[tuple[str, dict[str, Any]]] = []
     candidate_batch: list[tuple[str, dict[str, Any]]] = []
+    pending_update_docs: list[tuple[str, dict[str, Any]]] = []
     stop_processing = False
     for language in EMBEDDING_BACKFILL_ALLOWED_LANGUAGES:
         if stop_processing:
@@ -593,15 +583,12 @@ def backfill_code_chunk_embeddings(
                 language_seen_count += 1
 
                 if len(pending_batch) >= safe_write_batch_size:
-                    _flush_embedding_backfill_batch(
-                        store=resolved_store,
+                    pending_update_docs.extend(_flush_embedding_backfill_batch(
                         embedding_client=resolved_embedding_client,
                         batch_docs=pending_batch,
                         force_reembed=force_reembed,
-                        refresh_writes=refresh_writes,
-                        write_batch_size=safe_write_batch_size,
                         stats=stats,
-                    )
+                    ))
                     pending_batch.clear()
 
                 if language_seen_count >= language_limit:
@@ -622,15 +609,12 @@ def backfill_code_chunk_embeddings(
                 language_seen_count += 1
 
                 if len(pending_batch) >= safe_write_batch_size:
-                    _flush_embedding_backfill_batch(
-                        store=resolved_store,
+                    pending_update_docs.extend(_flush_embedding_backfill_batch(
                         embedding_client=resolved_embedding_client,
                         batch_docs=pending_batch,
                         force_reembed=force_reembed,
-                        refresh_writes=refresh_writes,
-                        write_batch_size=safe_write_batch_size,
                         stats=stats,
-                    )
+                    ))
                     pending_batch.clear()
 
                 if language_seen_count >= language_limit:
@@ -649,27 +633,29 @@ def backfill_code_chunk_embeddings(
             pending_batch.append(missing_doc)
 
             if len(pending_batch) >= safe_write_batch_size:
-                _flush_embedding_backfill_batch(
-                    store=resolved_store,
+                pending_update_docs.extend(_flush_embedding_backfill_batch(
                     embedding_client=resolved_embedding_client,
                     batch_docs=pending_batch,
                     force_reembed=force_reembed,
-                    refresh_writes=refresh_writes,
-                    write_batch_size=safe_write_batch_size,
                     stats=stats,
-                )
+                ))
                 pending_batch.clear()
         candidate_batch.clear()
 
     if pending_batch:
-        _flush_embedding_backfill_batch(
-            store=resolved_store,
+        pending_update_docs.extend(_flush_embedding_backfill_batch(
             embedding_client=resolved_embedding_client,
             batch_docs=pending_batch,
             force_reembed=force_reembed,
-            refresh_writes=refresh_writes,
-            write_batch_size=safe_write_batch_size,
             stats=stats,
+        ))
+
+    if pending_update_docs:
+        resolved_store.bulk_upsert_documents(
+            collection_name=CODE_CHUNK_EMBEDDING_INDEX,
+            documents=pending_update_docs,
+            refresh=refresh_writes,
+            chunk_size=max(1, len(pending_update_docs)),
         )
 
     return stats
