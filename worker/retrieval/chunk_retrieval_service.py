@@ -21,6 +21,8 @@ MAX_EVIDENCE_PER_CANDIDATE = 8
 REPO_REGISTRY_INDEX = "repo_registry_index"
 GENERIC_CALL_TOKENS = {"this.setdata", "setdata"}
 GENERIC_IDENTIFIER_TERMS = {
+    "on",
+    "handler",
     "this",
     "data",
     "event",
@@ -36,6 +38,9 @@ GENERIC_IDENTIFIER_TERMS = {
 }
 INTERACTION_DOMAIN_KEYWORDS = {
     "touch",
+    "touches",
+    "changed",
+    "target",
     "touchstart",
     "touchmove",
     "touchend",
@@ -44,14 +49,53 @@ INTERACTION_DOMAIN_KEYWORDS = {
     "gesture",
     "drag",
     "threshold",
+    "page",
+    "pagex",
+    "pagey",
+    "client",
+    "changedtouches",
+    "targettouches",
+    "clientx",
+    "clienty",
+    "start",
+    "end",
+    "move",
+    "left",
+    "right",
+    "open",
+    "close",
+}
+HIGH_SIGNAL_DOMAIN_TERMS = {
+    "touch",
+    "touches",
+    "touchstart",
+    "touchmove",
+    "touchend",
+    "swipe",
+    "slide",
+    "gesture",
+    "drag",
+    "threshold",
+    "page",
     "pagex",
     "pagey",
     "changedtouches",
     "targettouches",
     "clientx",
     "clienty",
-    "open",
-    "close",
+    "start",
+    "end",
+}
+COMPOUND_DOMAIN_KEYWORDS = {
+    "touchstart",
+    "touchmove",
+    "touchend",
+    "changedtouches",
+    "targettouches",
+    "pagex",
+    "pagey",
+    "clientx",
+    "clienty",
 }
 RETRIEVAL_SOURCE_FIELDS = [
     "chunk_id",
@@ -377,9 +421,19 @@ def _extract_operator_token_set(source: Mapping[str, Any]) -> set[str]:
 
 def _extract_domain_terms(source: Mapping[str, Any]) -> set[str]:
     terms = _extract_identifier_term_set(source)
-    for call_token in source.get("call_tokens") or []:
-        terms.update(_split_identifier_terms(call_token))
-    return terms & INTERACTION_DOMAIN_KEYWORDS
+    raw_fragments = list(source.get("identifier_tokens") or [])
+    raw_fragments.extend(source.get("call_tokens") or [])
+    raw_fragments.append(source.get("symbol_name"))
+
+    detected_terms = {term for term in terms if term in INTERACTION_DOMAIN_KEYWORDS}
+    for raw_fragment in raw_fragments:
+        normalized_fragment = re.sub(r"[^a-z0-9]+", "", _normalize_token(raw_fragment))
+        if not normalized_fragment:
+            continue
+        for keyword in COMPOUND_DOMAIN_KEYWORDS:
+            if keyword in normalized_fragment:
+                detected_terms.add(keyword)
+    return detected_terms
 
 
 def _build_match_analysis(
@@ -407,7 +461,8 @@ def _build_match_analysis(
 
     source_domain_terms = _extract_domain_terms(source_doc)
     candidate_domain_terms = _extract_domain_terms(candidate_source)
-    domain_alignment_terms = candidate_domain_terms if source_domain_terms else set()
+    domain_alignment_terms = source_domain_terms & candidate_domain_terms
+    high_signal_domain_terms = domain_alignment_terms & HIGH_SIGNAL_DOMAIN_TERMS
 
     support_category_count = sum(
         1
@@ -420,17 +475,25 @@ def _build_match_analysis(
     )
 
     strongest_evidence_type, _ = _strongest_evidence_type(evidences)
-    domain_bonus = min(len(domain_alignment_terms), 3) * 0.05
-    call_bonus = min(len(filtered_call_overlap), 2) * 0.05
-    identifier_bonus = min(len(identifier_overlap), 4) * 0.02
-    operator_bonus = min(len(operator_overlap), 3) * 0.015
-    boilerplate_penalty = 0.08 if boilerplate_call_overlap and not filtered_call_overlap else 0.0
+    domain_bonus = min(len(domain_alignment_terms), 5) * 0.04
+    high_signal_domain_bonus = min(len(high_signal_domain_terms), 4) * 0.09
+    call_bonus = min(len(filtered_call_overlap), 3) * 0.04
+    identifier_bonus = min(len(identifier_overlap), 5) * 0.03
+    operator_bonus = min(len(operator_overlap), 6) * 0.04
+    boilerplate_penalty = 0.12 if boilerplate_call_overlap and not filtered_call_overlap else 0.0
     anonymized_only_penalty = (
-        0.1 if strongest_evidence_type == "anonymized_code_match" and support_category_count < 2 else 0.0
+        0.12 if strongest_evidence_type == "anonymized_code_match" and support_category_count < 2 else 0.0
+    )
+    weak_semantic_penalty = 0.14 if strongest_evidence_type == "anonymized_code_match" and not domain_alignment_terms else 0.0
+    low_signal_penalty = (
+        0.08
+        if not domain_alignment_terms and not filtered_call_overlap and len(identifier_overlap) <= 1
+        else 0.0
     )
 
-    ranking_score = aggregate_score + domain_bonus + call_bonus + identifier_bonus + operator_bonus
-    ranking_score -= boilerplate_penalty + anonymized_only_penalty
+    ranking_score = aggregate_score + domain_bonus + high_signal_domain_bonus + call_bonus
+    ranking_score += identifier_bonus + operator_bonus
+    ranking_score -= boilerplate_penalty + anonymized_only_penalty + weak_semantic_penalty + low_signal_penalty
 
     return {
         "ranking_score": round(ranking_score, 6),
@@ -440,6 +503,7 @@ def _build_match_analysis(
         "operator_token_overlap_count": len(operator_overlap),
         "boilerplate_call_overlap_count": len(boilerplate_call_overlap),
         "domain_alignment_terms": sorted(domain_alignment_terms),
+        "high_signal_domain_terms": sorted(high_signal_domain_terms),
         "filtered_call_overlap": sorted(filtered_call_overlap),
         "identifier_term_overlap": sorted(identifier_overlap),
         "operator_token_overlap": sorted(operator_overlap),
