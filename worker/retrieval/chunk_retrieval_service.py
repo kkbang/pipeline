@@ -606,9 +606,27 @@ def _build_license_review(
     if strongest_evidence_type == "structural_similarity":
         risk_score = min(risk_score, 0.35)
 
-    if match_analysis["domain_alignment_terms"]:
+    domain_alignment_terms = list(match_analysis.get("domain_alignment_terms") or [])
+    operator_overlap_count = int(match_analysis.get("operator_token_overlap_count") or 0)
+    identifier_overlap_count = int(match_analysis.get("identifier_term_overlap_count") or 0)
+    medium_support = bool(domain_alignment_terms) or (
+        operator_overlap_count >= 4 and identifier_overlap_count >= 3
+    )
+
+    if domain_alignment_terms:
         reasons.append(
-            "Interaction-domain terms matched: " + ", ".join(match_analysis["domain_alignment_terms"]) + "."
+            "Interaction-domain terms matched: " + ", ".join(domain_alignment_terms) + "."
+        )
+    elif strongest_evidence_type in {"raw_code_match", "normalized_code_match", "anonymized_code_match"}:
+        reasons.append("No interaction-domain match was found, so lexical similarity alone is treated conservatively.")
+
+    if (
+        strongest_evidence_type in {"raw_code_match", "normalized_code_match", "anonymized_code_match"}
+        and not medium_support
+    ):
+        risk_score = min(risk_score, 0.55)
+        reasons.append(
+            "Candidate lacks enough domain overlap or combined operator/identifier overlap for medium risk."
         )
 
     if risk_score >= 0.95:

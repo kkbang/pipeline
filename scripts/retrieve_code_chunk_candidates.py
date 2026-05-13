@@ -103,6 +103,46 @@ def _load_input_json(path: str) -> dict:
     return json.loads(input_path.read_text(encoding="utf-8"))
 
 
+def _compact_result_payload(result: Any) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    for rank, candidate in enumerate(result.candidates, start=1):
+        candidates.append(
+            {
+                "rank": rank,
+                "chunk_id": candidate.chunk_id,
+                "repo_id": candidate.repo_id,
+                "file_path": candidate.file_path,
+                "symbol_name": candidate.symbol_name,
+                "aggregate_score": round(candidate.aggregate_score, 6),
+                "risk_level": candidate.license_review.get("risk_level"),
+                "risk_score": candidate.license_review.get("risk_score"),
+                "strongest_evidence_type": candidate.license_review.get("strongest_evidence_type"),
+                "source_repo": {
+                    "repo_url": candidate.source_repo.get("repo_url"),
+                    "license_spdx": candidate.source_repo.get("license_spdx"),
+                },
+                "match_analysis": {
+                    "ranking_score": candidate.match_analysis.get("ranking_score"),
+                    "domain_alignment_terms": candidate.match_analysis.get("domain_alignment_terms"),
+                    "high_signal_domain_terms": candidate.match_analysis.get("high_signal_domain_terms"),
+                    "call_token_overlap_count": candidate.match_analysis.get("call_token_overlap_count"),
+                    "identifier_term_overlap_count": candidate.match_analysis.get("identifier_term_overlap_count"),
+                    "operator_token_overlap_count": candidate.match_analysis.get("operator_token_overlap_count"),
+                    "cluster_size": candidate.match_analysis.get("cluster_size", 1),
+                },
+            }
+        )
+
+    return {
+        "retrieval_version": result.retrieval_version,
+        "source_chunk_id": result.query_bundle.source_chunk_id,
+        "source_repo_id": result.query_bundle.source_repo_id,
+        "candidate_count": result.candidate_count,
+        "license_review_summary": dict(result.license_review_summary),
+        "candidates": candidates,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Retrieve similar code chunks from code_chunk_index using a chunk document or chunk_id."
@@ -139,6 +179,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Include low-confidence and structural-only candidates for debugging.",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print the full retrieval payload including query bundle and source fields.",
+    )
     return parser.parse_args()
 
 
@@ -169,7 +214,8 @@ def main() -> None:
             include_low_confidence=bool(args.include_low_confidence),
         )
 
-    print(json.dumps(result.as_dict(), ensure_ascii=False, indent=2))
+    payload = result.as_dict() if args.verbose else _compact_result_payload(result)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
