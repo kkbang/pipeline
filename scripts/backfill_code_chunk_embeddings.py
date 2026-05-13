@@ -45,8 +45,17 @@ EMBEDDING_BACKFILL_ALLOWED_LANGUAGES = (
     "java",
     "javascript",
     "go",
+    "ruby",
+    "csharp",
 )
-EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT = 50
+EMBEDDING_BACKFILL_PER_LANGUAGE_LIMITS = {
+    "python": 399,
+    "java": 1109,
+    "javascript": 323,
+    "go": 879,
+    "ruby": 414,
+    "csharp": 1026,
+}
 EMBEDDING_BACKFILL_MIN_RAW_CODE_LINES = 10
 EMBEDDING_BACKFILL_SOURCE_FIELDS = [
     "repo_id",
@@ -74,7 +83,7 @@ EMBEDDING_BACKFILL_SOURCE_FIELDS = [
 EMBEDDING_BACKFILL_SCAN_SIZE = 200
 EMBEDDING_BACKFILL_WRITE_BATCH_SIZE = 100
 # Keep one invocation bounded to a single fixed-size slice.
-EMBEDDING_BACKFILL_RUN_LIMIT = 200
+EMBEDDING_BACKFILL_RUN_LIMIT = sum(EMBEDDING_BACKFILL_PER_LANGUAGE_LIMITS.values())
 OPENSEARCH_SCROLL_TTL = "2m"
 
 
@@ -413,6 +422,10 @@ def _is_eligible_source_chunk(source: dict[str, Any]) -> bool:
     return _raw_code_line_count(source) >= EMBEDDING_BACKFILL_MIN_RAW_CODE_LINES
 
 
+def _per_language_limit(language: str) -> int:
+    return max(0, int(EMBEDDING_BACKFILL_PER_LANGUAGE_LIMITS.get(language, 0)))
+
+
 def _filter_missing_embedding_docs(
     store: Any,
     docs: list[tuple[str, dict[str, Any]]],
@@ -551,6 +564,9 @@ def backfill_code_chunk_embeddings(
         if stop_processing:
             break
 
+        language_limit = _per_language_limit(language)
+        if language_limit <= 0:
+            continue
         language_seen_count = 0
         query = _build_embedding_backfill_query(
             repo_id=repo_id,
@@ -576,7 +592,7 @@ def backfill_code_chunk_embeddings(
 
             should_resolve_candidates = (
                 len(candidate_batch) >= safe_write_batch_size
-                or language_seen_count + len(candidate_batch) >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT
+                or language_seen_count + len(candidate_batch) >= language_limit
             )
             if not should_resolve_candidates:
                 continue
@@ -598,7 +614,7 @@ def backfill_code_chunk_embeddings(
                     )
                     pending_batch.clear()
 
-                if language_seen_count >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
+                if language_seen_count >= language_limit:
                     break
                 if limit > 0 and stats.seen_count >= limit:
                     stop_processing = True
@@ -606,10 +622,10 @@ def backfill_code_chunk_embeddings(
 
             candidate_batch.clear()
 
-            if stop_processing or language_seen_count >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
+            if stop_processing or language_seen_count >= language_limit:
                 break
 
-        if candidate_batch and not stop_processing and language_seen_count < EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
+        if candidate_batch and not stop_processing and language_seen_count < language_limit:
             for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
                 pending_batch.append(missing_doc)
                 stats.seen_count += 1
@@ -627,7 +643,7 @@ def backfill_code_chunk_embeddings(
                     )
                     pending_batch.clear()
 
-                if language_seen_count >= EMBEDDING_BACKFILL_PER_LANGUAGE_LIMIT:
+                if language_seen_count >= language_limit:
                     break
                 if limit > 0 and stats.seen_count >= limit:
                     stop_processing = True
