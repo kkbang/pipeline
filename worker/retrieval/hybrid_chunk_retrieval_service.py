@@ -20,6 +20,7 @@ from worker.retrieval.chunk_retrieval_service import (
     _variant_name_from_id,
 )
 from worker.retrieval.query_expansion_service import build_query_bundle
+from worker.retrieval.source_chunk_selection import select_source_chunks
 
 try:
     from worker.storage.opensearch_store import OpenSearchStore
@@ -505,9 +506,7 @@ def list_repo_chunk_sources(
         if not chunk_id:
             continue
         source_chunks.append({"chunk_id": chunk_id, **source})
-        if isinstance(limit, int) and limit > 0 and len(source_chunks) >= limit:
-            break
-    return source_chunks
+    return select_source_chunks(source_chunks, limit=limit)
 
 
 def retrieve_hybrid_candidates_for_repo(

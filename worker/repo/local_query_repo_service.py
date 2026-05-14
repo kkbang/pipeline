@@ -19,6 +19,7 @@ from worker.repo.repo_crawl_service import (
 )
 from worker.repo.repo_file_extract_service import _classify_file, _iter_snapshot_files
 from worker.repo.repo_snapshot_local_paths import resolve_extracted_root
+from worker.retrieval.source_chunk_selection import select_source_chunks
 from worker.seed.resolvers.github_url_canonicalizer import canonicalize_github_repo_url
 
 
@@ -100,14 +101,8 @@ def _chunk_snapshot_into_source_chunks(
 
         for chunk_doc_id, source in outcome.chunk_docs:
             source_chunks.append({"chunk_id": chunk_doc_id, **dict(source)})
-            if (
-                isinstance(source_chunk_limit, int)
-                and source_chunk_limit > 0
-                and len(source_chunks) >= source_chunk_limit
-            ):
-                return source_chunks
 
-    return source_chunks
+    return select_source_chunks(source_chunks, limit=source_chunk_limit)
 
 
 def prepare_local_query_repo(
