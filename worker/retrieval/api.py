@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 try:
@@ -14,6 +15,9 @@ except ModuleNotFoundError as exc:  # pragma: no cover - runtime dependency guar
 from worker.repo.local_query_repo_service import prepare_local_query_repo
 from worker.retrieval.hybrid_chunk_retrieval_service import retrieve_hybrid_candidates_for_source_chunks
 from worker.storage.opensearch_store import OpenSearchStore
+
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
@@ -37,6 +41,13 @@ class HybridRepoRetrieveRequest(BaseModel):
     merged_top_k: int = Field(default=100, ge=1, le=500)
     include_same_repo: bool = Field(default=False)
     skip_validation: bool = Field(default=False)
+
+
+def _exception_detail(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message:
+        return f"{type(exc).__name__}: {message}"
+    return type(exc).__name__
 
 
 def _compact_repo_processing(process_result: dict[str, Any]) -> dict[str, Any]:
@@ -150,4 +161,9 @@ def retrieve_hybrid_by_repo_url(request: HybridRepoRetrieveRequest) -> dict[str,
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - runtime integration path
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception(
+            "Hybrid retrieval API failed for repo_url=%s source_chunk_limit=%s",
+            request.repo_url,
+            request.source_chunk_limit,
+        )
+        raise HTTPException(status_code=500, detail=_exception_detail(exc)) from exc
