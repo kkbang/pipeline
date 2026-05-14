@@ -14,6 +14,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - runtime dependency guar
 
 from worker.repo.local_query_repo_service import prepare_local_query_repo
 from worker.retrieval.hybrid_chunk_retrieval_service import retrieve_hybrid_candidates_for_source_chunks
+from worker.retrieval.rerank_payload import compact_candidate_for_rerank, compact_chunk_for_rerank
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -60,63 +61,8 @@ def _compact_repo_processing(process_result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _compact_chunk_for_rerank(chunk: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "chunk_id": chunk.get("chunk_id"),
-        "repo_id": chunk.get("repo_id"),
-        "language": chunk.get("language"),
-        "file_path": chunk.get("file_path"),
-        "chunk_type": chunk.get("chunk_type"),
-        "symbol_name": chunk.get("symbol_name"),
-        "raw_code": chunk.get("raw_code"),
-        "anonymized_code": chunk.get("anonymized_code"),
-    }
-
-
 def _compact_candidate(candidate: dict[str, Any], candidate_source: dict[str, Any] | None = None) -> dict[str, Any]:
-    retrieval_sources = candidate.get("retrieval_sources")
-    if not retrieval_sources:
-        if candidate.get("rule_based") and candidate.get("knn"):
-            retrieval_sources = ["rule_based", "knn"]
-        elif candidate.get("rule_based"):
-            retrieval_sources = ["rule_based"]
-        elif candidate.get("knn"):
-            retrieval_sources = ["knn"]
-    payload = {
-        "chunk_id": candidate.get("chunk_id"),
-        "repo_id": candidate.get("repo_id"),
-        "file_path": candidate.get("file_path"),
-        "symbol_name": candidate.get("symbol_name"),
-        "retrieval_sources": retrieval_sources,
-        "candidate_chunk": _compact_chunk_for_rerank(candidate_source or dict(candidate.get("source") or {})),
-    }
-    if candidate.get("rule_based"):
-        payload["rule_based"] = {
-            "rank": (candidate.get("rule_based") or {}).get("rank"),
-            "aggregate_score": (candidate.get("rule_based") or {}).get("aggregate_score"),
-            "evidence_count": (candidate.get("rule_based") or {}).get("evidence_count"),
-            "strongest_evidence_type": (candidate.get("rule_based") or {}).get("strongest_evidence_type"),
-            "match_analysis": {
-                "ranking_score": ((candidate.get("rule_based") or {}).get("match_analysis") or {}).get("ranking_score"),
-                "call_token_overlap_count": ((candidate.get("rule_based") or {}).get("match_analysis") or {}).get("call_token_overlap_count"),
-                "identifier_term_overlap_count": ((candidate.get("rule_based") or {}).get("match_analysis") or {}).get("identifier_term_overlap_count"),
-                "operator_token_overlap_count": ((candidate.get("rule_based") or {}).get("match_analysis") or {}).get("operator_token_overlap_count"),
-                "domain_alignment_terms": ((candidate.get("rule_based") or {}).get("match_analysis") or {}).get("domain_alignment_terms"),
-            },
-        }
-    if candidate.get("knn"):
-        payload["knn"] = {
-            "rank": (candidate.get("knn") or {}).get("rank"),
-            "score": (candidate.get("knn") or {}).get("score"),
-            "match_analysis": {
-                "ranking_score": ((candidate.get("knn") or {}).get("match_analysis") or {}).get("ranking_score"),
-                "call_token_overlap_count": ((candidate.get("knn") or {}).get("match_analysis") or {}).get("call_token_overlap_count"),
-                "identifier_term_overlap_count": ((candidate.get("knn") or {}).get("match_analysis") or {}).get("identifier_term_overlap_count"),
-                "operator_token_overlap_count": ((candidate.get("knn") or {}).get("match_analysis") or {}).get("operator_token_overlap_count"),
-                "domain_alignment_terms": ((candidate.get("knn") or {}).get("match_analysis") or {}).get("domain_alignment_terms"),
-            },
-        }
-    return payload
+    return compact_candidate_for_rerank(candidate, candidate_source=candidate_source)
 
 
 def _build_candidate_source_lookup(store: OpenSearchStore, retrieval_result: dict[str, Any]) -> dict[str, dict[str, Any]]:

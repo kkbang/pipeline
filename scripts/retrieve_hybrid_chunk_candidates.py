@@ -35,6 +35,7 @@ try:
         retrieve_hybrid_candidates_for_repo,
         retrieve_hybrid_candidates_for_source_chunks,
     )
+    from worker.retrieval.rerank_payload import compact_candidate_for_rerank  # noqa: E402
     from worker.storage.opensearch_store import OpenSearchStore  # noqa: E402
 except ModuleNotFoundError as exc:  # pragma: no cover - import-time dependency guard
     if exc.name == "opensearchpy":
@@ -53,60 +54,7 @@ def _load_input_json(path: str) -> dict[str, Any]:
 
 
 def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
-    retrieval_sources = candidate.get("retrieval_sources")
-    if not retrieval_sources:
-        if candidate.get("rule_based") and candidate.get("knn"):
-            retrieval_sources = ["rule_based", "knn"]
-        elif candidate.get("rule_based"):
-            retrieval_sources = ["rule_based"]
-        elif candidate.get("knn"):
-            retrieval_sources = ["knn"]
-    compact = {
-        "chunk_id": candidate.get("chunk_id"),
-        "repo_id": candidate.get("repo_id"),
-        "file_path": candidate.get("file_path"),
-        "symbol_name": candidate.get("symbol_name"),
-        "retrieval_sources": retrieval_sources,
-        "candidate_chunk": {
-            "chunk_id": (candidate.get("source") or {}).get("chunk_id"),
-            "repo_id": (candidate.get("source") or {}).get("repo_id"),
-            "language": (candidate.get("source") or {}).get("language"),
-            "file_path": (candidate.get("source") or {}).get("file_path"),
-            "chunk_type": (candidate.get("source") or {}).get("chunk_type"),
-            "symbol_name": (candidate.get("source") or {}).get("symbol_name"),
-            "raw_code": (candidate.get("source") or {}).get("raw_code"),
-            "anonymized_code": (candidate.get("source") or {}).get("anonymized_code"),
-        },
-    }
-    if candidate.get("rule_based"):
-        rule_based = dict(candidate["rule_based"])
-        compact["rule_based"] = {
-            "rank": rule_based.get("rank"),
-            "aggregate_score": rule_based.get("aggregate_score"),
-            "evidence_count": rule_based.get("evidence_count"),
-            "strongest_evidence_type": rule_based.get("strongest_evidence_type"),
-            "match_analysis": {
-                "ranking_score": (rule_based.get("match_analysis") or {}).get("ranking_score"),
-                "call_token_overlap_count": (rule_based.get("match_analysis") or {}).get("call_token_overlap_count"),
-                "identifier_term_overlap_count": (rule_based.get("match_analysis") or {}).get("identifier_term_overlap_count"),
-                "operator_token_overlap_count": (rule_based.get("match_analysis") or {}).get("operator_token_overlap_count"),
-                "domain_alignment_terms": (rule_based.get("match_analysis") or {}).get("domain_alignment_terms"),
-            },
-        }
-    if candidate.get("knn"):
-        knn = dict(candidate["knn"])
-        compact["knn"] = {
-            "rank": knn.get("rank"),
-            "score": knn.get("score"),
-            "match_analysis": {
-                "ranking_score": (knn.get("match_analysis") or {}).get("ranking_score"),
-                "call_token_overlap_count": (knn.get("match_analysis") or {}).get("call_token_overlap_count"),
-                "identifier_term_overlap_count": (knn.get("match_analysis") or {}).get("identifier_term_overlap_count"),
-                "operator_token_overlap_count": (knn.get("match_analysis") or {}).get("operator_token_overlap_count"),
-                "domain_alignment_terms": (knn.get("match_analysis") or {}).get("domain_alignment_terms"),
-            },
-        }
-    return compact
+    return compact_candidate_for_rerank(candidate)
 
 
 def _compact_result_payload(result: Any) -> dict[str, Any]:
@@ -119,8 +67,6 @@ def _compact_result_payload(result: Any) -> dict[str, Any]:
         "rule_based_candidate_count": len(result.rule_based_candidates),
         "knn_candidate_count": len(result.knn_candidates),
         "merged_candidate_count": len(result.merged_candidates),
-        "rule_based_candidates": [_compact_candidate(candidate) for candidate in result.rule_based_candidates],
-        "knn_candidates": [_compact_candidate(candidate) for candidate in result.knn_candidates],
         "merged_candidates": [_compact_candidate(candidate) for candidate in result.merged_candidates],
     }
 
