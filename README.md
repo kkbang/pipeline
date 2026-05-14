@@ -495,6 +495,7 @@ ingested -> normalized -> registered
 - full AST JSON, full DFG JSON은 저장하지 않고 retrieval용 summary feature만 저장합니다.
 - 현재 physical index는 `code_chunk_index_v1`, logical alias는 `code_chunk_index` 방식으로 운영합니다.
 - embedding 설명은 [code-chunk-embedding.md](/Users/xxuchan/Desktop/kkbang/docs/code-chunk-embedding.md)를 참고합니다.
+- retrieval 설명은 [code-chunk-retrieval.md](/Users/xxuchan/Desktop/kkbang/docs/code-chunk-retrieval.md)를 참고합니다.
 
 ## 스키마 설명
 
