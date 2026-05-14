@@ -97,6 +97,150 @@ COMPOUND_DOMAIN_KEYWORDS = {
     "clientx",
     "clienty",
 }
+FUNCTION_DOMAIN_KEYWORDS = {
+    "schema_generation": {
+        "schema",
+        "jsonschema",
+        "openapi",
+        "swagger",
+        "nullable",
+        "readonly",
+        "writeonly",
+        "deprecated",
+        "enum",
+        "default",
+        "example",
+        "minimum",
+        "maximum",
+        "pattern",
+        "items",
+        "properties",
+        "additionalproperties",
+        "required",
+        "omitempty",
+        "structfield",
+        "format",
+        "ref",
+    },
+    "orm_metadata": {
+        "orm",
+        "modelinfo",
+        "fieldinfo",
+        "column",
+        "dbtype",
+        "relation",
+        "foreignkey",
+        "reverse",
+        "m2m",
+        "reltable",
+        "relthrough",
+        "ondelete",
+        "dbcol",
+        "fielder",
+        "pk",
+        "autonow",
+        "autonowadd",
+    },
+    "protobuf_query_parsing": {
+        "protobuf",
+        "proto",
+        "timestamp",
+        "duration",
+        "fieldmask",
+        "wellknown",
+        "bytesvalue",
+        "stringvalue",
+        "doublevalue",
+        "int64value",
+        "uint64value",
+        "enumvaluemap",
+        "messagename",
+        "query",
+        "parameter",
+    },
+    "openai_chat_wrapper": {
+        "openai",
+        "chatcompletion",
+        "toolcall",
+        "functioncall",
+        "toolchoice",
+        "completion",
+        "stream",
+        "callbackmanager",
+        "modelresult",
+        "prompttokens",
+        "completiontokens",
+        "chatmessages",
+    },
+    "config_setter": {
+        "sessionvars",
+        "session",
+        "prefilter",
+        "fallback",
+        "retrain",
+        "nprobe",
+        "forceplan",
+        "onoff",
+        "parsepositiveint",
+        "reindex",
+        "setter",
+        "config",
+    },
+}
+FUNCTIONAL_TRAIT_KEYWORDS = {
+    "reflection": {
+        "reflect",
+        "structfield",
+        "fieldbyname",
+        "kind",
+        "elem",
+        "valueof",
+        "typeof",
+        "struct",
+        "ptr",
+    },
+    "tag_parsing": {
+        "tag",
+        "lookup",
+        "omitempty",
+        "structtag",
+        "json",
+    },
+    "schema_modeling": {
+        "schema",
+        "properties",
+        "items",
+        "additionalproperties",
+        "required",
+        "nullable",
+        "readonly",
+        "writeonly",
+        "deprecated",
+        "enum",
+        "format",
+        "minimum",
+        "maximum",
+    },
+    "typed_value_conversion": {
+        "parsefloat",
+        "parseint",
+        "parseuint",
+        "parseduration",
+        "type",
+        "format",
+        "fieldbyname",
+        "value",
+    },
+    "openai_streaming": {
+        "openai",
+        "chatcompletion",
+        "stream",
+        "toolcall",
+        "callbackmanager",
+        "completion",
+        "messages",
+    },
+}
 RETRIEVAL_SEARCH_SOURCE_FIELDS = [
     "chunk_id",
     "repo_id",
@@ -382,6 +526,17 @@ def _split_identifier_terms(value: object) -> set[str]:
     return {term for term in terms if term and term not in GENERIC_IDENTIFIER_TERMS}
 
 
+def _collect_term_variants(value: object) -> set[str]:
+    raw = _clean_text(value)
+    if not raw:
+        return set()
+    compact = re.sub(r"[^a-z0-9]+", "", raw.lower())
+    terms = _split_identifier_terms(raw)
+    if len(compact) >= 3:
+        terms.add(compact)
+    return {term for term in terms if term}
+
+
 def _extract_identifier_term_set(source: Mapping[str, Any]) -> set[str]:
     terms: set[str] = set()
     for value in source.get("identifier_tokens") or []:
@@ -426,6 +581,47 @@ def _extract_domain_terms(source: Mapping[str, Any]) -> set[str]:
     return detected_terms
 
 
+def _extract_semantic_term_set(source: Mapping[str, Any]) -> set[str]:
+    terms: set[str] = set()
+    for value in source.get("identifier_tokens") or []:
+        terms.update(_collect_term_variants(value))
+    for value in source.get("call_tokens") or []:
+        terms.update(_collect_term_variants(value))
+    terms.update(_collect_term_variants(source.get("symbol_name")))
+
+    file_path = _clean_text(source.get("file_path"))
+    for path_part in re.split(r"[^A-Za-z0-9_]+", file_path):
+        terms.update(_collect_term_variants(path_part))
+
+    raw_code = _clean_text(source.get("raw_code"))
+    for raw_term in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", raw_code):
+        terms.update(_collect_term_variants(raw_term))
+
+    return terms
+
+
+def _classify_keyword_families(
+    terms: set[str],
+    family_keywords: Mapping[str, set[str]],
+) -> tuple[dict[str, list[str]], list[str], str]:
+    family_matches = {
+        family_name: sorted(keywords & terms)
+        for family_name, keywords in family_keywords.items()
+    }
+    active_families = sorted(
+        family_name
+        for family_name, matches in family_matches.items()
+        if len(matches) >= 2
+    )
+    primary_family = ""
+    if active_families:
+        primary_family = max(
+            active_families,
+            key=lambda family_name: (len(family_matches[family_name]), family_name),
+        )
+    return family_matches, active_families, primary_family
+
+
 def _build_match_analysis(
     *,
     source_doc: Mapping[str, Any],
@@ -454,6 +650,28 @@ def _build_match_analysis(
     domain_alignment_terms = source_domain_terms & candidate_domain_terms
     high_signal_domain_terms = domain_alignment_terms & HIGH_SIGNAL_DOMAIN_TERMS
 
+    source_semantic_terms = _extract_semantic_term_set(source_doc)
+    candidate_semantic_terms = _extract_semantic_term_set(candidate_source)
+    source_family_matches, source_domain_families, source_primary_domain = _classify_keyword_families(
+        source_semantic_terms,
+        FUNCTION_DOMAIN_KEYWORDS,
+    )
+    candidate_family_matches, candidate_domain_families, candidate_primary_domain = _classify_keyword_families(
+        candidate_semantic_terms,
+        FUNCTION_DOMAIN_KEYWORDS,
+    )
+    _trait_matches, source_functional_traits, _source_primary_trait = _classify_keyword_families(
+        source_semantic_terms,
+        FUNCTIONAL_TRAIT_KEYWORDS,
+    )
+    _candidate_trait_matches, candidate_functional_traits, _candidate_primary_trait = _classify_keyword_families(
+        candidate_semantic_terms,
+        FUNCTIONAL_TRAIT_KEYWORDS,
+    )
+    domain_family_overlap = sorted(set(source_domain_families) & set(candidate_domain_families))
+    shared_functional_traits = sorted(set(source_functional_traits) & set(candidate_functional_traits))
+    domain_family_conflict = bool(source_domain_families and candidate_domain_families and not domain_family_overlap)
+
     support_category_count = sum(
         1
         for overlap_count in (
@@ -467,6 +685,7 @@ def _build_match_analysis(
     strongest_evidence_type, _ = _strongest_evidence_type(evidences)
     domain_bonus = min(len(domain_alignment_terms), 5) * 0.04
     high_signal_domain_bonus = min(len(high_signal_domain_terms), 4) * 0.09
+    domain_family_bonus = min(len(domain_family_overlap), 2) * 0.12
     call_bonus = min(len(filtered_call_overlap), 3) * 0.04
     identifier_bonus = min(len(identifier_overlap), 5) * 0.03
     operator_bonus = min(len(operator_overlap), 6) * 0.04
@@ -477,13 +696,26 @@ def _build_match_analysis(
     weak_semantic_penalty = 0.14 if strongest_evidence_type == "anonymized_code_match" and not domain_alignment_terms else 0.0
     low_signal_penalty = (
         0.08
-        if not domain_alignment_terms and not filtered_call_overlap and len(identifier_overlap) <= 1
+        if not domain_alignment_terms and not domain_family_overlap and not filtered_call_overlap and len(identifier_overlap) <= 1
+        else 0.0
+    )
+    domain_conflict_penalty = 0.16 if domain_family_conflict and len(shared_functional_traits) <= 1 else 0.0
+    generic_setter_penalty = (
+        0.2
+        if candidate_primary_domain == "config_setter" and source_primary_domain != "config_setter"
         else 0.0
     )
 
-    ranking_score = aggregate_score + domain_bonus + high_signal_domain_bonus + call_bonus
+    ranking_score = aggregate_score + domain_bonus + high_signal_domain_bonus + domain_family_bonus + call_bonus
     ranking_score += identifier_bonus + operator_bonus
-    ranking_score -= boilerplate_penalty + anonymized_only_penalty + weak_semantic_penalty + low_signal_penalty
+    ranking_score -= (
+        boilerplate_penalty
+        + anonymized_only_penalty
+        + weak_semantic_penalty
+        + low_signal_penalty
+        + domain_conflict_penalty
+        + generic_setter_penalty
+    )
 
     return {
         "ranking_score": round(ranking_score, 6),
@@ -494,6 +726,15 @@ def _build_match_analysis(
         "boilerplate_call_overlap_count": len(boilerplate_call_overlap),
         "domain_alignment_terms": sorted(domain_alignment_terms),
         "high_signal_domain_terms": sorted(high_signal_domain_terms),
+        "source_domain_families": source_domain_families,
+        "candidate_domain_families": candidate_domain_families,
+        "domain_family_overlap": domain_family_overlap,
+        "domain_family_conflict": domain_family_conflict,
+        "source_primary_domain": source_primary_domain,
+        "candidate_primary_domain": candidate_primary_domain,
+        "source_functional_traits": source_functional_traits,
+        "candidate_functional_traits": candidate_functional_traits,
+        "shared_functional_traits": shared_functional_traits,
         "filtered_call_overlap": sorted(filtered_call_overlap),
         "identifier_term_overlap": sorted(identifier_overlap),
         "operator_token_overlap": sorted(operator_overlap),
@@ -599,17 +840,24 @@ def _build_license_review(
 
     domain_alignment_terms = list(match_analysis.get("domain_alignment_terms") or [])
     high_signal_domain_terms = list(match_analysis.get("high_signal_domain_terms") or [])
+    domain_family_overlap = list(match_analysis.get("domain_family_overlap") or [])
+    shared_functional_traits = list(match_analysis.get("shared_functional_traits") or [])
+    domain_family_conflict = bool(match_analysis.get("domain_family_conflict"))
+    source_primary_domain = _clean_text(match_analysis.get("source_primary_domain"))
+    candidate_primary_domain = _clean_text(match_analysis.get("candidate_primary_domain"))
     call_overlap_count = int(match_analysis.get("call_token_overlap_count") or 0)
     operator_overlap_count = int(match_analysis.get("operator_token_overlap_count") or 0)
     identifier_overlap_count = int(match_analysis.get("identifier_term_overlap_count") or 0)
     ranking_score = float(match_analysis.get("ranking_score") or 0.0)
-    medium_support = bool(domain_alignment_terms) or (
+    medium_support = bool(domain_alignment_terms or domain_family_overlap) or (
         operator_overlap_count >= 4 and identifier_overlap_count >= 3
     )
 
     if strongest_evidence_type in lexical_evidence_types:
         semantic_bonus = min(len(domain_alignment_terms), 3) * 0.02
         semantic_bonus += min(len(high_signal_domain_terms), 4) * 0.025
+        semantic_bonus += min(len(domain_family_overlap), 2) * 0.05
+        semantic_bonus += min(len(shared_functional_traits), 2) * 0.02
         semantic_bonus += min(operator_overlap_count, 6) * 0.008
         semantic_bonus += min(identifier_overlap_count, 4) * 0.004
         semantic_bonus += min(call_overlap_count, 2) * 0.02
@@ -619,6 +867,10 @@ def _build_license_review(
     if domain_alignment_terms:
         reasons.append(
             "Interaction-domain terms matched: " + ", ".join(domain_alignment_terms) + "."
+        )
+    elif domain_family_overlap:
+        reasons.append(
+            "Function-domain families matched: " + ", ".join(domain_family_overlap) + "."
         )
     elif strongest_evidence_type in lexical_evidence_types:
         reasons.append("No interaction-domain match was found, so lexical similarity alone is treated conservatively.")
@@ -632,9 +884,29 @@ def _build_license_review(
             "Candidate lacks enough domain overlap or combined operator/identifier overlap for medium risk."
         )
 
+    if strongest_evidence_type in lexical_evidence_types and domain_family_conflict:
+        if len(shared_functional_traits) >= 2:
+            risk_score = min(risk_score, 0.68)
+        else:
+            risk_score = min(risk_score, 0.52)
+        reasons.append(
+            "Function-domain families differ, so similar structure alone is not treated as derivation."
+        )
+
+    if (
+        strongest_evidence_type in lexical_evidence_types
+        and candidate_primary_domain == "config_setter"
+        and source_primary_domain != "config_setter"
+    ):
+        risk_score = min(risk_score, 0.38)
+        reasons.append(
+            "Candidate behaves like a configuration setter rather than the same kind of function."
+        )
+
     if strongest_evidence_type in lexical_evidence_types and call_overlap_count == 0:
         no_call_cap = 0.68
         no_call_cap += min(len(high_signal_domain_terms), 4) * 0.015
+        no_call_cap += min(len(domain_family_overlap), 2) * 0.03
         no_call_cap += min(operator_overlap_count, 6) * 0.005
         no_call_cap += min(identifier_overlap_count, 4) * 0.003
         risk_score = min(risk_score, min(no_call_cap, 0.79))

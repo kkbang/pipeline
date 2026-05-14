@@ -170,10 +170,17 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     call_overlap_count = int(match_analysis.get("call_token_overlap_count") or 0)
     identifier_overlap_count = int(match_analysis.get("identifier_term_overlap_count") or 0)
     operator_overlap_count = int(match_analysis.get("operator_token_overlap_count") or 0)
+    domain_family_overlap = list(match_analysis.get("domain_family_overlap") or [])
+    shared_functional_traits = list(match_analysis.get("shared_functional_traits") or [])
+    domain_family_conflict = bool(match_analysis.get("domain_family_conflict"))
+    source_primary_domain = _clean_text(match_analysis.get("source_primary_domain"))
+    candidate_primary_domain = _clean_text(match_analysis.get("candidate_primary_domain"))
     support_bonus = min(support_category_count, 3) * 0.04
     support_bonus += min(call_overlap_count, 2) * 0.03
     support_bonus += min(identifier_overlap_count, 6) * 0.008
     support_bonus += min(operator_overlap_count, 6) * 0.008
+    support_bonus += min(len(domain_family_overlap), 2) * 0.05
+    support_bonus += min(len(shared_functional_traits), 2) * 0.015
     risk_score = min(1.0, risk_score + support_bonus)
 
     license_spdx = _clean_text(source_repo.get("license_spdx"))
@@ -194,6 +201,14 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
             risk_score = min(risk_score, 0.45 + (normalized_similarity * 0.45))
         elif strongest_evidence_type == "structural_similarity":
             risk_score = min(risk_score, 0.35 + (normalized_similarity * 0.35))
+
+    if strongest_evidence_type != "raw_hash_match" and domain_family_conflict:
+        if candidate_primary_domain == "config_setter" and source_primary_domain != "config_setter":
+            risk_score = min(risk_score, 0.38)
+        elif len(shared_functional_traits) >= 2:
+            risk_score = min(risk_score, 0.68)
+        else:
+            risk_score = min(risk_score, 0.52)
 
     if risk_score >= 0.95:
         risk_level = "critical"
