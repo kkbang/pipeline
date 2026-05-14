@@ -98,7 +98,7 @@ def _compact_repo_hybrid_payload(
                 "source_chunk_id": chunk_result.get("source_chunk_id"),
                 "file_path": chunk_result.get("file_path"),
                 "symbol_name": chunk_result.get("symbol_name"),
-                "source_chunk": _compact_chunk_for_rerank(
+                "source_chunk": compact_chunk_for_rerank(
                     next(
                         (
                             source_chunk
