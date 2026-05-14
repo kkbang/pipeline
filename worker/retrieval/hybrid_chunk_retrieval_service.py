@@ -9,6 +9,7 @@ from worker.retrieval.chunk_retrieval_service import (
     REPO_REGISTRY_INDEX,
     RETRIEVAL_SEARCH_SOURCE_FIELDS,
     RetrievalEvidence,
+    _build_license_review,
     _build_match_analysis,
     _build_source_repo_summary,
     _build_variant_search_body,
@@ -33,6 +34,10 @@ DEFAULT_RULE_BASED_TOP_K = 50
 DEFAULT_RULE_BASED_PER_VARIANT_K = 20
 DEFAULT_KNN_TOP_K = 50
 DEFAULT_MERGED_TOP_K = 100
+STRONG_COPYLEFT_LICENSE_MARKERS = ("AGPL", "GPL", "SSPL", "BUSL", "CPAL")
+WEAK_COPYLEFT_LICENSE_MARKERS = ("LGPL", "MPL", "EPL", "CDDL")
+NOTICE_LICENSE_MARKERS = ("APACHE", "MIT", "BSD", "ISC", "ARTISTIC", "ZLIB")
+PUBLIC_DOMAIN_LICENSE_MARKERS = ("UNLICENSE", "CC0", "0BSD")
 HYBRID_SOURCE_FIELDS = [
     "chunk_id",
     "repo_id",
@@ -83,6 +88,126 @@ class HybridRetrievalResult:
             "knn_candidates": [dict(candidate) for candidate in self.knn_candidates],
             "merged_candidates": [dict(candidate) for candidate in self.merged_candidates],
         }
+
+
+def _build_repo_doc_from_source_repo(source_repo: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "_source": {
+            "repo_license_spdx": _clean_text(source_repo.get("license_spdx")),
+            "repo_license_name": _clean_text(source_repo.get("license_name")),
+        }
+    }
+
+
+def _license_policy_bonus(license_spdx: str) -> tuple[float, str]:
+    normalized = _clean_text(license_spdx).upper()
+    if not normalized:
+        return 0.05, "unknown"
+    if any(marker in normalized for marker in STRONG_COPYLEFT_LICENSE_MARKERS):
+        return 0.18, "strong_copyleft"
+    if any(marker in normalized for marker in WEAK_COPYLEFT_LICENSE_MARKERS):
+        return 0.12, "weak_copyleft"
+    if any(marker in normalized for marker in NOTICE_LICENSE_MARKERS):
+        return 0.08, "notice"
+    if any(marker in normalized for marker in PUBLIC_DOMAIN_LICENSE_MARKERS):
+        return 0.02, "public_domain"
+    return 0.06, "other"
+
+
+def _select_match_analysis(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    rule_based_match = dict((candidate.get("rule_based") or {}).get("match_analysis") or {})
+    knn_match = dict((candidate.get("knn") or {}).get("match_analysis") or {})
+    if rule_based_match:
+        return rule_based_match
+    return knn_match
+
+
+def _select_evidences(candidate: Mapping[str, Any]) -> list[RetrievalEvidence]:
+    evidence_payloads = list((candidate.get("rule_based") or {}).get("evidences") or [])
+    evidences: list[RetrievalEvidence] = []
+    for payload in evidence_payloads:
+        if not isinstance(payload, Mapping):
+            continue
+        evidences.append(
+            RetrievalEvidence(
+                variant_id=_clean_text(payload.get("variant_id")),
+                variant_name=_clean_text(payload.get("variant_name")),
+                family=_clean_text(payload.get("family")),
+                raw_score=float(payload.get("raw_score") or 0.0),
+                normalized_score=float(payload.get("normalized_score") or 0.0),
+                rank=int(payload.get("rank") or 0),
+            )
+        )
+    return evidences
+
+
+def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    source_repo = dict(candidate.get("source_repo") or {})
+    candidate_source = dict(candidate.get("source") or {})
+    match_analysis = _select_match_analysis(candidate)
+    evidences = _select_evidences(candidate)
+    hybrid = dict(candidate.get("hybrid") or {})
+    normalized_similarity = min(max(float(hybrid.get("score") or 0.0) / 2.0, 0.0), 1.0)
+
+    review = _build_license_review(
+        candidate_source=candidate_source,
+        source_repo_id="",
+        aggregate_score=normalized_similarity,
+        evidences=evidences,
+        repo_doc=_build_repo_doc_from_source_repo(source_repo),
+        match_analysis=match_analysis,
+    )
+
+    risk_score = float(review.get("risk_score") or 0.0)
+    retrieval_sources = list(candidate.get("retrieval_sources") or [])
+    if len(retrieval_sources) >= 2:
+        risk_score = min(1.0, risk_score + 0.1)
+    elif retrieval_sources == ["knn"]:
+        risk_score = min(risk_score, 0.72)
+
+    support_category_count = int(match_analysis.get("support_category_count") or 0)
+    call_overlap_count = int(match_analysis.get("call_token_overlap_count") or 0)
+    identifier_overlap_count = int(match_analysis.get("identifier_term_overlap_count") or 0)
+    operator_overlap_count = int(match_analysis.get("operator_token_overlap_count") or 0)
+    support_bonus = min(support_category_count, 3) * 0.04
+    support_bonus += min(call_overlap_count, 2) * 0.03
+    support_bonus += min(identifier_overlap_count, 6) * 0.008
+    support_bonus += min(operator_overlap_count, 6) * 0.008
+    risk_score = min(1.0, risk_score + support_bonus)
+
+    license_spdx = _clean_text(source_repo.get("license_spdx"))
+    license_bonus, license_family = _license_policy_bonus(license_spdx)
+    risk_score = min(1.0, risk_score + license_bonus)
+
+    if not license_spdx:
+        risk_score = min(1.0, risk_score + 0.03)
+
+    if risk_score >= 0.95:
+        risk_level = "critical"
+    elif risk_score >= 0.8:
+        risk_level = "high"
+    elif risk_score >= 0.6:
+        risk_level = "medium"
+    else:
+        risk_level = "low"
+
+    reasons = list(review.get("reasons") or [])
+    reasons.append(f"Hybrid similarity score after scaling: {round(normalized_similarity, 4)}.")
+    if len(retrieval_sources) >= 2:
+        reasons.append("Candidate matched in both rule-based retrieval and embedding kNN.")
+    if license_spdx:
+        reasons.append(f"Candidate repository license family: {license_family.lower()} ({license_spdx}).")
+    else:
+        reasons.append("Candidate repository license metadata is missing, so review is conservative.")
+
+    return {
+        "risk_score": round(risk_score, 4),
+        "risk_level": risk_level,
+        "strongest_evidence_type": review.get("strongest_evidence_type"),
+        "license_spdx": license_spdx,
+        "license_name": _clean_text(source_repo.get("license_name")),
+        "reasons": reasons,
+    }
 
 
 def _build_knn_search_body(
@@ -343,8 +468,46 @@ def _merge_hybrid_candidates(
     knn_candidates: list[dict[str, Any]],
     top_k: int,
 ) -> list[dict[str, Any]]:
+    def _build_scaled_score_map(
+        candidates: list[dict[str, Any]],
+        *,
+        source_name: str,
+    ) -> dict[str, float]:
+        scored_items: list[tuple[str, float]] = []
+        for candidate in candidates:
+            chunk_id = _clean_text(candidate.get("chunk_id"))
+            if not chunk_id:
+                continue
+            if source_name == "rule_based":
+                raw_score = float((candidate.get("rule_based") or {}).get("aggregate_score") or 0.0)
+            else:
+                raw_score = float((candidate.get("knn") or {}).get("score") or 0.0)
+            scored_items.append((chunk_id, raw_score))
+
+        if not scored_items:
+            return {}
+
+        score_values = [score for _chunk_id, score in scored_items]
+        min_score = min(score_values)
+        max_score = max(score_values)
+        if max_score > min_score:
+            return {
+                chunk_id: round((score - min_score) / (max_score - min_score), 6)
+                for chunk_id, score in scored_items
+            }
+
+        if len(scored_items) == 1:
+            return {scored_items[0][0]: 1.0}
+
+        denominator = len(scored_items) - 1
+        return {
+            chunk_id: round(1.0 - (index / denominator), 6)
+            for index, (chunk_id, _score) in enumerate(scored_items)
+        }
+
+    rule_based_scaled_scores = _build_scaled_score_map(rule_based_candidates, source_name="rule_based")
+    knn_scaled_scores = _build_scaled_score_map(knn_candidates, source_name="knn")
     merged: dict[str, dict[str, Any]] = {}
-    ordered_chunk_ids: list[str] = []
 
     def _upsert(candidate: dict[str, Any], source_name: str) -> None:
         chunk_id = _clean_text(candidate.get("chunk_id"))
@@ -364,24 +527,59 @@ def _merge_hybrid_candidates(
                 "source": dict(candidate.get("source") or {}),
                 "rule_based": None,
                 "knn": None,
+                "license_review": None,
+                "hybrid": {
+                    "score": 0.0,
+                    "source_count": 0,
+                    "rule_based_scaled_score": None,
+                    "knn_scaled_score": None,
+                },
             }
             merged[chunk_id] = payload
-            ordered_chunk_ids.append(chunk_id)
 
         retrieval_sources = payload["retrieval_sources"]
         if source_name not in retrieval_sources:
             retrieval_sources.append(source_name)
         if source_name == "rule_based":
             payload["rule_based"] = dict(candidate.get("rule_based") or {})
+            payload["hybrid"]["rule_based_scaled_score"] = rule_based_scaled_scores.get(chunk_id)
         elif source_name == "knn":
             payload["knn"] = dict(candidate.get("knn") or {})
+            payload["hybrid"]["knn_scaled_score"] = knn_scaled_scores.get(chunk_id)
+
+        payload["hybrid"]["source_count"] = len(retrieval_sources)
+        payload["hybrid"]["score"] = round(
+            sum(
+                score
+                for score in (
+                    payload["hybrid"].get("rule_based_scaled_score"),
+                    payload["hybrid"].get("knn_scaled_score"),
+                )
+                if isinstance(score, (int, float))
+            ),
+            6,
+        )
 
     for candidate in rule_based_candidates:
         _upsert(candidate, "rule_based")
     for candidate in knn_candidates:
         _upsert(candidate, "knn")
 
-    return [merged[chunk_id] for chunk_id in ordered_chunk_ids[: max(1, int(top_k))]]
+    for payload in merged.values():
+        payload["license_review"] = _build_hybrid_license_review(payload)
+
+    ranked_candidates = sorted(
+        merged.values(),
+        key=lambda item: (
+            -float((item.get("license_review") or {}).get("risk_score") or 0.0),
+            -float((item.get("hybrid") or {}).get("score") or 0.0),
+            -int((item.get("hybrid") or {}).get("source_count") or 0),
+            -float((item.get("hybrid") or {}).get("knn_scaled_score") or 0.0),
+            -float((item.get("hybrid") or {}).get("rule_based_scaled_score") or 0.0),
+            str(item.get("chunk_id") or ""),
+        ),
+    )
+    return ranked_candidates[: max(1, int(top_k))]
 
 
 def retrieve_hybrid_candidates(
