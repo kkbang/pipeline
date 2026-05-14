@@ -1,6 +1,12 @@
 import os
 from dataclasses import dataclass
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=False)  # .env 파일을 읽어 환경 변수로 설정 (이미 설정된 값은 유지)
+except ImportError:
+    pass  # python-dotenv 미설치 시 무시 (환경 변수가 직접 주입된 경우)
+
 
 def _parse_github_tokens_from_env() -> tuple[str, ...]:
     raw_values = []
