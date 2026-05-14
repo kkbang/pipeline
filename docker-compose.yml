@@ -42,6 +42,7 @@ services:
       - ./airflow/plugins:/opt/airflow/plugins
       - ./airflow/config:/opt/airflow/config
       - ./worker:/opt/airflow/worker
+      - ./scripts:/opt/airflow/scripts
       - ./infra:/opt/airflow/infra
       - airflow_logs:/opt/airflow/logs
       - ./local_data:/opt/airflow/local_data
@@ -91,6 +92,7 @@ services:
       - ./airflow/plugins:/opt/airflow/plugins
       - ./airflow/config:/opt/airflow/config
       - ./worker:/opt/airflow/worker
+      - ./scripts:/opt/airflow/scripts
       - ./infra:/opt/airflow/infra
       - airflow_logs:/opt/airflow/logs
       - ./local_data:/opt/airflow/local_data

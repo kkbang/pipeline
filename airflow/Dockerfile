@@ -7,6 +7,7 @@ COPY airflow/config /opt/airflow/config
 COPY airflow/dags /opt/airflow/dags
 COPY airflow/plugins /opt/airflow/plugins
 COPY worker /opt/airflow/worker
+COPY scripts /opt/airflow/scripts
 COPY infra /opt/airflow/infra
 
 WORKDIR /opt/airflow
