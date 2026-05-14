@@ -104,6 +104,7 @@ RETRIEVAL_SEARCH_SOURCE_FIELDS = [
     "file_path",
     "chunk_type",
     "symbol_name",
+    "raw_code",
     "identifier_tokens",
     "call_tokens",
     "operator_tokens",

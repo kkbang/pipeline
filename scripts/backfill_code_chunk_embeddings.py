@@ -42,6 +42,7 @@ CODE_CHUNK_INDEX = CODE_CHUNK_INDEX_ALIAS
 CODE_CHUNK_EMBEDDING_INDEX = (
     f"{settings.code_chunk_embedding_index_alias}_{settings.code_chunk_embedding_index_version}"
 )
+# Edit this tuple directly when the embedding backfill target languages change.
 EMBEDDING_BACKFILL_ALLOWED_LANGUAGES = (
     "python",
     "java",
@@ -50,14 +51,6 @@ EMBEDDING_BACKFILL_ALLOWED_LANGUAGES = (
     "ruby",
     "csharp",
 )
-EMBEDDING_BACKFILL_PER_LANGUAGE_LIMITS = {
-    "python": 399,
-    "java": 1109,
-    "javascript": 323,
-    "go": 879,
-    "ruby": 414,
-    "csharp": 1026,
-}
 EMBEDDING_BACKFILL_MIN_RAW_CODE_LINES = 10
 EMBEDDING_BACKFILL_SOURCE_FIELDS = [
     "repo_id",
@@ -87,7 +80,7 @@ EMBEDDING_BACKFILL_WRITE_BATCH_SIZE = 100
 EMBEDDING_BACKFILL_WRITE_BUFFER_SIZE = 5000
 EMBEDDING_BACKFILL_EXISTING_CHECK_BATCH_SIZE = 5000
 # Keep one invocation bounded to a single fixed-size slice.
-EMBEDDING_BACKFILL_RUN_LIMIT = sum(EMBEDDING_BACKFILL_PER_LANGUAGE_LIMITS.values())
+EMBEDDING_BACKFILL_RUN_LIMIT = 4150
 OPENSEARCH_SCROLL_TTL = "2m"
 
 
@@ -434,10 +427,6 @@ def _is_eligible_source_chunk(source: dict[str, Any]) -> bool:
     return _raw_code_line_count(source) >= EMBEDDING_BACKFILL_MIN_RAW_CODE_LINES
 
 
-def _per_language_limit(language: str) -> int:
-    return max(0, int(EMBEDDING_BACKFILL_PER_LANGUAGE_LIMITS.get(language, 0)))
-
-
 def _filter_missing_embedding_docs(
     store: Any,
     docs: list[tuple[str, dict[str, Any]]],
@@ -606,10 +595,6 @@ def backfill_code_chunk_embeddings(
             if stop_processing:
                 break
 
-            language_limit = _per_language_limit(language)
-            if language_limit <= 0:
-                continue
-            language_seen_count = 0
             query = _build_embedding_backfill_query(
                 repo_id=repo_id,
                 force_reembed=force_reembed,
@@ -632,17 +617,13 @@ def backfill_code_chunk_embeddings(
 
                 candidate_batch.append((doc_id, source))
 
-                should_resolve_candidates = (
-                    len(candidate_batch) >= safe_existing_check_batch_size
-                    or language_seen_count + len(candidate_batch) >= language_limit
-                )
+                should_resolve_candidates = len(candidate_batch) >= safe_existing_check_batch_size
                 if not should_resolve_candidates:
                     continue
 
                 for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
                     pending_batch.append(missing_doc)
                     stats.seen_count += 1
-                    language_seen_count += 1
 
                     if len(pending_batch) >= safe_write_batch_size:
                         pending_update_docs.extend(_flush_embedding_backfill_batch(
@@ -654,22 +635,19 @@ def backfill_code_chunk_embeddings(
                         pending_batch.clear()
                         _flush_update_buffer_async()
 
-                    if language_seen_count >= language_limit:
-                        break
                     if limit > 0 and stats.seen_count >= limit:
                         stop_processing = True
                         break
 
                 candidate_batch.clear()
 
-                if stop_processing or language_seen_count >= language_limit:
+                if stop_processing:
                     break
 
-            if candidate_batch and not stop_processing and language_seen_count < language_limit:
+            if candidate_batch and not stop_processing:
                 for missing_doc in _filter_missing_embedding_docs(resolved_store, candidate_batch):
                     pending_batch.append(missing_doc)
                     stats.seen_count += 1
-                    language_seen_count += 1
 
                     if len(pending_batch) >= safe_write_batch_size:
                         pending_update_docs.extend(_flush_embedding_backfill_batch(
@@ -681,8 +659,6 @@ def backfill_code_chunk_embeddings(
                         pending_batch.clear()
                         _flush_update_buffer_async()
 
-                    if language_seen_count >= language_limit:
-                        break
                     if limit > 0 and stats.seen_count >= limit:
                         stop_processing = True
                         break
