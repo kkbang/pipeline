@@ -35,7 +35,10 @@ try:
         retrieve_hybrid_candidates_for_repo,
         retrieve_hybrid_candidates_for_source_chunks,
     )
-    from worker.retrieval.rerank_payload import compact_candidate_for_rerank  # noqa: E402
+    from worker.retrieval.user_report_payload import (  # noqa: E402
+        build_user_facing_hybrid_result_payload,
+        build_user_facing_repo_hybrid_payload,
+    )
     from worker.storage.opensearch_store import OpenSearchStore  # noqa: E402
 except ModuleNotFoundError as exc:  # pragma: no cover - import-time dependency guard
     if exc.name == "opensearchpy":
@@ -51,53 +54,6 @@ except ModuleNotFoundError as exc:  # pragma: no cover - import-time dependency 
 def _load_input_json(path: str) -> dict[str, Any]:
     input_path = Path(path).expanduser().resolve()
     return json.loads(input_path.read_text(encoding="utf-8"))
-
-
-def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
-    return compact_candidate_for_rerank(candidate)
-
-
-def _compact_result_payload(result: Any) -> dict[str, Any]:
-    return {
-        "retrieval_version": result.retrieval_version,
-        "source_chunk_id": result.source_chunk_id,
-        "source_repo_id": result.source_repo_id,
-        "rule_based_status": dict(result.rule_based_status),
-        "knn_status": dict(result.knn_status),
-        "rule_based_candidate_count": len(result.rule_based_candidates),
-        "knn_candidate_count": len(result.knn_candidates),
-        "merged_candidate_count": len(result.merged_candidates),
-        "merged_candidates": [_compact_candidate(candidate) for candidate in result.merged_candidates],
-    }
-
-
-def _compact_repo_result_payload(
-    result: dict[str, Any],
-    *,
-    process_result: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    payload = {
-        "retrieval_version": result.get("retrieval_version"),
-        "repo_id": result.get("repo_id") or (process_result or {}).get("repo_id"),
-        "source_chunk_count": result.get("source_chunk_count"),
-        "chunk_results": [
-            {
-                "source_chunk_id": chunk_result.get("source_chunk_id"),
-                "file_path": chunk_result.get("file_path"),
-                "symbol_name": chunk_result.get("symbol_name"),
-                "merged_candidate_count": len(chunk_result["result"].merged_candidates),
-                "merged_candidates": [
-                    _compact_candidate(candidate)
-                    for candidate in chunk_result["result"].merged_candidates
-                ],
-            }
-            for chunk_result in (result.get("chunk_results") or [])
-        ],
-    }
-    if process_result is not None:
-        payload["canonical_repo_url"] = process_result.get("canonical_repo_url")
-        payload["local_snapshot_cleanup"] = process_result.get("local_snapshot_cleanup")
-    return payload
 
 
 def _flatten_query_repo_payload(payload: dict[str, Any], process_result: dict[str, Any]) -> dict[str, Any]:
@@ -181,7 +137,7 @@ def main() -> int:
             payload = (
                 _flatten_query_repo_payload(dict(repo_result), process_result)
                 if args.verbose
-                else _compact_repo_result_payload(repo_result, process_result=process_result)
+                else build_user_facing_repo_hybrid_payload(process_result, repo_result)
             )
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
@@ -197,7 +153,17 @@ def main() -> int:
                 merged_top_k=args.merged_top_k,
                 include_same_repo=args.include_same_repo,
             )
-            payload = repo_result if args.verbose else _compact_repo_result_payload(repo_result)
+            payload = (
+                repo_result
+                if args.verbose
+                else build_user_facing_repo_hybrid_payload(
+                    {
+                        "repo_id": repo_result.get("repo_id"),
+                        "canonical_repo_url": "",
+                    },
+                    repo_result,
+                )
+            )
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
 
@@ -216,7 +182,17 @@ def main() -> int:
             include_same_repo=args.include_same_repo,
         )
 
-    payload = result.as_dict() if args.verbose else _compact_result_payload(result)
+    payload = (
+        result.as_dict()
+        if args.verbose
+        else build_user_facing_hybrid_result_payload(
+            result,
+            source_chunk={
+                "file_path": args.file_path.strip(),
+                "symbol_name": args.symbol_name.strip(),
+            },
+        )
+    )
     if process_result is not None:
         payload = _flatten_query_repo_payload(dict(payload), process_result)
     print(json.dumps(payload, ensure_ascii=False, indent=2))

@@ -14,12 +14,11 @@ except ModuleNotFoundError as exc:  # pragma: no cover - runtime dependency guar
 
 from worker.repo.local_query_repo_service import prepare_local_query_repo
 from worker.retrieval.hybrid_chunk_retrieval_service import retrieve_hybrid_candidates_for_source_chunks
-from worker.retrieval.rerank_payload import compact_candidate_for_rerank, compact_chunk_for_rerank
+from worker.retrieval.user_report_payload import build_user_facing_repo_hybrid_payload
 from worker.storage.opensearch_store import OpenSearchStore
 
 
 logger = logging.getLogger(__name__)
-CODE_CHUNK_INDEX = "code_chunk_index"
 
 
 app = FastAPI(
@@ -51,69 +50,6 @@ def _exception_detail(exc: Exception) -> str:
         return f"{type(exc).__name__}: {message}"
     return type(exc).__name__
 
-
-def _compact_candidate(candidate: dict[str, Any], candidate_source: dict[str, Any] | None = None) -> dict[str, Any]:
-    return compact_candidate_for_rerank(candidate, candidate_source=candidate_source)
-
-
-def _build_candidate_source_lookup(store: OpenSearchStore, retrieval_result: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    chunk_ids: list[str] = []
-    for chunk_result in retrieval_result.get("chunk_results") or []:
-        result = chunk_result.get("result")
-        merged_candidates = getattr(result, "merged_candidates", ())
-        for candidate in merged_candidates:
-            chunk_id = str(candidate.get("chunk_id") or "").strip()
-            if chunk_id:
-                chunk_ids.append(chunk_id)
-
-    docs = store.multi_get_documents(CODE_CHUNK_INDEX, chunk_ids)
-    return {
-        chunk_id: {"chunk_id": chunk_id, **dict((doc or {}).get("_source", {}))}
-        for chunk_id, doc in docs.items()
-    }
-
-
-def _compact_repo_hybrid_payload(
-    process_result: dict[str, Any],
-    retrieval_result: dict[str, Any],
-    *,
-    candidate_source_lookup: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
-    return {
-        "retrieval_version": retrieval_result.get("retrieval_version"),
-        "repo_id": retrieval_result.get("repo_id") or process_result.get("repo_id"),
-        "canonical_repo_url": process_result.get("canonical_repo_url"),
-        "source_chunk_count": retrieval_result.get("source_chunk_count"),
-        "local_snapshot_cleanup": process_result.get("local_snapshot_cleanup"),
-        "chunk_results": [
-            {
-                "source_chunk_id": chunk_result.get("source_chunk_id"),
-                "file_path": chunk_result.get("file_path"),
-                "symbol_name": chunk_result.get("symbol_name"),
-                "source_chunk": compact_chunk_for_rerank(
-                    next(
-                        (
-                            source_chunk
-                            for source_chunk in process_result.get("source_chunks") or []
-                            if source_chunk.get("chunk_id") == chunk_result.get("source_chunk_id")
-                        ),
-                        {},
-                    )
-                ),
-                "merged_candidate_count": len(chunk_result["result"].merged_candidates),
-                "merged_candidates": [
-                    _compact_candidate(
-                        candidate,
-                        candidate_source_lookup.get(str(candidate.get("chunk_id") or "").strip()),
-                    )
-                    for candidate in chunk_result["result"].merged_candidates
-                ],
-            }
-            for chunk_result in (retrieval_result.get("chunk_results") or [])
-        ],
-    }
-
-
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -137,12 +73,7 @@ def retrieve_hybrid_by_repo_url(request: HybridRepoRetrieveRequest) -> dict[str,
             merged_top_k=request.merged_top_k,
             include_same_repo=request.include_same_repo,
         )
-        candidate_source_lookup = _build_candidate_source_lookup(store, retrieval_result)
-        return _compact_repo_hybrid_payload(
-            process_result,
-            retrieval_result,
-            candidate_source_lookup=candidate_source_lookup,
-        )
+        return build_user_facing_repo_hybrid_payload(process_result, retrieval_result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:

@@ -160,6 +160,7 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
 
     risk_score = float(review.get("risk_score") or 0.0)
     retrieval_sources = list(candidate.get("retrieval_sources") or [])
+    strongest_evidence_type = _clean_text(review.get("strongest_evidence_type"))
     if len(retrieval_sources) >= 2:
         risk_score = min(1.0, risk_score + 0.1)
     elif retrieval_sources == ["knn"]:
@@ -182,6 +183,18 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     if not license_spdx:
         risk_score = min(1.0, risk_score + 0.03)
 
+    if len(retrieval_sources) == 1:
+        if strongest_evidence_type == "normalized_hash_match":
+            risk_score = min(risk_score, 0.9)
+        elif strongest_evidence_type == "anonymized_hash_match":
+            risk_score = min(risk_score, 0.82)
+        elif strongest_evidence_type in {"raw_code_match", "normalized_code_match"}:
+            risk_score = min(risk_score, 0.55 + (normalized_similarity * 0.5))
+        elif strongest_evidence_type == "anonymized_code_match":
+            risk_score = min(risk_score, 0.45 + (normalized_similarity * 0.45))
+        elif strongest_evidence_type == "structural_similarity":
+            risk_score = min(risk_score, 0.35 + (normalized_similarity * 0.35))
+
     if risk_score >= 0.95:
         risk_level = "critical"
     elif risk_score >= 0.8:
@@ -203,7 +216,7 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     return {
         "risk_score": round(risk_score, 4),
         "risk_level": risk_level,
-        "strongest_evidence_type": review.get("strongest_evidence_type"),
+        "strongest_evidence_type": strongest_evidence_type,
         "license_spdx": license_spdx,
         "license_name": _clean_text(source_repo.get("license_name")),
         "reasons": reasons,

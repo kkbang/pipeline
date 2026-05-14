@@ -38,6 +38,23 @@
             "chunk_type": "function",
             "symbol_name": "NewFieldInfo",
             "anonymized_code": "func FUNC_0(mi *ModelInfo, field reflect.Value, sf reflect.StructField, mName string) (VAR_0 *FieldInfo, VAR_1 error) {\n var (\n VAR_2 string\n VAR_3 string\n VAR_4 utils.StrTo\n VAR_5 int\n VAR_6 map[string]bool\n VAR_7 map[string]string\n VAR_8 reflect.Value\n )\n\n VAR_0 = new(FieldInfo)\n\n VAR_8 = field\n if field.CanAddr() && field.Kind() != reflect.Ptr {\n VAR_8 = field.Addr()\n if _, VAR_9 := VAR_8.Interface().(Fielder); !VAR_9 {\n if field.Kind() == reflect.Slice {\n VAR_8 = field\n }\n }\n }\n\n VAR_6, VAR_7 = ParseStructTag(sf.Tag.Get(DefaultStructTagName))\n\n if _, VAR_9 := VAR_6[\"STR_0\"]; VAR_9 {\n return nil, errSkipField\n }\n\n VAR_10 := VAR_7[\"STR_1\"]\n VAR_11 := VAR_7[\"STR_2\"]\n VAR_12 := VAR_7[\"STR_3\"]\n VAR_13 := VAR_7[\"STR_4\"]\n VAR_14 := VAR_7[\"STR_5\"]\n VAR_4.Clear()\n if VAR_15, VAR_9 := VAR_7[\"STR_6\"]; VAR_9 {\n VAR_4.Set(VAR_15)\n }\n\ncheckType:\n switch f := VAR_8.Interface().(type) {\n case Fielder:\n VAR_0.IsFielder = true\n if field.Kind() == reflect.Ptr {\n VAR_1 = fmt.Errorf(\"STR_7\")\n goto end\n }\n VAR_5 = f.FieldType()\n if VAR_5&IsRelField > 0 {\n VAR_1 = fmt.Errorf(\"STR_8\")\n goto end\n }\n default:\n VAR_2 = \"STR_9\"\n VAR_3 = VAR_7[VAR_2]\n if VAR_3 != \"STR_10\" {\n switch VAR_3 {\n case \"STR_11\":\n VAR_5 = RelForeignKey\n break checkType\n case \"STR_12\":\n VAR_5 = RelOneToOne\n break checkType\n case \"STR_13\":\n VAR_5 = RelManyToMany\n if VAR_16 := VAR_7[\"STR_14\"]; VAR_16 != \"STR_10\" {\n VAR_0.RelTable = VAR_16\n } else if VAR_16 := VAR_7[\"STR_15\"]; VAR_16 != \"STR_10\" {\n VAR_0.RelThrough = VAR_16\n }\n break checkType\n default:\n VAR_1 = fmt.Errorf(\"STR_16\")\n goto wrongTag\n }\n }\n VAR_2 = \"STR_17\"\n VAR_3 = VAR_7[VAR_2]\n if VAR_3 != \"STR_10\" {\n switch VAR_3 {\n case \"STR_12\":\n VAR_5 = RelReverseOne\n break checkType\n case \"STR_18\":\n VAR_5 = RelReverseMany\n if VAR_16 := VAR_7[\"STR_14\"]; VAR_16 != \"STR_10\" {\n VAR_0.RelTable = VAR_16\n } else if VAR_16 := VAR_7[\"STR_15\"]; VAR_16 != \"STR_10\" {\n VAR_0.RelThrough = VAR_16\n }\n break checkType\n default:\n VAR_1 = fmt.Errorf(\"STR_19\")\n goto wrongTag\n }\n }\n\n VAR_5, VAR_1 = getFieldType(VAR_8)\n if VAR_1 != nil {\n goto end\n }\n if VAR_5 == TypeVarCharField {\n switch VAR_7[\"STR_20\"] {\n case \"STR_21\":\n VAR_5 = TypeCharField\n case \"STR_22\":\n VAR_5 = TypeTextField\n case \"STR_23\":\n VAR_5 = TypeJSONField\n case \"STR_24\":\n VAR_5 = TypeJsonbField\n }\n }\n if VAR_5 == TypeFloatField && (VAR_10 != \"STR_10\" || VAR_11 != \"STR_10\") {\n VAR_5 = TypeDecimalField\n }\n if VAR_5 == TypeDateTimeField && VAR_7[\"STR_20\"] == \"STR_25\" {\n VAR_5 = TypeDateField\n }\n if VAR_5 == TypeTimeField && VAR_7[\"STR_20\"] == \"STR_26\" {\n VAR_5 = TypeTimeField\n }\n }\n\n switch VAR_5 {\n case RelForeignKey, RelOneToOne, RelReverseOne:\n if field.Kind() != reflect.Ptr {\n VAR_1 = fmt.Errorf(\"STR_27\", field.Type().Name())\n goto end\n }\n case RelManyToMany, RelReverseMany:\n if field.Kind() != reflect.Slice {\n VAR_1 = fmt.Errorf(\"STR_28\")\n goto end\n } else {\n if field.Type().Elem().Kind() != reflect.Ptr {\n VAR_1 = fmt.Errorf(\"STR_29\", field.Type().Elem().Name())\n goto end\n }\n }\n }\n\n if VAR_5&IsFieldType == 0 {\n VAR_1 = fmt.Errorf(\"STR_30\")\n goto end\n }\n\n VAR_0.FieldType = VAR_5\n VAR_0.Name = sf.Name\n VAR_0.Column = getColumnName(VAR_5, VAR_8, sf, VAR_7[\"STR_31\"])\n VAR_0.AddrValue = VAR_8\n VAR_0.Sf = sf\n VAR_0.FullName = mi.FullName + mName + \"STR_32\" + sf.Name\n\n VAR_0.Description = VAR_7[\"STR_33\"]\n VAR_0.Null = VAR_6[\"STR_34\"]\n VAR_0.Index = VAR_6[\"STR_35\"]\n VAR_0.Auto = VAR_6[\"STR_36\"]\n VAR_0.DBType = VAR_7[\"STR_37\"]\n VAR_0.Pk = VAR_6[\"STR_38\"]\n VAR_0.Unique = VAR_6[\"STR_39\"]\n\n if _, VAR_9 := VAR_7[\"STR_6\"]; VAR_9 {\n VAR_0.ColDefault = true\n }\n\n switch VAR_5 {\n case RelManyToMany, RelReverseMany, RelReverseOne:\n VAR_0.Null = false\n VAR_0.Index = false\n VAR_0.Auto = false\n VAR_0.Pk = false\n VAR_0.Unique = false\n default:\n VAR_0.DBcol = true\n }\n\n switch VAR_5 {\n case RelForeignKey, RelOneToOne, RelManyToMany:\n VAR_0.Rel = true\n if VAR_5 == RelOneToOne {\n VAR_0.Unique = true\n }\n case RelReverseMany, RelReverseOne:\n VAR_0.Reverse = true\n }\n\n if VAR_0.Rel && VAR_0.DBcol {\n switch VAR_13 {\n case OdCascade, OdDoNothing:\n case OdSetDefault:\n if !VAR_4.Exist() {\n VAR_1 = errors.New(\"STR_40\")\n goto end\n }\n case OdSetNULL:\n if !VAR_0.Null {\n VAR_1 = errors.New(\"STR_41\")\n goto end\n }\n default:\n if VAR_13 == \"STR_10\" {\n VAR_13 = OdCascade\n } else {\n VAR_1 = fmt.Errorf(\"STR_42\", VAR_13)\n goto end\n }\n }\n\n VAR_0.OnDelete = VAR_13\n }\n\n switch VAR_5 {\n case TypeBooleanField:\n case TypeVarCharField, TypeCharField, TypeJSONField, TypeJsonbField:\n if VAR_12 != \"STR_10\" {\n VAR_15, VAR_17 := utils.StrTo(VAR_12).Int32()\n if VAR_17 != nil {\n VAR_1 = fmt.Errorf(\"STR_43\", VAR_12)\n } else {\n VAR_0.Size = int(VAR_15)\n }\n } else {\n VAR_0.Size = 255\n VAR_0.ToText = true\n }\n case TypeTextField:\n VAR_0.Index = false\n VAR_0.Unique = false\n case TypeTimeField, TypeDateField, TypeDateTimeField:\n if VAR_5 == TypeDateTimeField {\n if VAR_14 != \"STR_10\" {\n VAR_15, VAR_17 := utils.StrTo(VAR_14).Int()\n if VAR_17 != nil {\n VAR_1 = fmt.Errorf(\"STR_44\", VAR_14, VAR_17)\n } else {\n VAR_0.TimePrecision = &VAR_15\n }\n }\n }\n\n if VAR_6[\"STR_45\"] {\n VAR_0.AutoNow = true\n } else if VAR_6[\"STR_46\"] {\n VAR_0.AutoNowAdd = true\n }\n case TypeFloatField:\n case TypeDecimalField:\n VAR_18 := VAR_10\n VAR_19 := VAR_11\n VAR_20, VAR_21 := utils.StrTo(VAR_18).Int8()\n VAR_22, VAR_23 := utils.StrTo(VAR_19).Int8()\n if VAR_21 != nil || VAR_23 != nil {\n VAR_1 = fmt.Errorf(\"STR_47\", VAR_19, VAR_18)\n goto end\n }\n VAR_0.Digits = int(VAR_20)\n VAR_0.Decimals = int(VAR_22)\n default:\n switch {\n case VAR_5&IsIntegerField > 0:\n case VAR_5&IsRelField > 0:\n }\n }\n\n if VAR_5&IsIntegerField == 0 {\n if VAR_0.Auto {\n VAR_1 = fmt.Errorf(\"STR_48\")\n goto end\n }\n }\n\n if VAR_0.Auto || VAR_0.Pk {\n if VAR_0.Auto {\n switch VAR_8.Elem().Kind() {\n case reflect.Int, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint32, reflect.Uint64:\n default:\n VAR_1 = fmt.Errorf(\"STR_49\", VAR_8.Elem().Kind())\n goto end\n }\n VAR_0.Pk = true\n }\n VAR_0.Null = false\n VAR_0.Index = false\n VAR_0.Unique = false\n }\n\n if VAR_0.Unique {\n VAR_0.Index = false\n }\n\n if VAR_0.Auto || VAR_0.Pk || VAR_0.Unique || VAR_5 == TypeTimeField || VAR_5 == TypeDateField || VAR_5 == TypeDateTimeField {\n VAR_4.Clear()\n }\n\n if VAR_4.Exist() {\n VAR_15 := VAR_4\n switch VAR_5 {\n case TypeBooleanField:\n _, VAR_1 = VAR_15.Bool()\n case TypeFloatField, TypeDecimalField:\n _, VAR_1 = VAR_15.Float64()\n case TypeBitField:\n _, VAR_1 = VAR_15.Int8()\n case TypeSmallIntegerField:\n _, VAR_1 = VAR_15.Int16()\n case TypeIntegerField:\n _, VAR_1 = VAR_15.Int32()\n case TypeBigIntegerField:\n _, VAR_1 = VAR_15.Int64()\n case TypePositiveBitField:\n _, VAR_1 = VAR_15.Uint8()\n case TypePositiveSmallIntegerField:\n _, VAR_1 = VAR_15.Uint16()\n case TypePositiveIntegerField:\n _, VAR_1 = VAR_15.Uint32()\n case TypePositiveBigIntegerField:\n _, VAR_1 = VAR_15.Uint64()\n }\n if VAR_1 != nil {\n VAR_2, VAR_3 = \"STR_6\", VAR_7[\"STR_6\"]\n goto wrongTag\n }\n }\n\n VAR_0.Initial = VAR_4\nend:\n if VAR_1 != nil {\n return nil, VAR_1\n }\n return\nwrongTag:\n return nil, fmt.Errorf(\"STR_50\", VAR_2, VAR_3, VAR_1)\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/beego/beego",
+            "license_spdx": "NOASSERTION",
+            "license_name": "Other"
+          },
+          "hybrid": {
+            "score": 1.0,
+            "source_count": 1,
+            "rule_based_scaled_score": 1.0,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "raw_code_match",
+            "license_spdx": "NOASSERTION"
           }
         },
         {
@@ -54,6 +71,23 @@
             "chunk_type": "function",
             "symbol_name": "parseRangeForOr",
             "anonymized_code": "func FUNC_0(rangeCondition []*request.Condition, docField *entity.SpaceProperties, field string) ([]*vearchpb.RangeFilter, error) {\n var (\n VAR_0, VAR_1 bool = false, false\n VAR_2 error = nil\n )\n\n VAR_3 := make([]*vearchpb.RangeFilter, 0)\n VAR_4 := &vearchpb.RangeFilter{\n Field: field,\n IncludeLower: true,\n IncludeUpper: true,\n }\n\n switch docField.FieldType {\n case vearchpb.FieldType_INT:\n var VAR_5, VAR_6 int32 = math.MinInt32, math.MinInt32\n var VAR_7, VAR_8 int32 = math.MaxInt32, math.MaxInt32\n var VAR_9 int32\n var VAR_10 []int32\n\n for _, rc := range rangeCondition {\n VAR_2 := vjson.Unmarshal(rc.Value, &VAR_9)\n if VAR_2 != nil {\n return nil, vearchpb.NewError(vearchpb.ErrorEnum_PARAM_ERROR, fmt.Errorf(\"STR_0\", string(rc.Value), VAR_2.Error()))\n }\n\n switch rc.Operator {\n case \"STR_1\":\n if VAR_9 <= VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = true\n }\n case \"STR_2\":\n if VAR_9 < VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = false\n }\n case \"STR_3\":\n VAR_10 = append(VAR_10, VAR_9)\n case \"STR_4\":\n if VAR_9 >= VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = true\n }\n case \"STR_5\":\n if VAR_9 > VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = false\n }\n case \"STR_6\", \"STR_7\":\n VAR_4.IsUnion = ConditionOperatorNOTIN\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_9, VAR_9, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n VAR_4.IsUnion = ConditionOperatorIN\n for _, eqval := range VAR_10 {\n if eqval < VAR_6 || eqval > VAR_7 {\n continue\n } else if eqval == VAR_6 {\n VAR_0 = true\n } else if eqval == VAR_7 {\n VAR_1 = true\n } else {\n if VAR_3, VAR_2 = addRangeFilter(eqval, eqval, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n if (VAR_6 > VAR_7) || (VAR_6 == VAR_7 && (VAR_0 || VAR_1)) {\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n } else {\n if VAR_5 < VAR_6 || VAR_0 {\n VAR_4.IncludeLower = true\n VAR_4.IncludeUpper = VAR_0\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_6, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n if VAR_7 < VAR_8 || VAR_1 {\n VAR_4.IncludeLower = VAR_1\n VAR_4.IncludeUpper = true\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_7, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n case vearchpb.FieldType_LONG:\n var VAR_5, VAR_6 int64 = math.MinInt64, math.MinInt64\n var VAR_7, VAR_8 int64 = math.MaxInt64, math.MaxInt64\n var VAR_9 int64\n var VAR_10 []int64\n\n for _, rc := range rangeCondition {\n VAR_2 := vjson.Unmarshal(rc.Value, &VAR_9)\n if VAR_2 != nil {\n return nil, vearchpb.NewError(vearchpb.ErrorEnum_PARAM_ERROR, fmt.Errorf(\"STR_8\", string(rc.Value), VAR_2.Error()))\n }\n\n switch rc.Operator {\n case \"STR_1\":\n if VAR_9 <= VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = true\n }\n case \"STR_2\":\n if VAR_9 < VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = false\n }\n case \"STR_3\":\n VAR_10 = append(VAR_10, VAR_9)\n case \"STR_4\":\n if VAR_9 >= VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = true\n }\n case \"STR_5\":\n if VAR_9 > VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = false\n }\n case \"STR_6\", \"STR_7\":\n VAR_4.IsUnion = ConditionOperatorNOTIN\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_9, VAR_9, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n VAR_4.IsUnion = ConditionOperatorIN\n for _, eqval := range VAR_10 {\n if eqval < VAR_6 || eqval > VAR_7 {\n continue\n } else if eqval == VAR_6 {\n VAR_0 = true\n } else if eqval == VAR_7 {\n VAR_1 = true\n } else {\n if VAR_3, VAR_2 = addRangeFilter(eqval, eqval, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n if (VAR_6 > VAR_7) || (VAR_6 == VAR_7 && (VAR_0 || VAR_1)) {\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n } else {\n if VAR_5 < VAR_6 || VAR_0 {\n VAR_4.IncludeLower = true\n VAR_4.IncludeUpper = VAR_0\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_6, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n if VAR_7 < VAR_8 || VAR_1 {\n VAR_4.IncludeLower = VAR_1\n VAR_4.IncludeUpper = true\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_7, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n case vearchpb.FieldType_FLOAT:\n var VAR_5, VAR_6 float32 = -math.MaxFloat32, -math.MaxFloat32\n var VAR_7, VAR_8 float32 = math.MaxFloat32, math.MaxFloat32\n var VAR_9 float32\n var VAR_10 []float32\n\n for _, rc := range rangeCondition {\n VAR_2 := vjson.Unmarshal(rc.Value, &VAR_9)\n if VAR_2 != nil {\n return nil, vearchpb.NewError(vearchpb.ErrorEnum_PARAM_ERROR, fmt.Errorf(\"STR_9\", string(rc.Value), VAR_2.Error()))\n }\n\n switch rc.Operator {\n case \"STR_1\":\n if VAR_9 <= VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = true\n }\n case \"STR_2\":\n if VAR_9 < VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = false\n }\n case \"STR_3\":\n VAR_10 = append(VAR_10, VAR_9)\n case \"STR_4\":\n if VAR_9 >= VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = true\n }\n case \"STR_5\":\n if VAR_9 > VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = false\n }\n case \"STR_6\", \"STR_7\":\n VAR_4.IsUnion = ConditionOperatorNOTIN\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_9, VAR_9, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n VAR_4.IsUnion = ConditionOperatorIN\n for _, eqval := range VAR_10 {\n if eqval < VAR_6 || eqval > VAR_7 {\n continue\n } else if eqval == VAR_6 {\n VAR_0 = true\n } else if eqval == VAR_7 {\n VAR_1 = true\n } else {\n if VAR_3, VAR_2 = addRangeFilter(eqval, eqval, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n if (VAR_6 > VAR_7) || (VAR_6 == VAR_7 && (VAR_0 || VAR_1)) {\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n } else {\n if VAR_5 < VAR_6 || VAR_0 {\n VAR_4.IncludeLower = true\n VAR_4.IncludeUpper = VAR_0\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_6, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n if VAR_7 < VAR_8 || VAR_1 {\n VAR_4.IncludeLower = VAR_1\n VAR_4.IncludeUpper = true\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_7, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n case vearchpb.FieldType_DOUBLE:\n var VAR_5, VAR_6 float64 = -math.MaxFloat64, -math.MaxFloat64\n var VAR_7, VAR_8 float64 = math.MaxFloat64, math.MaxFloat64\n var VAR_9 float64\n var VAR_10 []float64\n\n for _, rc := range rangeCondition {\n VAR_2 := vjson.Unmarshal(rc.Value, &VAR_9)\n if VAR_2 != nil {\n return nil, vearchpb.NewError(vearchpb.ErrorEnum_PARAM_ERROR, fmt.Errorf(\"STR_10\", string(rc.Value), VAR_2.Error()))\n }\n\n switch rc.Operator {\n case \"STR_1\":\n if VAR_9 <= VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = true\n }\n case \"STR_2\":\n if VAR_9 < VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = false\n }\n case \"STR_3\":\n VAR_10 = append(VAR_10, VAR_9)\n case \"STR_4\":\n if VAR_9 >= VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = true\n }\n case \"STR_5\":\n if VAR_9 > VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = false\n }\n case \"STR_6\", \"STR_7\":\n VAR_4.IsUnion = ConditionOperatorNOTIN\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_9, VAR_9, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n VAR_4.IsUnion = ConditionOperatorIN\n for _, eqval := range VAR_10 {\n if eqval < VAR_6 || eqval > VAR_7 {\n continue\n } else if eqval == VAR_6 {\n VAR_0 = true\n } else if eqval == VAR_7 {\n VAR_1 = true\n } else {\n if VAR_3, VAR_2 = addRangeFilter(eqval, eqval, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n if (VAR_6 > VAR_7) || (VAR_6 == VAR_7 && (VAR_0 || VAR_1)) {\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n } else {\n if VAR_5 < VAR_6 || VAR_0 {\n VAR_4.IncludeLower = true\n VAR_4.IncludeUpper = VAR_0\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_6, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n if VAR_7 < VAR_8 || VAR_1 {\n VAR_4.IncludeLower = VAR_1\n VAR_4.IncludeUpper = true\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_7, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n case vearchpb.FieldType_DATE:\n var VAR_5, VAR_6 int64 = math.MinInt64, math.MinInt64\n var VAR_7, VAR_8 int64 = math.MaxInt64, math.MaxInt64\n var VAR_9 int64\n var VAR_10 []int64\n\n for _, rc := range rangeCondition {\n VAR_2 := vjson.Unmarshal(rc.Value, &VAR_9)\n if VAR_2 != nil {\n var VAR_11 string\n VAR_12 := json.Unmarshal(rc.Value, &VAR_11)\n if VAR_12 != nil {\n return nil, vearchpb.NewError(vearchpb.ErrorEnum_PARAM_ERROR, fmt.Errorf(\"STR_11\", string(rc.Value), VAR_2.Error()))\n }\n VAR_13, VAR_2 := cast.ToTimeE(VAR_11)\n if VAR_2 != nil {\n return nil, vearchpb.NewError(vearchpb.ErrorEnum_PARAM_ERROR, fmt.Errorf(\"STR_11\", string(rc.Value), VAR_2.Error()))\n }\n VAR_9 = VAR_13.UnixNano()\n } else {\n VAR_9 = VAR_9 * 1e9\n }\n\n switch rc.Operator {\n case \"STR_1\":\n if VAR_9 <= VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = true\n }\n case \"STR_2\":\n if VAR_9 < VAR_7 {\n VAR_7 = VAR_9\n VAR_1 = false\n }\n case \"STR_3\":\n VAR_10 = append(VAR_10, VAR_9)\n case \"STR_4\":\n if VAR_9 >= VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = true\n }\n case \"STR_5\":\n if VAR_9 > VAR_6 {\n VAR_6 = VAR_9\n VAR_0 = false\n }\n case \"STR_6\", \"STR_7\":\n VAR_4.IsUnion = ConditionOperatorNOTIN\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_9, VAR_9, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n VAR_4.IsUnion = ConditionOperatorIN\n for _, eqval := range VAR_10 {\n if eqval < VAR_6 || eqval > VAR_7 {\n continue\n } else if eqval == VAR_6 {\n VAR_0 = true\n } else if eqval == VAR_7 {\n VAR_1 = true\n } else {\n if VAR_3, VAR_2 = addRangeFilter(eqval, eqval, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n\n if (VAR_6 > VAR_7) || (VAR_6 == VAR_7 && (VAR_0 || VAR_1)) {\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n } else {\n if VAR_5 < VAR_6 || VAR_0 {\n VAR_4.IncludeLower = true\n VAR_4.IncludeUpper = VAR_0\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_5, VAR_6, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n if VAR_7 < VAR_8 || VAR_1 {\n VAR_4.IncludeLower = VAR_1\n VAR_4.IncludeUpper = true\n\n if VAR_3, VAR_2 = addRangeFilter(VAR_7, VAR_8, VAR_4, VAR_3); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n }\n }\n\n return VAR_3, nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/vearch/vearch",
+            "license_spdx": "Apache-2.0",
+            "license_name": "Apache License 2.0"
+          },
+          "hybrid": {
+            "score": 0.636377,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.636377,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "Apache-2.0"
           }
         },
         {
@@ -70,38 +104,23 @@
             "chunk_type": "function",
             "symbol_name": "Apply",
             "anonymized_code": "func (v *VecSessionVars) FUNC_0(VAR_0, VAR_1 string) error {\n switch strings.ToLower(VAR_0) {\n case \"STR_0\":\n VAR_2, VAR_3 := parsePositiveInt(VAR_0, VAR_1, true)\n if VAR_3 != nil {\n return VAR_3\n }\n v.Nprobe = VAR_2\n\n case \"STR_1\":\n VAR_4, VAR_3 := parseForcePlan(VAR_1)\n if VAR_3 != nil {\n return VAR_3\n }\n v.ForcePlan = VAR_4\n\n case \"STR_2\":\n VAR_2, VAR_3 := parsePositiveInt(VAR_0, VAR_1, false)\n if VAR_3 != nil {\n return VAR_3\n }\n v.PrefilterCap = VAR_2\n\n case \"STR_3\":\n VAR_5, VAR_3 := parseOnOff(VAR_0, VAR_1)\n if VAR_3 != nil {\n return VAR_3\n }\n v.Fallback = VAR_5\n\n case \"STR_4\":\n VAR_5, VAR_3 := parseOnOff(VAR_0, VAR_1)\n if VAR_3 != nil {\n return VAR_3\n }\n v.UseGoRank = VAR_5\n\n case \"STR_5\":\n VAR_5, VAR_3 := parseOnOff(VAR_0, VAR_1)\n if VAR_3 != nil {\n return VAR_3\n }\n v.RetrainEnabled = VAR_5\n\n case \"STR_6\":\n VAR_2, VAR_3 := parsePositiveInt(VAR_0, VAR_1, false)\n if VAR_3 != nil {\n return VAR_3\n }\n v.RetrainCheckInterval = VAR_2\n\n case \"STR_7\":\n VAR_6, VAR_3 := strconv.ParseFloat(VAR_1, 64)\n if VAR_3 != nil {\n return fmt.Errorf(\"STR_8\", VAR_0, VAR_1, VAR_3)\n }\n if VAR_6 < 1.0 {\n return fmt.Errorf(\"STR_9\", VAR_0, VAR_6)\n }\n v.RetrainGrowthRatio = VAR_6\n\n case \"STR_10\":\n VAR_6, VAR_3 := strconv.ParseFloat(VAR_1, 64)\n if VAR_3 != nil {\n return fmt.Errorf(\"STR_8\", VAR_0, VAR_1, VAR_3)\n }\n if VAR_6 <= 0 || VAR_6 > 1.0 {\n return fmt.Errorf(\"STR_11\", VAR_0, VAR_6)\n }\n v.RetrainDeltaRatio = VAR_6\n\n case \"STR_12\":\n VAR_2, VAR_3 := parsePositiveInt(VAR_0, VAR_1, false)\n if VAR_3 != nil {\n return VAR_3\n }\n v.ReindexChunkRows = VAR_2\n\n default:\n return fmt.Errorf(\"STR_13\", VAR_0)\n }\n return nil\n}"
-          }
-        },
-        {
-          "chunk_id": "f829675f915564528b852bab30a0108573392ab4",
-          "repo_id": "github:cockroachdb/grpc-gateway",
-          "file_path": "runtime/query.go",
-          "symbol_name": "populateField",
-          "retrieval_sources": ["rule_based"],
-          "candidate_chunk": {
-            "chunk_id": "f829675f915564528b852bab30a0108573392ab4",
-            "repo_id": "github:cockroachdb/grpc-gateway",
-            "language": "go",
-            "file_path": "runtime/query.go",
-            "chunk_type": "function",
-            "symbol_name": "populateField",
-            "anonymized_code": "func FUNC_0(f reflect.Value, value string, props *proto.Properties) error {\n VAR_0 := f.Addr().Interface()\n\n var VAR_1 string\n switch m := VAR_0.(type) {\n case interface{ XXX_WellKnownType() string }:\n VAR_1 = m.XXX_WellKnownType()\n case proto.Message:\n const VAR_2 = \"STR_0\"\n if VAR_3 := proto.MessageName(m); strings.HasPrefix(VAR_3, VAR_2) {\n VAR_1 = VAR_3[len(VAR_2):]\n }\n }\n switch VAR_1 {\n case \"STR_1\":\n if value == \"STR_2\" {\n f.FieldByName(\"STR_3\").SetInt(0)\n f.FieldByName(\"STR_4\").SetInt(0)\n return nil\n }\n\n VAR_4, VAR_5 := time.Parse(time.RFC3339Nano, value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_5\", VAR_5)\n }\n f.FieldByName(\"STR_3\").SetInt(int64(VAR_4.Unix()))\n f.FieldByName(\"STR_4\").SetInt(int64(VAR_4.Nanosecond()))\n return nil\n case \"STR_6\":\n if value == \"STR_2\" {\n f.FieldByName(\"STR_3\").SetInt(0)\n f.FieldByName(\"STR_4\").SetInt(0)\n return nil\n }\n VAR_6, VAR_5 := time.ParseDuration(value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_7\", VAR_5)\n }\n\n VAR_7 := VAR_6.Nanoseconds()\n VAR_8 := VAR_7 / 1e9\n VAR_7 %= 1e9\n f.FieldByName(\"STR_3\").SetInt(VAR_8)\n f.FieldByName(\"STR_4\").SetInt(VAR_7)\n return nil\n case \"STR_8\":\n fallthrough\n case \"STR_9\":\n VAR_9, VAR_5 := strconv.ParseFloat(value, 64)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_10\", value)\n }\n f.FieldByName(\"STR_11\").SetFloat(VAR_9)\n return nil\n case \"STR_12\":\n fallthrough\n case \"STR_13\":\n VAR_10, VAR_5 := strconv.ParseInt(value, 10, 64)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_10\", value)\n }\n f.FieldByName(\"STR_11\").SetInt(VAR_10)\n return nil\n case \"STR_14\":\n fallthrough\n case \"STR_15\":\n VAR_11, VAR_5 := strconv.ParseUint(value, 10, 64)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_10\", value)\n }\n f.FieldByName(\"STR_11\").SetUint(VAR_11)\n return nil\n case \"STR_16\":\n if value == \"STR_17\" {\n f.FieldByName(\"STR_11\").SetBool(true)\n } else if value == \"STR_18\" {\n f.FieldByName(\"STR_11\").SetBool(false)\n } else {\n return fmt.Errorf(\"STR_19\", value)\n }\n return nil\n case \"STR_20\":\n f.FieldByName(\"STR_11\").SetString(value)\n return nil\n case \"STR_21\":\n VAR_12, VAR_5 := base64.StdEncoding.DecodeString(value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_22\", value)\n }\n f.FieldByName(\"STR_11\").SetBytes(VAR_12)\n return nil\n case \"STR_23\":\n VAR_13 := f.FieldByName(\"STR_24\")\n for _, v := range strings.Split(value, \"STR_25\") {\n if v != \"STR_26\" {\n VAR_13.Set(reflect.Append(VAR_13, reflect.ValueOf(v)))\n }\n }\n return nil\n }\n\n switch VAR_4 := VAR_0.(type) {\n case *time.Time:\n VAR_14, VAR_5 := time.Parse(time.RFC3339Nano, value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_5\", VAR_5)\n }\n *VAR_4 = VAR_14\n return nil\n case *time.Duration:\n VAR_6, VAR_5 := time.ParseDuration(value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_7\", VAR_5)\n }\n *VAR_4 = VAR_6\n return nil\n }\n\n if VAR_15 := proto.EnumValueMap(props.Enum); VAR_15 != nil {\n return populateFieldEnum(f, value, VAR_15)\n }\n\n VAR_16, VAR_17 := convFromType[f.Kind()]\n if !VAR_17 {\n return fmt.Errorf(\"STR_27\", VAR_0)\n }\n VAR_18 := VAR_16.Call([]reflect.Value{reflect.ValueOf(value)})\n if VAR_5 := VAR_18[1].Interface(); VAR_5 != nil {\n return VAR_5.(error)\n }\n f.Set(VAR_18[0].Convert(f.Type()))\n return nil\n}"
-          }
-        },
-        {
-          "chunk_id": "fb5c70e738f0102f6e51c1f410a10bbaa0d95175",
-          "repo_id": "github:ozontech/file.d",
-          "file_path": "cfg/config.go",
-          "symbol_name": "ParseField",
-          "retrieval_sources": ["rule_based"],
-          "candidate_chunk": {
-            "chunk_id": "fb5c70e738f0102f6e51c1f410a10bbaa0d95175",
-            "repo_id": "github:ozontech/file.d",
-            "language": "go",
-            "file_path": "cfg/config.go",
-            "chunk_type": "function",
-            "symbol_name": "ParseField",
-            "anonymized_code": "func FUNC_0(v reflect.Value, vField reflect.Value, tField *reflect.StructField, values map[string]int) error {\n VAR_0 := tField.Tag.Get(\"STR_0\")\n if VAR_0 != \"STR_1\" {\n VAR_1 := strings.Split(VAR_0, \"STR_2\")\n if vField.Kind() != reflect.String {\n return fmt.Errorf(\"STR_3\", tField.Name, tField.Type.Name())\n }\n\n VAR_2 := -1\n VAR_3 := false\n for VAR_4, part := range VAR_1 {\n if vField.String() == part {\n VAR_3 = true\n VAR_2 = VAR_4\n break\n }\n }\n\n if !VAR_3 {\n return fmt.Errorf(\"STR_4\", tField.Name, VAR_0, vField.String())\n }\n\n VAR_5 := v.FieldByName(tField.Name + \"STR_5\")\n if VAR_5 != (reflect.Value{}) {\n switch VAR_5.Kind() {\n case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:\n VAR_5.SetInt(int64(VAR_2))\n case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:\n VAR_5.SetUint(uint64(VAR_2))\n default:\n return fmt.Errorf(\"STR_6\")\n }\n }\n }\n\n VAR_0 = tField.Tag.Get(\"STR_7\")\n if VAR_0 != \"STR_1\" {\n if vField.Kind() != reflect.String {\n return fmt.Errorf(\"STR_8\", tField.Name, tField.Type.Name())\n }\n\n VAR_5 := v.FieldByName(tField.Name + \"STR_5\")\n\n switch VAR_0 {\n case \"STR_9\":\n VAR_6, VAR_7 := CompileRegex(vField.String())\n if VAR_7 != nil {\n return fmt.Errorf(\"STR_10\", tField.Name, VAR_7.Error())\n }\n VAR_5.Set(reflect.ValueOf(VAR_6))\n case \"STR_11\":\n VAR_8 := ParseFieldSelector(vField.String())\n VAR_5.Set(reflect.ValueOf(VAR_8))\n case \"STR_12\":\n var VAR_9 time.Duration\n\n VAR_10 := vField.String()\n if VAR_10 != \"STR_1\" {\n var VAR_7 error\n VAR_9, VAR_7 = time.ParseDuration(VAR_10)\n if VAR_7 != nil {\n return fmt.Errorf(\"STR_13\", tField.Name, VAR_7.Error())\n }\n }\n\n VAR_5.SetInt(int64(VAR_9))\n case \"STR_14\":\n VAR_1 := strings.Split(vField.String(), \"STR_15\")\n VAR_11 := make(map[string]bool, len(VAR_1))\n\n for _, part := range VAR_1 {\n VAR_12 := strings.TrimSpace(part)\n VAR_11[VAR_12] = true\n }\n\n VAR_5.Set(reflect.ValueOf(VAR_11))\n case \"STR_16\":\n VAR_1 := strings.Split(vField.String(), \"STR_15\")\n VAR_13 := make([]string, 0, len(VAR_1))\n\n for _, part := range VAR_1 {\n VAR_12 := strings.TrimSpace(part)\n VAR_13 = append(VAR_13, VAR_12)\n }\n\n VAR_5.Set(reflect.ValueOf(VAR_13))\n case \"STR_17\":\n VAR_14 := strings.IndexAny(vField.String(), \"STR_18\")\n if VAR_14 == -1 {\n VAR_4, VAR_7 := strconv.Atoi(vField.String())\n if VAR_7 != nil {\n return fmt.Errorf(\"STR_19\", vField.String())\n }\n VAR_5.SetInt(int64(VAR_4))\n return nil\n }\n\n VAR_15 := strings.TrimSpace(vField.String()[:VAR_14])\n VAR_16 := vField.String()[VAR_14]\n VAR_17 := strings.TrimSpace(vField.String()[VAR_14+1:])\n\n VAR_18, VAR_7 := strconv.Atoi(VAR_15)\n if VAR_7 != nil {\n VAR_19 := false\n VAR_18, VAR_19 = values[VAR_15]\n if !VAR_19 {\n return fmt.Errorf(\"STR_20\", VAR_15)\n }\n }\n\n VAR_20, VAR_7 := strconv.Atoi(VAR_17)\n if VAR_7 != nil {\n VAR_19 := false\n VAR_20, VAR_19 = values[VAR_17]\n if !VAR_19 {\n return fmt.Errorf(\"STR_20\", VAR_17)\n }\n }\n\n VAR_9 := 0\n switch VAR_16 {\n case '+':\n VAR_9 = VAR_18 + VAR_20\n case '-':\n VAR_9 = VAR_18 - VAR_20\n case '*':\n VAR_9 = VAR_18 * VAR_20\n case '/':\n VAR_9 = VAR_18 / VAR_20\n default:\n return fmt.Errorf(\"STR_21\", VAR_16)\n }\n\n VAR_5.SetInt(int64(VAR_9))\n\n case \"STR_22\":\n VAR_21, VAR_7 := strconv.ParseInt(vField.String(), 8, 64)\n if VAR_7 != nil {\n return fmt.Errorf(\"STR_23\", tField.Name, VAR_7.Error())\n }\n VAR_5.SetInt(VAR_21)\n\n case \"STR_24\":\n VAR_1 := strings.Split(vField.String(), \"STR_25\")\n if len(VAR_1) != 2 {\n return fmt.Errorf(\"STR_26\")\n }\n VAR_21, VAR_7 := strconv.Atoi(VAR_1[0])\n if VAR_7 != nil {\n return fmt.Errorf(`STR_27`, VAR_1[0])\n }\n if VAR_21 < 0 {\n return fmt.Errorf(\"STR_28\")\n }\n VAR_22 := strings.ToLower(strings.TrimSpace(VAR_1[1]))\n if VAR_23, VAR_24 := DataUnitAliases[VAR_22]; VAR_24 {\n VAR_5.SetUint(uint64(VAR_21 * VAR_23))\n } else {\n return fmt.Errorf(`STR_29`, VAR_22)\n }\n\n default:\n return fmt.Errorf(\"STR_30\", VAR_0, tField.Name)\n }\n }\n\n VAR_0 = tField.Tag.Get(\"STR_31\")\n VAR_25 := VAR_0 == trueValue\n\n if VAR_25 && vField.IsZero() {\n return fmt.Errorf(\"STR_32\", tField.Name)\n }\n\n return nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/maxpert/marmot",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.636377,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.636377,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "normalized_code_match",
+            "license_spdx": "MIT"
           }
         },
         {
@@ -118,22 +137,23 @@
             "chunk_type": "function",
             "symbol_name": "doParse",
             "anonymized_code": "func (p *Pagser) FUNC_0(VAR_0 interface{}, VAR_1 []reflect.Value, VAR_2 *goquery.Selection) (VAR_3 error) {\n VAR_4 := reflect.TypeOf(VAR_0)\n VAR_5 := reflect.ValueOf(VAR_0)\n\n if VAR_5.Kind() != reflect.Ptr {\n return fmt.Errorf(\"STR_0\", VAR_4)\n }\n\n if VAR_5.IsNil() {\n return fmt.Errorf(\"STR_1\", VAR_4)\n }\n\n VAR_6 := VAR_4.Elem()\n VAR_7 := VAR_5.Elem()\n\n for i := 0; i < VAR_7.NumField(); i++ {\n VAR_8 := VAR_6.Field(i)\n VAR_9 := VAR_7.Field(i)\n VAR_10 := VAR_8.Type.Kind()\n\n VAR_11, VAR_12 := VAR_8.Tag.Lookup(p.Config.TagName)\n if !VAR_12 {\n if p.Config.Debug {\n fmt.Printf(\"STR_2\",\n p.Config.TagName, VAR_8.Name, p.Config.TagName)\n }\n continue\n }\n if VAR_11 == ignoreSymbol {\n continue\n }\n\n VAR_13, VAR_14 := p.mapTags.Load(VAR_11)\n var VAR_15 *tagTokenizer\n if !VAR_14 || VAR_13 == nil {\n VAR_15, VAR_3 = p.newTag(VAR_11)\n if VAR_3 != nil {\n return VAR_3\n }\n p.mapTags.Store(VAR_11, VAR_15)\n } else {\n VAR_15 = VAR_13.(*tagTokenizer)\n }\n\n VAR_16 := VAR_2\n if VAR_15.Selector != \"STR_3\" {\n VAR_16 = VAR_2.Find(VAR_15.Selector)\n }\n\n var VAR_17 interface{}\n var VAR_18 error\n if VAR_15.FuncName != \"STR_3\" {\n VAR_17, VAR_18 = p.findAndExecFunc(VAR_5, VAR_1, VAR_15, VAR_16)\n if VAR_18 != nil {\n return fmt.Errorf(\"STR_4\", VAR_11, VAR_18)\n }\n if subNode, VAR_14 := VAR_17.(*goquery.Selection); VAR_14 {\n\n VAR_16 = subNode\n } else {\n VAR_19 := p.setRefectValue(VAR_8.Type.Kind(), VAR_9, VAR_17)\n if VAR_19 != nil {\n return fmt.Errorf(\"STR_5\", VAR_11, VAR_19)\n }\n\n continue\n }\n }\n\n if VAR_1 == nil {\n VAR_1 = make([]reflect.Value, 0)\n }\n VAR_1 = append(VAR_1, VAR_5)\n\n switch {\n case VAR_10 == reflect.Ptr:\n VAR_20 := reflect.New(VAR_8.Type.Elem())\n VAR_9.Set(VAR_20)\n VAR_3 = p.doParse(VAR_20.Interface(), VAR_1, VAR_16)\n if VAR_3 != nil {\n return fmt.Errorf(\"STR_6\", VAR_11, VAR_20, VAR_3)\n }\n\n case VAR_10 == reflect.Slice:\n VAR_21 := VAR_9.Type()\n VAR_22 := VAR_21.Elem()\n VAR_23 := VAR_22.Kind()\n VAR_24 := reflect.MakeSlice(VAR_21, VAR_16.Size(), VAR_16.Size())\n VAR_16.EachWithBreak(func(i int, subNode *goquery.Selection) bool {\n\n VAR_25 := reflect.New(VAR_22).Elem()\n switch {\n case VAR_23 == reflect.Struct:\n VAR_3 = p.doParse(VAR_25.Addr().Interface(), VAR_1, subNode)\n if VAR_3 != nil {\n VAR_3 = fmt.Errorf(\"STR_6\", VAR_11, VAR_25, VAR_3)\n return false\n }\n case VAR_23 == reflect.Ptr && VAR_25.Type().Elem().Kind() == reflect.Struct:\n VAR_25 = reflect.New(VAR_22.Elem())\n VAR_3 = p.doParse(VAR_25.Interface(), VAR_1, subNode)\n if VAR_3 != nil {\n VAR_3 = fmt.Errorf(\"STR_6\", VAR_11, VAR_25, VAR_3)\n return false\n }\n default:\n VAR_25.SetString(strings.TrimSpace(subNode.Text()))\n }\n VAR_24.Index(i).Set(VAR_25)\n return true\n })\n if VAR_3 != nil {\n return VAR_3\n }\n VAR_9.Set(VAR_24)\n case VAR_10 == reflect.Struct:\n VAR_20 := reflect.New(VAR_8.Type)\n VAR_3 = p.doParse(VAR_20.Interface(), VAR_1, VAR_16)\n if VAR_3 != nil {\n return fmt.Errorf(\"STR_6\", VAR_11, VAR_20, VAR_3)\n }\n VAR_9.Set(VAR_20.Elem())\n\n default:\n VAR_9.SetString(strings.TrimSpace(VAR_16.Text()))\n }\n }\n return nil\n}"
-          }
-        },
-        {
-          "chunk_id": "aea1d46236051ca03dced1c4a79a91c632a29213",
-          "repo_id": "github:influxdata/kapacitor",
-          "file_path": "influxdb/csv.go",
-          "symbol_name": "convert",
-          "retrieval_sources": ["rule_based"],
-          "candidate_chunk": {
-            "chunk_id": "aea1d46236051ca03dced1c4a79a91c632a29213",
-            "repo_id": "github:influxdata/kapacitor",
-            "language": "go",
-            "file_path": "influxdb/csv.go",
-            "chunk_type": "function",
-            "symbol_name": "convert",
-            "anonymized_code": "func (q *responseBuilder) FUNC_0(VAR_0, VAR_1 string) (interface{}, error) {\n const (\n VAR_2 = \"STR_0\"\n VAR_3 = \"STR_1\"\n VAR_4 = \"STR_2\"\n VAR_5 = \"STR_3\"\n VAR_6 = \"STR_4\"\n VAR_7 = \"STR_5\"\n VAR_8 = \"STR_6\"\n )\n VAR_9 := VAR_1\n switch VAR_0 {\n case VAR_2:\n return VAR_9, nil\n case VAR_3, VAR_8:\n return time.Parse(time.RFC3339, VAR_9)\n case VAR_4:\n return strconv.ParseFloat(VAR_9, 64)\n case VAR_5:\n if VAR_9 == \"STR_7\" {\n return false, nil\n }\n return true, nil\n case VAR_6:\n return strconv.ParseInt(VAR_9, 10, 64)\n case VAR_7:\n return strconv.ParseUint(VAR_9, 10, 64)\n default:\n return nil, fmt.Errorf(\"STR_8\", VAR_9, VAR_0)\n }\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/foolin/pagser",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.189429,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.189429,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "normalized_code_match",
+            "license_spdx": "MIT"
           }
         },
         {
@@ -150,22 +170,23 @@
             "chunk_type": "function",
             "symbol_name": "compileMap",
             "anonymized_code": "func (c *Compiler) FUNC_0(ctx context.Context, VAR_0 *resource, s *Schema, VAR_1 string, VAR_2 map[string]interface{}) error {\n var VAR_3 error\n\n if VAR_4, VAR_5 := VAR_2[VAR_0.draft.id]; VAR_5 {\n if VAR_1, VAR_3 = resolveURL(VAR_1, VAR_4.(string)); VAR_3 != nil {\n return VAR_3\n }\n }\n\n if VAR_6, VAR_5 := VAR_2[\"STR_0\"]; VAR_5 {\n VAR_7, _ := split(VAR_1)\n s.Ref, VAR_3 = c.compileRef(ctx, VAR_0, VAR_7, VAR_6.(string))\n if VAR_3 != nil {\n return VAR_3\n }\n\n return nil\n }\n\n if VAR_8, VAR_5 := VAR_2[\"STR_1\"]; VAR_5 {\n switch VAR_8 := VAR_8.(type) {\n case string:\n s.Types = []string{VAR_8}\n case []interface{}:\n s.Types = toStrings(VAR_8)\n }\n }\n\n if VAR_9, VAR_5 := VAR_2[\"STR_2\"]; VAR_5 {\n s.Enum = VAR_9.([]interface{})\n VAR_10 := true\n for _, item := range s.Enum {\n switch jsonType(item) {\n case \"STR_3\", \"STR_4\":\n VAR_10 = false\n }\n }\n s.enumError = \"STR_5\"\n if VAR_10 {\n if len(s.Enum) == 1 {\n s.enumError = fmt.Sprintf(\"STR_6\", s.Enum[0])\n } else {\n VAR_11 := make([]string, len(s.Enum))\n for VAR_12, item := range s.Enum {\n VAR_11[VAR_12] = fmt.Sprintf(\"STR_7\", item)\n }\n s.enumError = fmt.Sprintf(\"STR_8\", strings.Join(VAR_11, \"STR_9\"))\n }\n }\n }\n\n VAR_13 := func(pname string) (*Schema, error) {\n if VAR_14, VAR_5 := VAR_2[pname]; VAR_5 {\n return c.compile(ctx, VAR_0, nil, VAR_1, VAR_14)\n }\n return nil, nil\n }\n\n if s.Not, VAR_3 = VAR_13(\"STR_10\"); VAR_3 != nil {\n return VAR_3\n }\n\n VAR_15 := func(pname string) ([]*Schema, error) {\n if VAR_14, VAR_5 := VAR_2[pname]; VAR_5 {\n VAR_14 := VAR_14.([]interface{})\n VAR_16 := make([]*Schema, len(VAR_14))\n for VAR_12, v := range VAR_14 {\n VAR_17, VAR_3 := c.compile(ctx, VAR_0, nil, VAR_1, v)\n if VAR_3 != nil {\n return nil, VAR_3\n }\n VAR_16[VAR_12] = VAR_17\n }\n return VAR_16, nil\n }\n return nil, nil\n }\n if s.AllOf, VAR_3 = VAR_15(\"STR_11\"); VAR_3 != nil {\n return VAR_3\n }\n if s.AnyOf, VAR_3 = VAR_15(\"STR_12\"); VAR_3 != nil {\n return VAR_3\n }\n if s.OneOf, VAR_3 = VAR_15(\"STR_13\"); VAR_3 != nil {\n return VAR_3\n }\n\n VAR_18 := func(pname string) int {\n if VAR_19, VAR_5 := VAR_2[pname]; VAR_5 {\n VAR_12, _ := VAR_19.(json.Number).Int64()\n return int(VAR_12)\n }\n return -1\n }\n s.MinProperties, s.MaxProperties = VAR_18(\"STR_14\"), VAR_18(\"STR_15\")\n\n if VAR_20, VAR_5 := VAR_2[\"STR_16\"]; VAR_5 {\n s.Required = toStrings(VAR_20.([]interface{}))\n }\n\n if VAR_21, VAR_5 := VAR_2[\"STR_17\"]; VAR_5 {\n VAR_21 := VAR_21.(map[string]interface{})\n s.Properties = make(map[string]*Schema, len(VAR_21))\n for pname, pmap := range VAR_21 {\n s.Properties[pname], VAR_3 = c.compile(ctx, VAR_0, nil, VAR_1, pmap)\n if VAR_3 != nil {\n return VAR_3\n }\n }\n }\n\n if VAR_22, VAR_5 := VAR_2[\"STR_18\"]; VAR_5 {\n s.RegexProperties = VAR_22.(bool)\n }\n\n if VAR_23, VAR_5 := VAR_2[\"STR_19\"]; VAR_5 {\n VAR_23 := VAR_23.(map[string]interface{})\n s.PatternProperties = make(map[*regexp.Regexp]*Schema, len(VAR_23))\n for VAR_24, pmap := range VAR_23 {\n s.PatternProperties[regexp.MustCompile(VAR_24)], VAR_3 = c.compile(ctx, VAR_0, nil, VAR_1, pmap)\n if VAR_3 != nil {\n return VAR_3\n }\n }\n }\n\n if VAR_25, VAR_5 := VAR_2[\"STR_20\"]; VAR_5 {\n switch VAR_25 := VAR_25.(type) {\n case bool:\n if !VAR_25 {\n s.AdditionalProperties = false\n }\n case map[string]interface{}:\n s.AdditionalProperties, VAR_3 = c.compile(ctx, VAR_0, nil, VAR_1, VAR_25)\n if VAR_3 != nil {\n return VAR_3\n }\n }\n }\n\n if VAR_26, VAR_5 := VAR_2[\"STR_21\"]; VAR_5 {\n VAR_26 := VAR_26.(map[string]interface{})\n s.Dependencies = make(map[string]interface{}, len(VAR_26))\n for pname, VAR_14 := range VAR_26 {\n switch VAR_14 := VAR_14.(type) {\n case []interface{}:\n s.Dependencies[pname] = toStrings(VAR_14)\n default:\n s.Dependencies[pname], VAR_3 = c.compile(ctx, VAR_0, nil, VAR_1, VAR_14)\n if VAR_3 != nil {\n return VAR_3\n }\n }\n }\n }\n\n s.MinItems, s.MaxItems = VAR_18(\"STR_22\"), VAR_18(\"STR_23\")\n\n if VAR_27, VAR_5 := VAR_2[\"STR_24\"]; VAR_5 {\n s.UniqueItems = VAR_27.(bool)\n }\n\n if VAR_28, VAR_5 := VAR_2[\"STR_25\"]; VAR_5 {\n switch VAR_28 := VAR_28.(type) {\n case []interface{}:\n s.Items, VAR_3 = VAR_15(\"STR_25\")\n if VAR_3 != nil {\n return VAR_3\n }\n if VAR_29, VAR_5 := VAR_2[\"STR_26\"]; VAR_5 {\n switch VAR_29 := VAR_29.(type) {\n case bool:\n s.AdditionalItems = VAR_29\n case map[string]interface{}:\n s.AdditionalItems, VAR_3 = c.compile(ctx, VAR_0, nil, VAR_1, VAR_29)\n if VAR_3 != nil {\n return VAR_3\n }\n }\n } else {\n s.AdditionalItems = true\n }\n default:\n s.Items, VAR_3 = c.compile(ctx, VAR_0, nil, VAR_1, VAR_28)\n if VAR_3 != nil {\n return VAR_3\n }\n }\n }\n\n s.MinLength, s.MaxLength = VAR_18(\"STR_27\"), VAR_18(\"STR_28\")\n\n if VAR_24, VAR_5 := VAR_2[\"STR_29\"]; VAR_5 {\n s.Pattern = regexp.MustCompile(VAR_24.(string))\n }\n\n if VAR_30, VAR_5 := VAR_2[\"STR_30\"]; VAR_5 {\n s.Format = VAR_30.(string)\n s.format = Formats[s.Format]\n }\n\n VAR_31 := func(pname string) *big.Float {\n if VAR_19, VAR_5 := VAR_2[pname]; VAR_5 {\n VAR_0, _ := new(big.Float).SetString(string(VAR_19.(json.Number)))\n return VAR_0\n }\n return nil\n }\n\n s.Minimum = VAR_31(\"STR_31\")\n if VAR_32, VAR_5 := VAR_2[\"STR_32\"]; VAR_5 {\n if VAR_32, VAR_5 := VAR_32.(bool); VAR_5 {\n if VAR_32 {\n s.Minimum, s.ExclusiveMinimum = nil, s.Minimum\n }\n } else {\n s.ExclusiveMinimum = VAR_31(\"STR_32\")\n }\n }\n\n s.Maximum = VAR_31(\"STR_33\")\n if VAR_32, VAR_5 := VAR_2[\"STR_34\"]; VAR_5 {\n if VAR_32, VAR_5 := VAR_32.(bool); VAR_5 {\n if VAR_32 {\n s.Maximum, s.ExclusiveMaximum = nil, s.Maximum\n }\n } else {\n s.ExclusiveMaximum = VAR_31(\"STR_34\")\n }\n }\n\n s.MultipleOf = VAR_31(\"STR_35\")\n\n if c.ExtractAnnotations {\n if VAR_33, VAR_5 := VAR_2[\"STR_36\"]; VAR_5 {\n s.Title = VAR_33.(string)\n }\n if VAR_34, VAR_5 := VAR_2[\"STR_37\"]; VAR_5 {\n s.Description = VAR_34.(string)\n }\n s.Default = VAR_2[\"STR_38\"]\n }\n\n if VAR_0.draft.version >= 6 {\n if c, VAR_5 := VAR_2[\"STR_39\"]; VAR_5 {\n s.Constant = []interface{}{c}\n }\n if s.PropertyNames, VAR_3 = VAR_13(\"STR_40\"); VAR_3 != nil {\n return VAR_3\n }\n if s.Contains, VAR_3 = VAR_13(\"STR_41\"); VAR_3 != nil {\n return VAR_3\n }\n }\n\n if VAR_0.draft.version >= 7 {\n if VAR_2[\"STR_42\"] != nil && (VAR_2[\"STR_43\"] != nil || VAR_2[\"STR_44\"] != nil) {\n if s.If, VAR_3 = VAR_13(\"STR_42\"); VAR_3 != nil {\n return VAR_3\n }\n if s.Then, VAR_3 = VAR_13(\"STR_43\"); VAR_3 != nil {\n return VAR_3\n }\n if s.Else, VAR_3 = VAR_13(\"STR_44\"); VAR_3 != nil {\n return VAR_3\n }\n }\n if VAR_35, VAR_5 := VAR_2[\"STR_45\"]; VAR_5 {\n s.ContentEncoding = VAR_35.(string)\n s.decoder = Decoders[s.ContentEncoding]\n }\n if VAR_36, VAR_5 := VAR_2[\"STR_46\"]; VAR_5 {\n s.ContentMediaType = VAR_36.(string)\n s.mediaType = MediaTypes[s.ContentMediaType]\n }\n if c.ExtractAnnotations {\n if VAR_37, VAR_5 := VAR_2[\"STR_47\"]; VAR_5 {\n s.ReadOnly = VAR_37.(bool)\n }\n if VAR_38, VAR_5 := VAR_2[\"STR_48\"]; VAR_5 {\n s.WriteOnly = VAR_38.(bool)\n }\n if VAR_39, VAR_5 := VAR_2[\"STR_49\"]; VAR_5 {\n s.Examples = VAR_39.([]interface{})\n }\n }\n }\n\n for name, ext := range c.Extensions {\n VAR_40, VAR_3 := ext.Compile(CompilerContext{c, VAR_0, VAR_1}, VAR_2)\n if VAR_3 != nil {\n return VAR_3\n }\n if VAR_40 != nil {\n if s.Extensions == nil {\n s.Extensions = make(map[string]interface{})\n s.extensions = make(map[string]func(ctx ValidationContext, s interface{}, v interface{}) error)\n }\n s.Extensions[name] = VAR_40\n s.extensions[name] = ext.Validate\n }\n }\n\n return nil\n}"
-          }
-        },
-        {
-          "chunk_id": "e1fe04d7b856bd0d7a86ba5979b782ecf9a5fc8f",
-          "repo_id": "github:influxdata/athenadriver",
-          "file_path": "go/rows.go",
-          "symbol_name": "athenaTypeToGoType",
-          "retrieval_sources": ["rule_based"],
-          "candidate_chunk": {
-            "chunk_id": "e1fe04d7b856bd0d7a86ba5979b782ecf9a5fc8f",
-            "repo_id": "github:influxdata/athenadriver",
-            "language": "go",
-            "file_path": "go/rows.go",
-            "chunk_type": "function",
-            "symbol_name": "athenaTypeToGoType",
-            "anonymized_code": "func (r *Rows) FUNC_0(VAR_0 *types.ColumnInfo, VAR_1 *string, VAR_2 *Config) (interface{}, error) {\n if VAR_3, VAR_4 := VAR_2.CheckColumnMasked(*VAR_0.Name); VAR_4 {\n return VAR_3, nil\n }\n if VAR_1 == nil {\n r.tracer.Scope().Counter(DriverName + \"STR_0\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_1\",\n zap.String(\"STR_2\", *VAR_0.Name),\n zap.String(\"STR_3\", r.queryID),\n zap.String(\"STR_4\", VAR_2.GetWorkgroup().Name))\n if VAR_2.IsMissingAsNil() {\n return nil, nil\n } else if VAR_2.IsMissingAsEmptyString() {\n return \"STR_5\", nil\n } else if VAR_2.IsMissingAsDefault() {\n return r.getDefaultValueForColumnType(*VAR_0.Type), nil\n }\n r.tracer.Scope().Counter(DriverName + \"STR_6\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_1\", zap.String(\"STR_2\", *VAR_0.Name))\n return nil, fmt.Errorf(\"STR_7\", *VAR_0.Name)\n }\n VAR_5 := *VAR_1\n\n var VAR_6 error\n var VAR_7 int64\n var VAR_8 float64\n switch *VAR_0.Type {\n case \"STR_8\":\n\n if VAR_7, VAR_6 = strconv.ParseInt(VAR_5, 10, 8); VAR_6 != nil {\n return nil, VAR_6\n }\n return int8(VAR_7), nil\n case \"STR_9\":\n if VAR_7, VAR_6 = strconv.ParseInt(VAR_5, 10, 16); VAR_6 != nil {\n return nil, VAR_6\n }\n return int16(VAR_7), nil\n case \"STR_10\":\n if VAR_7, VAR_6 = strconv.ParseInt(VAR_5, 10, 32); VAR_6 != nil {\n return nil, VAR_6\n }\n return int32(VAR_7), nil\n case \"STR_11\":\n if VAR_7, VAR_6 = strconv.ParseInt(VAR_5, 10, 64); VAR_6 != nil {\n return nil, VAR_6\n }\n return VAR_7, nil\n case \"STR_12\", \"STR_13\":\n if VAR_8, VAR_6 = strconv.ParseFloat(VAR_5, 32); VAR_6 != nil {\n return nil, VAR_6\n }\n return float32(VAR_8), nil\n case \"STR_14\":\n if VAR_8, VAR_6 = strconv.ParseFloat(VAR_5, 64); VAR_6 != nil {\n return nil, VAR_6\n }\n return VAR_8, nil\n\n case \"STR_15\", \"STR_16\", \"STR_17\", \"STR_18\", \"STR_19\", \"STR_20\", \"STR_21\",\n \"STR_22\", \"STR_23\", \"STR_24\", \"STR_25\",\n \"STR_26\", \"STR_27\", \"STR_28\", \"STR_29\":\n return VAR_5, nil\n case \"STR_30\":\n if VAR_5 == \"STR_31\" {\n return true, nil\n } else if VAR_5 == \"STR_32\" {\n return false, nil\n }\n r.tracer.Scope().Counter(DriverName + \"STR_33\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_34\", zap.String(\"STR_35\", VAR_5))\n return nil, fmt.Errorf(\"STR_36\", VAR_5)\n case \"STR_37\", \"STR_38\", \"STR_39\", \"STR_40\", \"STR_41\":\n VAR_9, VAR_6 := scanTime(VAR_5)\n if !VAR_9.Valid {\n r.tracer.Scope().Counter(DriverName + \"STR_42\" +\n \"STR_38\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_43\",\n zap.String(\"STR_35\", VAR_5),\n zap.String(\"STR_44\", *VAR_0.Type))\n return nil, VAR_6\n }\n return VAR_9.Time, VAR_6\n default:\n r.tracer.Scope().Counter(DriverName + \"STR_45\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_46\", zap.String(\"STR_47\", *VAR_0.Type))\n return nil, fmt.Errorf(\"STR_48\", *VAR_0.Type, VAR_5)\n }\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/ory/jsonschema",
+            "license_spdx": "BSD-3-Clause",
+            "license_name": "BSD 3-Clause \"New\" or \"Revised\" License"
+          },
+          "hybrid": {
+            "score": 0.107102,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.107102,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "raw_code_match",
+            "license_spdx": "BSD-3-Clause"
           }
         },
         {
@@ -182,6 +203,155 @@
             "chunk_type": "function",
             "symbol_name": "PostProcess",
             "anonymized_code": "func (p *PostProcessor) FUNC_0(\n VAR_0 context.Context,\n VAR_1 packer.Ui,\n VAR_2 packer.Artifact,\n) (packer.Artifact, bool, bool, error) {\n\n p.config.ctx.Data = map[string]string{\n \"STR_0\": p.config.PackerBuildName,\n \"STR_1\": p.config.PackerBuilderType,\n }\n\n VAR_3, VAR_4 := interpolate.Render(p.config.OutputPath, &p.config.ctx)\n if VAR_4 != nil {\n return nil, false, false, fmt.Errorf(\"STR_2\", VAR_4)\n } else {\n fmt.Println(VAR_3)\n }\n\n VAR_5 := &Artifact{Path: VAR_3}\n\n if VAR_4 = os.MkdirAll(filepath.Dir(VAR_3), os.FileMode(0755)); VAR_4 != nil {\n return nil, false, false, fmt.Errorf(\n \"STR_3\", VAR_3, VAR_4)\n }\n VAR_6, VAR_4 := os.Create(VAR_3)\n if VAR_4 != nil {\n return nil, false, false, fmt.Errorf(\n \"STR_4\", VAR_3, VAR_4)\n }\n defer VAR_6.Close()\n\n var VAR_7 io.WriteCloser\n VAR_8 := \"STR_5\"\n switch p.config.Algorithm {\n case \"STR_6\":\n VAR_1.Say(fmt.Sprintf(\"STR_7\",\n runtime.GOMAXPROCS(-1), VAR_3))\n VAR_7, VAR_4 = makeBGZFWriter(VAR_6, p.config.CompressionLevel)\n if VAR_4 != nil {\n return nil, false, false, fmt.Errorf(VAR_8, p.config.Algorithm, VAR_4)\n }\n defer VAR_7.Close()\n case \"STR_8\":\n VAR_1.Say(fmt.Sprintf(\"STR_9\",\n runtime.GOMAXPROCS(-1), VAR_3))\n VAR_7, VAR_4 = makeLZ4Writer(VAR_6, p.config.CompressionLevel)\n if VAR_4 != nil {\n return nil, false, false, fmt.Errorf(VAR_8, p.config.Algorithm, VAR_4)\n }\n defer VAR_7.Close()\n case \"STR_10\":\n VAR_1.Say(fmt.Sprintf(\"STR_11\",\n VAR_3))\n VAR_7, VAR_4 = makeXZWriter(VAR_6)\n if VAR_4 != nil {\n return nil, false, false, fmt.Errorf(VAR_8, p.config.Algorithm, VAR_4)\n }\n defer VAR_7.Close()\n case \"STR_12\":\n VAR_1.Say(fmt.Sprintf(\"STR_13\",\n runtime.GOMAXPROCS(-1), VAR_3))\n VAR_7, VAR_4 = makePgzipWriter(VAR_6, p.config.CompressionLevel)\n if VAR_4 != nil {\n return nil, false, false,\n fmt.Errorf(VAR_8, p.config.Algorithm, VAR_4)\n }\n defer VAR_7.Close()\n default:\n VAR_7 = VAR_6\n }\n\n VAR_9 := p.config.Algorithm\n if VAR_9 == \"STR_14\" {\n VAR_9 = \"STR_15\"\n }\n\n switch p.config.Archive {\n case \"STR_16\":\n VAR_1.Say(fmt.Sprintf(\"STR_17\", VAR_3, VAR_9))\n VAR_4 = createTarArchive(VAR_2.Files(), VAR_7)\n if VAR_4 != nil {\n return nil, false, false, fmt.Errorf(\"STR_18\", VAR_4)\n }\n case \"STR_19\":\n VAR_1.Say(fmt.Sprintf(\"STR_20\", VAR_3))\n VAR_4 = createZipArchive(VAR_2.Files(), VAR_7)\n if VAR_4 != nil {\n return nil, false, false, fmt.Errorf(\"STR_21\", VAR_4)\n }\n default:\n\n if len(VAR_2.Files()) != 1 {\n return nil, false, false, fmt.Errorf(\n \"STR_22\"+\n \"STR_23\", len(VAR_2.Files()), VAR_2.Files())\n }\n VAR_10 := VAR_2.Files()[0]\n VAR_1.Say(fmt.Sprintf(\"STR_24\", VAR_10, VAR_9))\n\n VAR_11, VAR_4 := os.Open(VAR_10)\n if VAR_4 != nil {\n return nil, false, false, fmt.Errorf(\n \"STR_25\",\n VAR_10, VAR_4)\n }\n defer VAR_11.Close()\n\n if _, VAR_4 = io.Copy(VAR_7, VAR_11); VAR_4 != nil {\n return nil, false, false, fmt.Errorf(\"STR_26\",\n VAR_10, VAR_4)\n }\n }\n\n VAR_1.Say(fmt.Sprintf(\"STR_27\", VAR_3))\n\n return VAR_5, false, false, nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/snowflakedb/packer",
+            "license_spdx": "MPL-2.0",
+            "license_name": "Mozilla Public License 2.0"
+          },
+          "hybrid": {
+            "score": 0.0,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.0,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.922,
+            "risk_level": "high",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "MPL-2.0"
+          }
+        },
+        {
+          "chunk_id": "f829675f915564528b852bab30a0108573392ab4",
+          "repo_id": "github:cockroachdb/grpc-gateway",
+          "file_path": "runtime/query.go",
+          "symbol_name": "populateField",
+          "retrieval_sources": ["rule_based"],
+          "candidate_chunk": {
+            "chunk_id": "f829675f915564528b852bab30a0108573392ab4",
+            "repo_id": "github:cockroachdb/grpc-gateway",
+            "language": "go",
+            "file_path": "runtime/query.go",
+            "chunk_type": "function",
+            "symbol_name": "populateField",
+            "anonymized_code": "func FUNC_0(f reflect.Value, value string, props *proto.Properties) error {\n VAR_0 := f.Addr().Interface()\n\n var VAR_1 string\n switch m := VAR_0.(type) {\n case interface{ XXX_WellKnownType() string }:\n VAR_1 = m.XXX_WellKnownType()\n case proto.Message:\n const VAR_2 = \"STR_0\"\n if VAR_3 := proto.MessageName(m); strings.HasPrefix(VAR_3, VAR_2) {\n VAR_1 = VAR_3[len(VAR_2):]\n }\n }\n switch VAR_1 {\n case \"STR_1\":\n if value == \"STR_2\" {\n f.FieldByName(\"STR_3\").SetInt(0)\n f.FieldByName(\"STR_4\").SetInt(0)\n return nil\n }\n\n VAR_4, VAR_5 := time.Parse(time.RFC3339Nano, value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_5\", VAR_5)\n }\n f.FieldByName(\"STR_3\").SetInt(int64(VAR_4.Unix()))\n f.FieldByName(\"STR_4\").SetInt(int64(VAR_4.Nanosecond()))\n return nil\n case \"STR_6\":\n if value == \"STR_2\" {\n f.FieldByName(\"STR_3\").SetInt(0)\n f.FieldByName(\"STR_4\").SetInt(0)\n return nil\n }\n VAR_6, VAR_5 := time.ParseDuration(value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_7\", VAR_5)\n }\n\n VAR_7 := VAR_6.Nanoseconds()\n VAR_8 := VAR_7 / 1e9\n VAR_7 %= 1e9\n f.FieldByName(\"STR_3\").SetInt(VAR_8)\n f.FieldByName(\"STR_4\").SetInt(VAR_7)\n return nil\n case \"STR_8\":\n fallthrough\n case \"STR_9\":\n VAR_9, VAR_5 := strconv.ParseFloat(value, 64)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_10\", value)\n }\n f.FieldByName(\"STR_11\").SetFloat(VAR_9)\n return nil\n case \"STR_12\":\n fallthrough\n case \"STR_13\":\n VAR_10, VAR_5 := strconv.ParseInt(value, 10, 64)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_10\", value)\n }\n f.FieldByName(\"STR_11\").SetInt(VAR_10)\n return nil\n case \"STR_14\":\n fallthrough\n case \"STR_15\":\n VAR_11, VAR_5 := strconv.ParseUint(value, 10, 64)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_10\", value)\n }\n f.FieldByName(\"STR_11\").SetUint(VAR_11)\n return nil\n case \"STR_16\":\n if value == \"STR_17\" {\n f.FieldByName(\"STR_11\").SetBool(true)\n } else if value == \"STR_18\" {\n f.FieldByName(\"STR_11\").SetBool(false)\n } else {\n return fmt.Errorf(\"STR_19\", value)\n }\n return nil\n case \"STR_20\":\n f.FieldByName(\"STR_11\").SetString(value)\n return nil\n case \"STR_21\":\n VAR_12, VAR_5 := base64.StdEncoding.DecodeString(value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_22\", value)\n }\n f.FieldByName(\"STR_11\").SetBytes(VAR_12)\n return nil\n case \"STR_23\":\n VAR_13 := f.FieldByName(\"STR_24\")\n for _, v := range strings.Split(value, \"STR_25\") {\n if v != \"STR_26\" {\n VAR_13.Set(reflect.Append(VAR_13, reflect.ValueOf(v)))\n }\n }\n return nil\n }\n\n switch VAR_4 := VAR_0.(type) {\n case *time.Time:\n VAR_14, VAR_5 := time.Parse(time.RFC3339Nano, value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_5\", VAR_5)\n }\n *VAR_4 = VAR_14\n return nil\n case *time.Duration:\n VAR_6, VAR_5 := time.ParseDuration(value)\n if VAR_5 != nil {\n return fmt.Errorf(\"STR_7\", VAR_5)\n }\n *VAR_4 = VAR_6\n return nil\n }\n\n if VAR_15 := proto.EnumValueMap(props.Enum); VAR_15 != nil {\n return populateFieldEnum(f, value, VAR_15)\n }\n\n VAR_16, VAR_17 := convFromType[f.Kind()]\n if !VAR_17 {\n return fmt.Errorf(\"STR_27\", VAR_0)\n }\n VAR_18 := VAR_16.Call([]reflect.Value{reflect.ValueOf(value)})\n if VAR_5 := VAR_18[1].Interface(); VAR_5 != nil {\n return VAR_5.(error)\n }\n f.Set(VAR_18[0].Convert(f.Type()))\n return nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/cockroachdb/grpc-gateway",
+            "license_spdx": "BSD-3-Clause",
+            "license_name": "BSD 3-Clause \"New\" or \"Revised\" License"
+          },
+          "hybrid": {
+            "score": 0.467168,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.467168,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.882,
+            "risk_level": "high",
+            "strongest_evidence_type": "raw_code_match",
+            "license_spdx": "BSD-3-Clause"
+          }
+        },
+        {
+          "chunk_id": "e1fe04d7b856bd0d7a86ba5979b782ecf9a5fc8f",
+          "repo_id": "github:influxdata/athenadriver",
+          "file_path": "go/rows.go",
+          "symbol_name": "athenaTypeToGoType",
+          "retrieval_sources": ["rule_based"],
+          "candidate_chunk": {
+            "chunk_id": "e1fe04d7b856bd0d7a86ba5979b782ecf9a5fc8f",
+            "repo_id": "github:influxdata/athenadriver",
+            "language": "go",
+            "file_path": "go/rows.go",
+            "chunk_type": "function",
+            "symbol_name": "athenaTypeToGoType",
+            "anonymized_code": "func (r *Rows) FUNC_0(VAR_0 *types.ColumnInfo, VAR_1 *string, VAR_2 *Config) (interface{}, error) {\n if VAR_3, VAR_4 := VAR_2.CheckColumnMasked(*VAR_0.Name); VAR_4 {\n return VAR_3, nil\n }\n if VAR_1 == nil {\n r.tracer.Scope().Counter(DriverName + \"STR_0\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_1\",\n zap.String(\"STR_2\", *VAR_0.Name),\n zap.String(\"STR_3\", r.queryID),\n zap.String(\"STR_4\", VAR_2.GetWorkgroup().Name))\n if VAR_2.IsMissingAsNil() {\n return nil, nil\n } else if VAR_2.IsMissingAsEmptyString() {\n return \"STR_5\", nil\n } else if VAR_2.IsMissingAsDefault() {\n return r.getDefaultValueForColumnType(*VAR_0.Type), nil\n }\n r.tracer.Scope().Counter(DriverName + \"STR_6\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_1\", zap.String(\"STR_2\", *VAR_0.Name))\n return nil, fmt.Errorf(\"STR_7\", *VAR_0.Name)\n }\n VAR_5 := *VAR_1\n\n var VAR_6 error\n var VAR_7 int64\n var VAR_8 float64\n switch *VAR_0.Type {\n case \"STR_8\":\n\n if VAR_7, VAR_6 = strconv.ParseInt(VAR_5, 10, 8); VAR_6 != nil {\n return nil, VAR_6\n }\n return int8(VAR_7), nil\n case \"STR_9\":\n if VAR_7, VAR_6 = strconv.ParseInt(VAR_5, 10, 16); VAR_6 != nil {\n return nil, VAR_6\n }\n return int16(VAR_7), nil\n case \"STR_10\":\n if VAR_7, VAR_6 = strconv.ParseInt(VAR_5, 10, 32); VAR_6 != nil {\n return nil, VAR_6\n }\n return int32(VAR_7), nil\n case \"STR_11\":\n if VAR_7, VAR_6 = strconv.ParseInt(VAR_5, 10, 64); VAR_6 != nil {\n return nil, VAR_6\n }\n return VAR_7, nil\n case \"STR_12\", \"STR_13\":\n if VAR_8, VAR_6 = strconv.ParseFloat(VAR_5, 32); VAR_6 != nil {\n return nil, VAR_6\n }\n return float32(VAR_8), nil\n case \"STR_14\":\n if VAR_8, VAR_6 = strconv.ParseFloat(VAR_5, 64); VAR_6 != nil {\n return nil, VAR_6\n }\n return VAR_8, nil\n\n case \"STR_15\", \"STR_16\", \"STR_17\", \"STR_18\", \"STR_19\", \"STR_20\", \"STR_21\",\n \"STR_22\", \"STR_23\", \"STR_24\", \"STR_25\",\n \"STR_26\", \"STR_27\", \"STR_28\", \"STR_29\":\n return VAR_5, nil\n case \"STR_30\":\n if VAR_5 == \"STR_31\" {\n return true, nil\n } else if VAR_5 == \"STR_32\" {\n return false, nil\n }\n r.tracer.Scope().Counter(DriverName + \"STR_33\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_34\", zap.String(\"STR_35\", VAR_5))\n return nil, fmt.Errorf(\"STR_36\", VAR_5)\n case \"STR_37\", \"STR_38\", \"STR_39\", \"STR_40\", \"STR_41\":\n VAR_9, VAR_6 := scanTime(VAR_5)\n if !VAR_9.Valid {\n r.tracer.Scope().Counter(DriverName + \"STR_42\" +\n \"STR_38\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_43\",\n zap.String(\"STR_35\", VAR_5),\n zap.String(\"STR_44\", *VAR_0.Type))\n return nil, VAR_6\n }\n return VAR_9.Time, VAR_6\n default:\n r.tracer.Scope().Counter(DriverName + \"STR_45\").Inc(1)\n r.tracer.Log(ErrorLevel, \"STR_46\", zap.String(\"STR_47\", *VAR_0.Type))\n return nil, fmt.Errorf(\"STR_48\", *VAR_0.Type, VAR_5)\n }\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/influxdata/athenadriver",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.023079,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.023079,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.882,
+            "risk_level": "high",
+            "strongest_evidence_type": "raw_code_match",
+            "license_spdx": "MIT"
+          }
+        },
+        {
+          "chunk_id": "aea1d46236051ca03dced1c4a79a91c632a29213",
+          "repo_id": "github:influxdata/kapacitor",
+          "file_path": "influxdb/csv.go",
+          "symbol_name": "convert",
+          "retrieval_sources": ["rule_based"],
+          "candidate_chunk": {
+            "chunk_id": "aea1d46236051ca03dced1c4a79a91c632a29213",
+            "repo_id": "github:influxdata/kapacitor",
+            "language": "go",
+            "file_path": "influxdb/csv.go",
+            "chunk_type": "function",
+            "symbol_name": "convert",
+            "anonymized_code": "func (q *responseBuilder) FUNC_0(VAR_0, VAR_1 string) (interface{}, error) {\n const (\n VAR_2 = \"STR_0\"\n VAR_3 = \"STR_1\"\n VAR_4 = \"STR_2\"\n VAR_5 = \"STR_3\"\n VAR_6 = \"STR_4\"\n VAR_7 = \"STR_5\"\n VAR_8 = \"STR_6\"\n )\n VAR_9 := VAR_1\n switch VAR_0 {\n case VAR_2:\n return VAR_9, nil\n case VAR_3, VAR_8:\n return time.Parse(time.RFC3339, VAR_9)\n case VAR_4:\n return strconv.ParseFloat(VAR_9, 64)\n case VAR_5:\n if VAR_9 == \"STR_7\" {\n return false, nil\n }\n return true, nil\n case VAR_6:\n return strconv.ParseInt(VAR_9, 10, 64)\n case VAR_7:\n return strconv.ParseUint(VAR_9, 10, 64)\n default:\n return nil, fmt.Errorf(\"STR_8\", VAR_9, VAR_0)\n }\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/influxdata/kapacitor",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.167808,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.167808,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.866,
+            "risk_level": "high",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "MIT"
+          }
+        },
+        {
+          "chunk_id": "fb5c70e738f0102f6e51c1f410a10bbaa0d95175",
+          "repo_id": "github:ozontech/file.d",
+          "file_path": "cfg/config.go",
+          "symbol_name": "ParseField",
+          "retrieval_sources": ["rule_based"],
+          "candidate_chunk": {
+            "chunk_id": "fb5c70e738f0102f6e51c1f410a10bbaa0d95175",
+            "repo_id": "github:ozontech/file.d",
+            "language": "go",
+            "file_path": "cfg/config.go",
+            "chunk_type": "function",
+            "symbol_name": "ParseField",
+            "anonymized_code": "func FUNC_0(v reflect.Value, vField reflect.Value, tField *reflect.StructField, values map[string]int) error {\n VAR_0 := tField.Tag.Get(\"STR_0\")\n if VAR_0 != \"STR_1\" {\n VAR_1 := strings.Split(VAR_0, \"STR_2\")\n if vField.Kind() != reflect.String {\n return fmt.Errorf(\"STR_3\", tField.Name, tField.Type.Name())\n }\n\n VAR_2 := -1\n VAR_3 := false\n for VAR_4, part := range VAR_1 {\n if vField.String() == part {\n VAR_3 = true\n VAR_2 = VAR_4\n break\n }\n }\n\n if !VAR_3 {\n return fmt.Errorf(\"STR_4\", tField.Name, VAR_0, vField.String())\n }\n\n VAR_5 := v.FieldByName(tField.Name + \"STR_5\")\n if VAR_5 != (reflect.Value{}) {\n switch VAR_5.Kind() {\n case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int:\n VAR_5.SetInt(int64(VAR_2))\n case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:\n VAR_5.SetUint(uint64(VAR_2))\n default:\n return fmt.Errorf(\"STR_6\")\n }\n }\n }\n\n VAR_0 = tField.Tag.Get(\"STR_7\")\n if VAR_0 != \"STR_1\" {\n if vField.Kind() != reflect.String {\n return fmt.Errorf(\"STR_8\", tField.Name, tField.Type.Name())\n }\n\n VAR_5 := v.FieldByName(tField.Name + \"STR_5\")\n\n switch VAR_0 {\n case \"STR_9\":\n VAR_6, VAR_7 := CompileRegex(vField.String())\n if VAR_7 != nil {\n return fmt.Errorf(\"STR_10\", tField.Name, VAR_7.Error())\n }\n VAR_5.Set(reflect.ValueOf(VAR_6))\n case \"STR_11\":\n VAR_8 := ParseFieldSelector(vField.String())\n VAR_5.Set(reflect.ValueOf(VAR_8))\n case \"STR_12\":\n var VAR_9 time.Duration\n\n VAR_10 := vField.String()\n if VAR_10 != \"STR_1\" {\n var VAR_7 error\n VAR_9, VAR_7 = time.ParseDuration(VAR_10)\n if VAR_7 != nil {\n return fmt.Errorf(\"STR_13\", tField.Name, VAR_7.Error())\n }\n }\n\n VAR_5.SetInt(int64(VAR_9))\n case \"STR_14\":\n VAR_1 := strings.Split(vField.String(), \"STR_15\")\n VAR_11 := make(map[string]bool, len(VAR_1))\n\n for _, part := range VAR_1 {\n VAR_12 := strings.TrimSpace(part)\n VAR_11[VAR_12] = true\n }\n\n VAR_5.Set(reflect.ValueOf(VAR_11))\n case \"STR_16\":\n VAR_1 := strings.Split(vField.String(), \"STR_15\")\n VAR_13 := make([]string, 0, len(VAR_1))\n\n for _, part := range VAR_1 {\n VAR_12 := strings.TrimSpace(part)\n VAR_13 = append(VAR_13, VAR_12)\n }\n\n VAR_5.Set(reflect.ValueOf(VAR_13))\n case \"STR_17\":\n VAR_14 := strings.IndexAny(vField.String(), \"STR_18\")\n if VAR_14 == -1 {\n VAR_4, VAR_7 := strconv.Atoi(vField.String())\n if VAR_7 != nil {\n return fmt.Errorf(\"STR_19\", vField.String())\n }\n VAR_5.SetInt(int64(VAR_4))\n return nil\n }\n\n VAR_15 := strings.TrimSpace(vField.String()[:VAR_14])\n VAR_16 := vField.String()[VAR_14]\n VAR_17 := strings.TrimSpace(vField.String()[VAR_14+1:])\n\n VAR_18, VAR_7 := strconv.Atoi(VAR_15)\n if VAR_7 != nil {\n VAR_19 := false\n VAR_18, VAR_19 = values[VAR_15]\n if !VAR_19 {\n return fmt.Errorf(\"STR_20\", VAR_15)\n }\n }\n\n VAR_20, VAR_7 := strconv.Atoi(VAR_17)\n if VAR_7 != nil {\n VAR_19 := false\n VAR_20, VAR_19 = values[VAR_17]\n if !VAR_19 {\n return fmt.Errorf(\"STR_20\", VAR_17)\n }\n }\n\n VAR_9 := 0\n switch VAR_16 {\n case '+':\n VAR_9 = VAR_18 + VAR_20\n case '-':\n VAR_9 = VAR_18 - VAR_20\n case '*':\n VAR_9 = VAR_18 * VAR_20\n case '/':\n VAR_9 = VAR_18 / VAR_20\n default:\n return fmt.Errorf(\"STR_21\", VAR_16)\n }\n\n VAR_5.SetInt(int64(VAR_9))\n\n case \"STR_22\":\n VAR_21, VAR_7 := strconv.ParseInt(vField.String(), 8, 64)\n if VAR_7 != nil {\n return fmt.Errorf(\"STR_23\", tField.Name, VAR_7.Error())\n }\n VAR_5.SetInt(VAR_21)\n\n case \"STR_24\":\n VAR_1 := strings.Split(vField.String(), \"STR_25\")\n if len(VAR_1) != 2 {\n return fmt.Errorf(\"STR_26\")\n }\n VAR_21, VAR_7 := strconv.Atoi(VAR_1[0])\n if VAR_7 != nil {\n return fmt.Errorf(`STR_27`, VAR_1[0])\n }\n if VAR_21 < 0 {\n return fmt.Errorf(\"STR_28\")\n }\n VAR_22 := strings.ToLower(strings.TrimSpace(VAR_1[1]))\n if VAR_23, VAR_24 := DataUnitAliases[VAR_22]; VAR_24 {\n VAR_5.SetUint(uint64(VAR_21 * VAR_23))\n } else {\n return fmt.Errorf(`STR_29`, VAR_22)\n }\n\n default:\n return fmt.Errorf(\"STR_30\", VAR_0, tField.Name)\n }\n }\n\n VAR_0 = tField.Tag.Get(\"STR_31\")\n VAR_25 := VAR_0 == trueValue\n\n if VAR_25 && vField.IsZero() {\n return fmt.Errorf(\"STR_32\", tField.Name)\n }\n\n return nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/ozontech/file.d",
+            "license_spdx": "BSD-3-Clause",
+            "license_name": "BSD 3-Clause \"New\" or \"Revised\" License"
+          },
+          "hybrid": {
+            "score": 0.272754,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.272754,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.6036,
+            "risk_level": "medium",
+            "strongest_evidence_type": "structural_similarity",
+            "license_spdx": "BSD-3-Clause"
           }
         }
       ]
@@ -215,6 +385,23 @@
             "chunk_type": "function",
             "symbol_name": "schemaFromType",
             "anonymized_code": "func FUNC_0(r Registry, t reflect.Type) *Schema {\n VAR_0 := t.Kind() == reflect.Pointer\n\n VAR_1 := Schema{}\n t = deref(t)\n\n VAR_2 := reflect.PointerTo(t)\n if t.Implements(schemaProviderType) || VAR_2.Implements(schemaProviderType) {\n\n VAR_3 := reflect.New(t).Interface().(SchemaProvider).Schema(r)\n VAR_3.PrecomputeMessages()\n return VAR_3\n }\n\n switch t {\n case timeType:\n return &Schema{Type: TypeString, Nullable: VAR_0, Format: \"STR_0\"}\n case urlType:\n return &Schema{Type: TypeString, Nullable: VAR_0, Format: \"STR_1\"}\n case ipType:\n return &Schema{Type: TypeString, Nullable: VAR_0, Format: \"STR_2\"}\n case ipAddrType:\n return &Schema{Type: TypeString, Nullable: VAR_0, Format: \"STR_3\"}\n case rawMessageType:\n return &Schema{}\n }\n\n if t.Implements(textUnmarshalerType) || VAR_2.Implements(textUnmarshalerType) {\n\n return &Schema{Type: TypeString, Nullable: VAR_0}\n }\n\n VAR_4 := 0.0\n switch t.Kind() {\n case reflect.Bool:\n VAR_1.Type = TypeBoolean\n case reflect.Int:\n VAR_1.Type = TypeInteger\n if bits.UintSize == 32 {\n VAR_1.Format = \"STR_4\"\n } else {\n VAR_1.Format = \"STR_5\"\n }\n case reflect.Int8, reflect.Int16, reflect.Int32:\n VAR_1.Type = TypeInteger\n VAR_1.Format = \"STR_4\"\n case reflect.Int64:\n VAR_1.Type = TypeInteger\n VAR_1.Format = \"STR_5\"\n case reflect.Uint:\n VAR_1.Type = TypeInteger\n if bits.UintSize == 32 {\n VAR_1.Format = \"STR_4\"\n } else {\n VAR_1.Format = \"STR_5\"\n }\n VAR_1.Minimum = &VAR_4\n case reflect.Uint8, reflect.Uint16, reflect.Uint32:\n\n VAR_1.Type = TypeInteger\n VAR_1.Format = \"STR_4\"\n VAR_1.Minimum = &VAR_4\n case reflect.Uint64:\n\n VAR_1.Type = TypeInteger\n VAR_1.Format = \"STR_5\"\n VAR_1.Minimum = &VAR_4\n case reflect.Float32:\n VAR_1.Type = TypeNumber\n VAR_1.Format = \"STR_6\"\n case reflect.Float64:\n VAR_1.Type = TypeNumber\n VAR_1.Format = \"STR_7\"\n case reflect.String:\n VAR_1.Type = TypeString\n case reflect.Slice, reflect.Array:\n if t.Elem().Kind() == reflect.Uint8 {\n\n VAR_1.Type = TypeString\n VAR_1.ContentEncoding = \"STR_8\"\n } else {\n VAR_1.Type = TypeArray\n VAR_1.Nullable = DefaultArrayNullable\n VAR_1.Items = r.Schema(t.Elem(), true, t.Name()+\"STR_9\")\n\n if t.Kind() == reflect.Array {\n VAR_5 := t.Len()\n VAR_1.MinItems = &VAR_5\n VAR_1.MaxItems = &VAR_5\n }\n }\n case reflect.Map:\n VAR_1.Type = TypeObject\n VAR_1.AdditionalProperties = r.Schema(t.Elem(), true, t.Name()+\"STR_10\")\n case reflect.Struct:\n var VAR_6 []string\n VAR_7 := map[string]bool{}\n var VAR_8 []string\n VAR_9 := map[string]struct{}{}\n VAR_10 := map[string]*Schema{}\n VAR_11 := map[string][]string{}\n for _, info := range getFields(t, make(map[reflect.Type]struct{})) {\n VAR_12 := info.Field\n\n if _, VAR_13 := VAR_9[VAR_12.Name]; VAR_13 {\n\n continue\n }\n\n VAR_9[VAR_12.Name] = struct{}{}\n\n VAR_14 := !getConfig[registryConfig](r).FieldsOptionalByDefault\n\n VAR_15 := VAR_12.Name\n if VAR_16 := VAR_12.Tag.Get(\"STR_11\"); VAR_16 != \"STR_12\" {\n if VAR_17 := strings.Split(VAR_16, \"STR_13\")[0]; VAR_17 != \"STR_12\" {\n VAR_15 = VAR_17\n }\n if strings.Contains(VAR_16, \"STR_14\") {\n VAR_14 = false\n }\n if strings.Contains(VAR_16, \"STR_15\") {\n VAR_14 = false\n }\n }\n if VAR_15 == \"STR_16\" {\n\n continue\n }\n\n if _, VAR_13 := VAR_12.Tag.Lookup(\"STR_17\"); VAR_13 {\n VAR_14 = boolTag(VAR_12, \"STR_17\", false)\n }\n\n if VAR_18 := VAR_12.Tag.Get(\"STR_18\"); strings.TrimSpace(VAR_18) != \"STR_12\" {\n VAR_11[VAR_15] = strings.Split(VAR_18, \"STR_13\")\n }\n\n VAR_19 := SchemaFromField(r, VAR_12, t.Name()+VAR_12.Name+\"STR_19\")\n if VAR_19 != nil {\n VAR_10[VAR_15] = VAR_19\n VAR_8 = append(VAR_8, VAR_15)\n\n if VAR_19.hidden {\n\n VAR_14 = false\n }\n\n if VAR_14 {\n VAR_6 = append(VAR_6, VAR_15)\n VAR_7[VAR_15] = true\n }\n\n if VAR_12.Type.Kind() == reflect.Pointer && strings.Contains(VAR_12.Tag.Get(\"STR_11\"), \"STR_14\") && VAR_12.Tag.Get(\"STR_20\") != \"STR_21\" {\n VAR_19.Nullable = false\n }\n }\n }\n VAR_1.Type = TypeObject\n\n var VAR_20 []string\n VAR_21 := make([]string, 0, len(VAR_11))\n for field := range VAR_11 {\n VAR_21 = append(VAR_21, field)\n }\n sort.Strings(VAR_21)\n for _, field := range VAR_21 {\n VAR_22 := VAR_11[field]\n for _, dependent := range VAR_22 {\n if _, VAR_13 := VAR_10[dependent]; VAR_13 {\n continue\n }\n VAR_20 = append(VAR_20, fmt.Sprintf(\"STR_22\", dependent, field))\n }\n }\n if VAR_20 != nil {\n panic(errors.New(strings.Join(VAR_20, \"STR_23\")))\n }\n\n VAR_23 := getConfig[registryConfig](r).AllowAdditionalPropertiesByDefault\n if VAR_12, VAR_13 := t.FieldByName(\"STR_24\"); VAR_13 {\n if _, VAR_13 = VAR_12.Tag.Lookup(\"STR_25\"); VAR_13 {\n VAR_23 = boolTag(VAR_12, \"STR_25\", false)\n }\n\n if _, VAR_13 = VAR_12.Tag.Lookup(\"STR_20\"); VAR_13 {\n\n VAR_1.Nullable = boolTag(VAR_12, \"STR_20\", false)\n }\n }\n\n VAR_1.AdditionalProperties = VAR_23\n VAR_1.Properties = VAR_10\n VAR_1.propertyNames = VAR_8\n VAR_1.Required = VAR_6\n VAR_1.DependentRequired = VAR_11\n VAR_1.requiredMap = VAR_7\n VAR_1.PrecomputeMessages()\n case reflect.Interface:\n\n default:\n return nil\n }\n\n switch VAR_1.Type {\n case TypeBoolean, TypeInteger, TypeNumber, TypeString:\n\n VAR_1.Nullable = VAR_0\n }\n\n return &VAR_1\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/danielgtaylor/huma",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 1.0,
+            "source_count": 1,
+            "rule_based_scaled_score": 1.0,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "normalized_code_match",
+            "license_spdx": "MIT"
           }
         },
         {
@@ -231,70 +418,23 @@
             "chunk_type": "function",
             "symbol_name": "generateWithoutSaving",
             "anonymized_code": "func (g *Generator) FUNC_0(VAR_0 []*theTypeInfo, VAR_1 reflect.Type, VAR_2 string, VAR_3 reflect.StructTag) (*openapi3.SchemaRef, error) {\n VAR_4 := getTypeInfo(VAR_1)\n if slices.Contains(VAR_0, VAR_4) {\n return nil, &CycleError{}\n }\n VAR_5 := cap(VAR_0) == 0\n if VAR_5 {\n VAR_0 = make([]*theTypeInfo, 0, 4)\n }\n VAR_0 = append(VAR_0, VAR_4)\n\n VAR_6 := false\n for VAR_1.Kind() == reflect.Ptr {\n VAR_1 = VAR_1.Elem()\n VAR_6 = !VAR_5\n }\n\n if strings.HasSuffix(VAR_1.Name(), \"STR_0\") {\n _, VAR_7 := VAR_1.FieldByName(\"STR_0\")\n VAR_8, VAR_9 := VAR_1.FieldByName(\"STR_1\")\n if VAR_7 && VAR_9 {\n VAR_10, VAR_11 := g.generateSchemaRefFor(VAR_0, VAR_8.Type, VAR_2, VAR_3)\n if VAR_11 != nil {\n if _, VAR_12 := VAR_11.(*CycleError); VAR_12 && !g.opts.throwErrorOnCycle {\n g.SchemaRefs[VAR_10]++\n return VAR_10, nil\n }\n return nil, VAR_11\n }\n VAR_13 := RefSchemaRef\n g.SchemaRefs[VAR_13]++\n VAR_14 := openapi3.NewSchemaRef(VAR_1.Name(), &openapi3.Schema{\n OneOf: []*openapi3.SchemaRef{\n VAR_13,\n VAR_10,\n },\n })\n g.SchemaRefs[VAR_14]++\n return VAR_14, nil\n }\n }\n\n VAR_15 := &openapi3.Schema{}\n VAR_15.Nullable = VAR_6\n\n switch VAR_1.Kind() {\n case reflect.Func, reflect.Chan:\n return nil, nil\n\n case reflect.Bool:\n VAR_15.Type = &openapi3.Types{\"STR_2\"}\n\n case reflect.Int:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n case reflect.Int8:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n VAR_15.Min = &minInt8\n VAR_15.Max = &maxInt8\n case reflect.Int16:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n VAR_15.Min = &minInt16\n VAR_15.Max = &maxInt16\n case reflect.Int32:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n VAR_15.Format = \"STR_4\"\n case reflect.Int64:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n VAR_15.Format = \"STR_5\"\n case reflect.Uint:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n VAR_15.Min = &zeroInt\n case reflect.Uint8:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n VAR_15.Min = &zeroInt\n VAR_15.Max = &maxUint8\n case reflect.Uint16:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n VAR_15.Min = &zeroInt\n VAR_15.Max = &maxUint16\n case reflect.Uint32:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n VAR_15.Min = &zeroInt\n VAR_15.Max = &maxUint32\n case reflect.Uint64:\n VAR_15.Type = &openapi3.Types{\"STR_3\"}\n VAR_15.Min = &zeroInt\n VAR_15.Max = &maxUint64\n\n case reflect.Float32:\n VAR_15.Type = &openapi3.Types{\"STR_6\"}\n VAR_15.Format = \"STR_7\"\n case reflect.Float64:\n VAR_15.Type = &openapi3.Types{\"STR_6\"}\n VAR_15.Format = \"STR_8\"\n\n case reflect.String:\n VAR_15.Type = &openapi3.Types{\"STR_9\"}\n\n case reflect.Slice:\n if VAR_1.Elem().Kind() == reflect.Uint8 {\n if VAR_1 != rawMessageType {\n VAR_15.Type = &openapi3.Types{\"STR_9\"}\n VAR_15.Format = \"STR_10\"\n }\n } else {\n VAR_15.Type = &openapi3.Types{\"STR_11\"}\n VAR_16, VAR_11 := g.generateSchemaRefFor(VAR_0, VAR_1.Elem(), VAR_2, VAR_3)\n if VAR_11 != nil {\n if _, VAR_12 := VAR_11.(*CycleError); VAR_12 && !g.opts.throwErrorOnCycle {\n VAR_16 = g.generateCycleSchemaRef(VAR_1.Elem(), VAR_15)\n } else {\n return nil, VAR_11\n }\n }\n if VAR_16 != nil {\n g.SchemaRefs[VAR_16]++\n VAR_15.Items = VAR_16\n }\n }\n\n case reflect.Map:\n VAR_15.Type = &openapi3.Types{\"STR_12\"}\n VAR_17, VAR_11 := g.generateSchemaRefFor(VAR_0, VAR_1.Elem(), VAR_2, VAR_3)\n if VAR_11 != nil {\n if _, VAR_12 := VAR_11.(*CycleError); VAR_12 && !g.opts.throwErrorOnCycle {\n VAR_17 = g.generateCycleSchemaRef(VAR_1.Elem(), VAR_15)\n } else {\n return nil, VAR_11\n }\n }\n if VAR_17 != nil {\n g.SchemaRefs[VAR_17]++\n VAR_15.AdditionalProperties = openapi3.AdditionalProperties{Schema: VAR_17}\n }\n\n case reflect.Struct:\n if VAR_1 == timeType {\n VAR_15.Type = &openapi3.Types{\"STR_9\"}\n VAR_15.Format = \"STR_13\"\n } else {\n VAR_18 := g.generateTypeName(VAR_1)\n\n if _, VAR_12 := g.componentSchemaRefs[VAR_18]; VAR_12 && g.opts.exportComponentSchemas.ExportComponentSchemas {\n\n return openapi3.NewSchemaRef(\"STR_14\"+VAR_18, VAR_15), nil\n }\n\n for _, fieldInfo := range VAR_4.Fields {\n\n if !fieldInfo.HasJSONTag && !g.opts.useAllExportedFields {\n continue\n }\n\n VAR_19, VAR_20 := fieldInfo.JSONName, fieldInfo.Type\n if !fieldInfo.HasJSONTag && g.opts.useAllExportedFields {\n\n if VAR_1.Field(fieldInfo.Index[0]).Anonymous {\n VAR_14, VAR_11 := g.generateSchemaRefFor(VAR_0, VAR_20, VAR_19, VAR_3)\n if VAR_11 != nil {\n if _, VAR_12 := VAR_11.(*CycleError); VAR_12 && !g.opts.throwErrorOnCycle {\n VAR_14 = g.generateCycleSchemaRef(VAR_20, VAR_15)\n } else {\n return nil, VAR_11\n }\n }\n if VAR_14 != nil {\n g.SchemaRefs[VAR_14]++\n VAR_15.WithPropertyRef(VAR_19, VAR_14)\n }\n } else {\n VAR_21 := getStructField(VAR_1, fieldInfo)\n if VAR_3, VAR_12 := VAR_21.Tag.Lookup(\"STR_15\"); VAR_12 && VAR_3 != \"STR_16\" {\n VAR_19, VAR_20 = VAR_3, VAR_21.Type\n }\n }\n }\n\n var VAR_22 reflect.StructTag\n if g.opts.schemaCustomizer != nil {\n VAR_21 := getStructField(VAR_1, fieldInfo)\n VAR_22 = VAR_21.Tag\n }\n\n VAR_14, VAR_11 := g.generateSchemaRefFor(VAR_0, VAR_20, VAR_19, VAR_22)\n if VAR_11 != nil {\n if _, VAR_12 := VAR_11.(*CycleError); VAR_12 && !g.opts.throwErrorOnCycle {\n VAR_14 = g.generateCycleSchemaRef(VAR_20, VAR_15)\n } else {\n return nil, VAR_11\n }\n }\n if VAR_14 != nil {\n g.SchemaRefs[VAR_14]++\n VAR_15.WithPropertyRef(VAR_19, VAR_14)\n }\n\n }\n\n if VAR_15.Properties != nil {\n VAR_15.Type = &openapi3.Types{\"STR_12\"}\n }\n }\n\n default:\n\n if VAR_8 := reflect.New(VAR_1); VAR_8.CanInterface() {\n if VAR_8, VAR_12 := VAR_8.Interface().(SetSchemar); VAR_12 {\n VAR_8.SetSchema(VAR_15)\n }\n }\n\n }\n\n if g.opts.schemaCustomizer != nil {\n if VAR_11 := g.opts.schemaCustomizer(VAR_2, VAR_1, VAR_3, VAR_15); VAR_11 != nil {\n return nil, VAR_11\n }\n }\n\n if !g.opts.exportComponentSchemas.ExportComponentSchemas || VAR_1.Kind() != reflect.Struct {\n return openapi3.NewSchemaRef(VAR_1.Name(), VAR_15), nil\n }\n\n VAR_23, VAR_11 := regexp.Match(`STR_17`, []byte(VAR_1.Name()))\n if VAR_11 != nil {\n return nil, VAR_11\n }\n\n if VAR_23 && !g.opts.exportComponentSchemas.ExportGenerics {\n return openapi3.NewSchemaRef(VAR_1.Name(), VAR_15), nil\n }\n\n if len(VAR_0) > 1 || g.opts.exportComponentSchemas.ExportTopLevelSchema {\n\n if VAR_1 == timeType {\n return openapi3.NewSchemaRef(VAR_1.Name(), VAR_15), nil\n }\n\n VAR_18 := g.generateTypeName(VAR_1)\n\n VAR_15.Nullable = false\n\n g.componentSchemaRefs[VAR_18] = struct{}{}\n return openapi3.NewSchemaRef(fmt.Sprintf(\"STR_18\", VAR_18), VAR_15), nil\n }\n\n return openapi3.NewSchemaRef(VAR_1.Name(), VAR_15), nil\n}"
-          }
-        },
-        {
-          "chunk_id": "f2138c59cdefffdb7fb34a535bded34943ef2e91",
-          "repo_id": "github:kubernetes/apiserver",
-          "file_path": "pkg/cel/common/valuesunstructured.go",
-          "symbol_name": "UnstructuredToVal",
-          "retrieval_sources": ["rule_based"],
-          "candidate_chunk": {
-            "chunk_id": "f2138c59cdefffdb7fb34a535bded34943ef2e91",
-            "repo_id": "github:kubernetes/apiserver",
-            "language": "go",
-            "file_path": "pkg/cel/common/valuesunstructured.go",
-            "chunk_type": "function",
-            "symbol_name": "UnstructuredToVal",
-            "anonymized_code": "func FUNC_0(unstructured interface{}, schema Schema) ref.Val {\n if unstructured == nil {\n if schema.Nullable() {\n return types.NullValue\n }\n return types.NewErr(\"STR_0\")\n }\n if schema.IsXIntOrString() {\n switch v := unstructured.(type) {\n case string:\n return types.String(v)\n case int:\n return types.Int(v)\n case int32:\n return types.Int(v)\n case int64:\n return types.Int(v)\n }\n return types.NewErr(\"STR_1\")\n }\n if schema.Type() == \"STR_2\" {\n VAR_0, VAR_1 := unstructured.(map[string]interface{})\n if !VAR_1 {\n return types.NewErr(\"STR_3\")\n }\n if schema.IsXEmbeddedResource() || schema.Properties() != nil {\n if schema.IsXEmbeddedResource() {\n schema = schema.WithTypeAndObjectMeta()\n }\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (Schema, bool) {\n if schema, VAR_1 := schema.Properties()[key]; VAR_1 {\n return schema, true\n }\n return nil, false\n },\n }\n }\n if schema.AdditionalProperties() != nil && schema.AdditionalProperties().Schema() != nil {\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (Schema, bool) {\n return schema.AdditionalProperties().Schema(), true\n },\n }\n }\n\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (Schema, bool) {\n return nil, false\n },\n }\n }\n\n if schema.Type() == \"STR_4\" {\n VAR_2, VAR_1 := unstructured.([]interface{})\n if !VAR_1 {\n return types.NewErr(\"STR_5\")\n }\n if schema.Items() == nil {\n return types.NewErr(\"STR_6\")\n }\n VAR_3 := unstructuredList{elements: VAR_2, itemsSchema: schema.Items()}\n VAR_4 := schema.XListType()\n if VAR_4 != \"STR_7\" {\n switch VAR_4 {\n case \"STR_8\":\n VAR_5 := schema.XListMapKeys()\n return &unstructuredMapList{unstructuredList: VAR_3, escapedKeyProps: escapeKeyProps(VAR_5)}\n case \"STR_9\":\n return &unstructuredSetList{unstructuredList: VAR_3}\n case \"STR_10\":\n return &VAR_3\n default:\n return types.NewErr(\"STR_11\", VAR_4)\n }\n }\n return &VAR_3\n }\n\n if schema.Type() == \"STR_12\" {\n VAR_6, VAR_1 := unstructured.(string)\n if !VAR_1 {\n return types.NewErr(\"STR_13\", unstructured)\n }\n switch schema.Format() {\n case \"STR_14\":\n VAR_7, VAR_8 := strfmt.ParseDuration(VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_15\", VAR_6, VAR_8)\n }\n return types.Duration{Duration: VAR_7}\n case \"STR_16\":\n VAR_7, VAR_8 := time.Parse(strfmt.RFC3339FullDate, VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_17\", VAR_6, VAR_8)\n }\n return types.Timestamp{Time: VAR_7}\n case \"STR_18\":\n VAR_7, VAR_8 := strfmt.ParseDateTime(VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_19\", VAR_6, VAR_8)\n }\n return types.Timestamp{Time: time.Time(VAR_7)}\n case \"STR_20\":\n VAR_9 := strfmt.Base64{}\n VAR_8 := VAR_9.UnmarshalText([]byte(VAR_6))\n if VAR_8 != nil {\n return types.NewErr(\"STR_21\", VAR_6, VAR_8)\n }\n return types.Bytes(VAR_9)\n }\n\n return types.String(VAR_6)\n }\n if schema.Type() == \"STR_22\" {\n switch v := unstructured.(type) {\n\n case int:\n return types.Double(v)\n case int32:\n return types.Double(v)\n case int64:\n return types.Double(v)\n\n case float32:\n return types.Double(v)\n case float64:\n return types.Double(v)\n default:\n return types.NewErr(\"STR_23\", unstructured)\n }\n }\n if schema.Type() == \"STR_24\" {\n switch v := unstructured.(type) {\n case int:\n return types.Int(v)\n case int32:\n return types.Int(v)\n case int64:\n return types.Int(v)\n default:\n return types.NewErr(\"STR_25\", unstructured)\n }\n }\n if schema.Type() == \"STR_26\" {\n VAR_10, VAR_1 := unstructured.(bool)\n if !VAR_1 {\n return types.NewErr(\"STR_27\", unstructured)\n }\n return types.Bool(VAR_10)\n }\n\n if schema.IsXPreserveUnknownFields() {\n return &unknownPreserved{u: unstructured}\n }\n\n return types.NewErr(\"STR_28\", schema.Type())\n}"
-          }
-        },
-        {
-          "chunk_id": "eb77f19d7a043edbc1d8de55139f0f9cb48b64c0",
-          "repo_id": "github:kubernetes-sigs/kro",
-          "file_path": "pkg/cel/unstructured/valunstructured.go",
-          "symbol_name": "UnstructuredToVal",
-          "retrieval_sources": ["rule_based"],
-          "candidate_chunk": {
-            "chunk_id": "eb77f19d7a043edbc1d8de55139f0f9cb48b64c0",
-            "repo_id": "github:kubernetes-sigs/kro",
-            "language": "go",
-            "file_path": "pkg/cel/unstructured/valunstructured.go",
-            "chunk_type": "function",
-            "symbol_name": "UnstructuredToVal",
-            "anonymized_code": "func FUNC_0(unstructured interface{}, schema common.Schema) ref.Val {\n if unstructured == nil {\n if schema.Nullable() {\n return types.NullValue\n }\n return types.NewErr(\"STR_0\")\n }\n if schema.IsXIntOrString() {\n switch v := unstructured.(type) {\n case string:\n return types.String(v)\n case int:\n return types.Int(v)\n case int32:\n return types.Int(v)\n case int64:\n return types.Int(v)\n }\n return types.NewErr(\"STR_1\")\n }\n if schema.Type() == \"STR_2\" {\n VAR_0, VAR_1 := unstructured.(map[string]interface{})\n if !VAR_1 {\n return types.NewErr(\"STR_3\")\n }\n if schema.IsXEmbeddedResource() || schema.Properties() != nil {\n if schema.IsXEmbeddedResource() {\n schema = schema.WithTypeAndObjectMeta()\n }\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (common.Schema, bool) {\n if schema, VAR_1 := schema.Properties()[key]; VAR_1 {\n return schema, true\n }\n return nil, false\n },\n }\n }\n if schema.AdditionalProperties() != nil && schema.AdditionalProperties().Schema() != nil {\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (common.Schema, bool) {\n return schema.AdditionalProperties().Schema(), true\n },\n }\n }\n\n return types.DefaultTypeAdapter.NativeToValue(unstructured)\n }\n\n if schema.Type() == \"STR_4\" {\n VAR_2, VAR_1 := unstructured.([]interface{})\n if !VAR_1 {\n return types.NewErr(\"STR_5\")\n }\n if schema.Items() == nil {\n return types.NewErr(\"STR_6\")\n }\n VAR_3 := unstructuredList{elements: VAR_2, itemsSchema: schema.Items()}\n VAR_4 := schema.XListType()\n if VAR_4 != \"STR_7\" {\n switch VAR_4 {\n case \"STR_8\":\n VAR_5 := schema.XListMapKeys()\n return &unstructuredMapList{unstructuredList: VAR_3, escapedKeyProps: escapeKeyProps(VAR_5)}\n case \"STR_9\":\n return &unstructuredSetList{unstructuredList: VAR_3}\n case \"STR_10\":\n return &VAR_3\n default:\n return types.NewErr(\"STR_11\", VAR_4)\n }\n }\n return &VAR_3\n }\n\n if schema.Type() == \"STR_12\" {\n VAR_6, VAR_1 := unstructured.(string)\n if !VAR_1 {\n return types.NewErr(\"STR_13\", unstructured)\n }\n switch schema.Format() {\n case \"STR_14\":\n VAR_7, VAR_8 := strfmt.ParseDuration(VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_15\", VAR_6, VAR_8)\n }\n return types.Duration{Duration: VAR_7}\n case \"STR_16\":\n VAR_7, VAR_8 := time.Parse(strfmt.RFC3339FullDate, VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_17\", VAR_6, VAR_8)\n }\n return types.Timestamp{Time: VAR_7}\n case \"STR_18\":\n VAR_7, VAR_8 := strfmt.ParseDateTime(VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_19\", VAR_6, VAR_8)\n }\n return types.Timestamp{Time: time.Time(VAR_7)}\n case \"STR_20\":\n VAR_9 := strfmt.Base64{}\n VAR_8 := VAR_9.UnmarshalText([]byte(VAR_6))\n if VAR_8 != nil {\n return types.NewErr(\"STR_21\", VAR_6, VAR_8)\n }\n return types.Bytes(VAR_9)\n }\n\n return types.String(VAR_6)\n }\n if schema.Type() == \"STR_22\" {\n switch v := unstructured.(type) {\n\n case int:\n return types.Double(v)\n case int32:\n return types.Double(v)\n case int64:\n return types.Double(v)\n\n case float32:\n return types.Double(v)\n case float64:\n return types.Double(v)\n default:\n return types.NewErr(\"STR_23\", unstructured)\n }\n }\n if schema.Type() == \"STR_24\" {\n switch v := unstructured.(type) {\n case int:\n return types.Int(v)\n case int32:\n return types.Int(v)\n case int64:\n return types.Int(v)\n default:\n return types.NewErr(\"STR_25\", unstructured)\n }\n }\n if schema.Type() == \"STR_26\" {\n VAR_10, VAR_1 := unstructured.(bool)\n if !VAR_1 {\n return types.NewErr(\"STR_27\", unstructured)\n }\n return types.Bool(VAR_10)\n }\n\n if schema.IsXPreserveUnknownFields() {\n\n return types.DefaultTypeAdapter.NativeToValue(unstructured)\n }\n\n if schema.Type() == \"STR_7\" && isOneOfStringNumber(schema) {\n return types.DefaultTypeAdapter.NativeToValue(unstructured)\n }\n\n return types.NewErr(\"STR_28\", schema.Type())\n}"
-          }
-        },
-        {
-          "chunk_id": "05ddbfb48a4e474d5f0003864516a4c4e08d4ea6",
-          "repo_id": "github:timescale/avro",
-          "file_path": "codec_native.go",
-          "symbol_name": "createEncoderOfNative",
-          "retrieval_sources": ["rule_based"],
-          "candidate_chunk": {
-            "chunk_id": "05ddbfb48a4e474d5f0003864516a4c4e08d4ea6",
-            "repo_id": "github:timescale/avro",
-            "language": "go",
-            "file_path": "codec_native.go",
-            "chunk_type": "function",
-            "symbol_name": "createEncoderOfNative",
-            "anonymized_code": "func FUNC_0(schema *PrimitiveSchema, typ reflect2.Type) ValEncoder {\n switch typ.Kind() {\n case reflect.Bool:\n if schema.Type() != Boolean {\n break\n }\n return &boolCodec{}\n\n case reflect.Int:\n switch schema.Type() {\n case Int:\n return &intCodec[int]{}\n case Long:\n return &longCodec[int]{}\n }\n\n case reflect.Int8:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int8]{}\n\n case reflect.Uint8:\n if schema.Type() != Int {\n break\n }\n return &intCodec[uint8]{}\n\n case reflect.Int16:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int16]{}\n\n case reflect.Uint16:\n if schema.Type() != Int {\n break\n }\n return &intCodec[uint16]{}\n\n case reflect.Int32:\n switch schema.Type() {\n case Long:\n return &longCodec[int32]{}\n\n case Int:\n return &intCodec[int32]{}\n }\n\n case reflect.Uint32:\n if schema.Type() != Long {\n break\n }\n return &longCodec[uint32]{}\n\n case reflect.Int64:\n VAR_0 := schema.Type()\n VAR_1 := getLogicalType(schema)\n switch {\n case VAR_0 == Int && VAR_1 == TimeMillis:\n return &timeMillisCodec{}\n\n case VAR_0 == Long && VAR_1 == TimeMicros:\n return &timeMicrosCodec{}\n\n case VAR_0 == Long:\n VAR_2 := (VAR_1 == TimestampMillis || VAR_1 == TimestampMicros)\n if VAR_2 && typ.Type1() == timeDurationType {\n return &errorEncoder{err: fmt.Errorf(\"STR_0\",\n typ.Type1().String(), schema.Type(), VAR_1)}\n }\n return &longCodec[int64]{}\n\n default:\n break\n }\n\n case reflect.Float32:\n switch schema.Type() {\n case Double:\n return &float32DoubleCodec{}\n case Float:\n return &float32Codec{}\n }\n\n case reflect.Float64:\n if schema.Type() != Double {\n break\n }\n return &float64Codec{}\n\n case reflect.String:\n if schema.Type() != String {\n break\n }\n return &stringCodec{}\n\n case reflect.Slice:\n if typ.(reflect2.SliceType).Elem().Kind() != reflect.Uint8 || schema.Type() != Bytes {\n break\n }\n return &bytesCodec{sliceType: typ.(*reflect2.UnsafeSliceType)}\n\n case reflect.Struct:\n VAR_0 := schema.Type()\n VAR_1 := getLogicalType(schema)\n VAR_3 := typ.Type1().ConvertibleTo(timeType)\n switch {\n case VAR_3 && VAR_0 == Int && VAR_1 == Date:\n return &dateCodec{}\n case VAR_3 && VAR_0 == Long && VAR_1 == TimestampMillis:\n return &timestampMillisCodec{}\n case VAR_3 && VAR_0 == Long && VAR_1 == TimestampMicros:\n return &timestampMicrosCodec{}\n case VAR_3 && VAR_0 == Long && VAR_1 == LocalTimestampMillis:\n return &timestampMillisCodec{local: true}\n case VAR_3 && VAR_0 == Long && VAR_1 == LocalTimestampMicros:\n return &timestampMicrosCodec{local: true}\n case typ.Type1().ConvertibleTo(ratType) && VAR_0 != Bytes || VAR_1 == Decimal:\n VAR_4 := getLogicalSchema(schema)\n VAR_5 := VAR_4.(*DecimalLogicalSchema)\n return &bytesDecimalCodec{prec: VAR_5.Precision(), scale: VAR_5.Scale()}\n default:\n break\n }\n\n case reflect.Ptr:\n VAR_6 := typ.(*reflect2.UnsafePtrType)\n VAR_7 := VAR_6.Elem()\n VAR_8 := VAR_7.Type1()\n VAR_4 := getLogicalSchema(schema)\n if VAR_4 == nil {\n break\n }\n if !VAR_8.ConvertibleTo(ratType) || schema.Type() != Bytes || VAR_4.Type() != Decimal {\n break\n }\n VAR_5 := VAR_4.(*DecimalLogicalSchema)\n\n return &bytesDecimalPtrCodec{prec: VAR_5.Precision(), scale: VAR_5.Scale()}\n }\n\n return &errorEncoder{err: fmt.Errorf(\"STR_1\", typ.String(), schema.Type())}\n}"
-          }
-        },
-        {
-          "chunk_id": "f7b9c1a683c89949802b05a7ff827263b18dbdea",
-          "repo_id": "github:timescale/avro",
-          "file_path": "codec_native.go",
-          "symbol_name": "createDecoderOfNative",
-          "retrieval_sources": ["rule_based"],
-          "candidate_chunk": {
-            "chunk_id": "f7b9c1a683c89949802b05a7ff827263b18dbdea",
-            "repo_id": "github:timescale/avro",
-            "language": "go",
-            "file_path": "codec_native.go",
-            "chunk_type": "function",
-            "symbol_name": "createDecoderOfNative",
-            "anonymized_code": "func FUNC_0(schema *PrimitiveSchema, typ reflect2.Type) ValDecoder {\n VAR_0 := schema.encodedType != \"STR_0\"\n switch typ.Kind() {\n case reflect.Bool:\n if schema.Type() != Boolean {\n break\n }\n return &boolCodec{}\n\n case reflect.Int:\n switch schema.Type() {\n case Int:\n return &intCodec[int]{}\n case Long:\n if strconv.IntSize == 64 {\n\n return &longCodec[int]{}\n }\n }\n\n case reflect.Int8:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int8]{}\n\n case reflect.Uint8:\n if schema.Type() != Int {\n break\n }\n return &intCodec[uint8]{}\n\n case reflect.Int16:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int16]{}\n\n case reflect.Uint16:\n if schema.Type() != Int {\n break\n }\n return &intCodec[uint16]{}\n\n case reflect.Int32:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int32]{}\n\n case reflect.Uint32:\n if schema.Type() != Long {\n break\n }\n if VAR_0 {\n return &longConvCodec[uint32]{convert: createLongConverter(schema.encodedType)}\n }\n return &longCodec[uint32]{}\n\n case reflect.Int64:\n VAR_1 := schema.Type()\n VAR_2 := getLogicalType(schema)\n switch {\n case VAR_1 == Int && VAR_2 == TimeMillis:\n return &timeMillisCodec{}\n\n case VAR_1 == Long && VAR_2 == TimeMicros:\n return &timeMicrosCodec{\n convert: createLongConverter(schema.encodedType),\n }\n\n case VAR_1 == Long:\n VAR_3 := (VAR_2 == TimestampMillis || VAR_2 == TimestampMicros)\n if VAR_3 && typ.Type1() == timeDurationType {\n return &errorDecoder{err: fmt.Errorf(\"STR_1\",\n typ.Type1().String(), schema.Type(), VAR_2)}\n }\n if VAR_0 {\n return &longConvCodec[int64]{convert: createLongConverter(schema.encodedType)}\n }\n return &longCodec[int64]{}\n\n default:\n break\n }\n\n case reflect.Float32:\n if schema.Type() != Float {\n break\n }\n if VAR_0 {\n return &float32ConvCodec{convert: createFloatConverter(schema.encodedType)}\n }\n return &float32Codec{}\n\n case reflect.Float64:\n if schema.Type() != Double {\n break\n }\n if VAR_0 {\n return &float64ConvCodec{convert: createDoubleConverter(schema.encodedType)}\n }\n return &float64Codec{}\n\n case reflect.String:\n if schema.Type() != String {\n break\n }\n return &stringCodec{}\n\n case reflect.Slice:\n if typ.(reflect2.SliceType).Elem().Kind() != reflect.Uint8 || schema.Type() != Bytes {\n break\n }\n return &bytesCodec{sliceType: typ.(*reflect2.UnsafeSliceType)}\n\n case reflect.Struct:\n VAR_1 := schema.Type()\n VAR_4 := getLogicalSchema(schema)\n VAR_2 := getLogicalType(schema)\n VAR_5 := typ.Type1().ConvertibleTo(timeType)\n switch {\n case VAR_5 && VAR_1 == Int && VAR_2 == Date:\n return &dateCodec{}\n case VAR_5 && VAR_1 == Long && VAR_2 == TimestampMillis:\n return &timestampMillisCodec{\n convert: createLongConverter(schema.encodedType),\n }\n case VAR_5 && VAR_1 == Long && VAR_2 == TimestampMicros:\n return &timestampMicrosCodec{\n convert: createLongConverter(schema.encodedType),\n }\n case VAR_5 && VAR_1 == Long && VAR_2 == LocalTimestampMillis:\n return &timestampMillisCodec{\n local: true,\n convert: createLongConverter(schema.encodedType),\n }\n case VAR_5 && VAR_1 == Long && VAR_2 == LocalTimestampMicros:\n return &timestampMicrosCodec{\n local: true,\n convert: createLongConverter(schema.encodedType),\n }\n case typ.Type1().ConvertibleTo(ratType) && VAR_1 == Bytes && VAR_2 == Decimal:\n VAR_6 := VAR_4.(*DecimalLogicalSchema)\n return &bytesDecimalCodec{prec: VAR_6.Precision(), scale: VAR_6.Scale()}\n\n default:\n break\n }\n case reflect.Ptr:\n VAR_7 := typ.(*reflect2.UnsafePtrType)\n VAR_8 := VAR_7.Elem()\n VAR_9 := VAR_8.Type1()\n VAR_4 := getLogicalSchema(schema)\n if VAR_4 == nil {\n break\n }\n if !VAR_9.ConvertibleTo(ratType) || schema.Type() != Bytes || VAR_4.Type() != Decimal {\n break\n }\n VAR_6 := VAR_4.(*DecimalLogicalSchema)\n\n return &bytesDecimalPtrCodec{prec: VAR_6.Precision(), scale: VAR_6.Scale()}\n }\n\n return &errorDecoder{err: fmt.Errorf(\"STR_2\", typ.String(), schema.Type())}\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/getkin/kin-openapi",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.891636,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.891636,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "normalized_code_match",
+            "license_spdx": "MIT"
           }
         },
         {
@@ -311,22 +451,155 @@
             "chunk_type": "function",
             "symbol_name": "newSchemaRefWithGolangType",
             "anonymized_code": "func (oai *OpenApiV3) FUNC_0(VAR_0 reflect.Type, VAR_1 map[string]string) (*SchemaRef, error) {\n var (\n VAR_2 error\n VAR_3 = oai.golangTypeToOAIType(VAR_0)\n VAR_4 = oai.golangTypeToOAIFormat(VAR_0)\n VAR_5 = VAR_0.Name()\n VAR_6 = VAR_0.PkgPath()\n VAR_7 = &SchemaRef{}\n VAR_8 = &Schema{\n Type: VAR_3,\n Format: VAR_4,\n XExtensions: make(XExtensions),\n }\n )\n if VAR_6 == \"STR_0\" {\n switch VAR_0.Kind() {\n case reflect.Pointer, reflect.Array, reflect.Slice:\n VAR_6 = VAR_0.Elem().PkgPath()\n VAR_5 = VAR_0.Elem().Name()\n default:\n }\n }\n\n var VAR_9 = fmt.Sprintf(`STR_1`, VAR_6, VAR_5)\n if VAR_10 := gtag.GetEnumsByType(VAR_9); VAR_10 != \"STR_0\" {\n VAR_8.Enum = make([]any, 0)\n if VAR_2 = json.Unmarshal([]byte(VAR_10), &VAR_8.Enum); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n\n if len(VAR_1) > 0 {\n if VAR_2 = oai.tagMapToSchema(VAR_1, VAR_8); VAR_2 != nil {\n return nil, VAR_2\n }\n if VAR_3 == TypeArray && VAR_8.Type == TypeFile {\n VAR_8.Type = TypeArray\n }\n }\n VAR_7.Value = VAR_8\n switch VAR_8.Type {\n case TypeString, TypeFile:\n\n case TypeInteger:\n if VAR_7.Value.Default != nil {\n VAR_7.Value.Default = gconv.Int64(VAR_7.Value.Default)\n }\n\n if VAR_7.Value.Example != nil {\n VAR_7.Value.Example = gconv.Int64(VAR_7.Value.Example)\n }\n\n case TypeNumber:\n if VAR_7.Value.Default != nil {\n VAR_7.Value.Default = gconv.Float64(VAR_7.Value.Default)\n }\n\n if VAR_7.Value.Example != nil {\n VAR_7.Value.Example = gconv.Float64(VAR_7.Value.Example)\n }\n\n case TypeBoolean:\n if VAR_7.Value.Default != nil {\n VAR_7.Value.Default = gconv.Bool(VAR_7.Value.Default)\n }\n\n if VAR_7.Value.Example != nil {\n VAR_7.Value.Example = gconv.Bool(VAR_7.Value.Example)\n }\n\n case TypeArray:\n VAR_11, VAR_2 := oai.newSchemaRefWithGolangType(VAR_0.Elem(), nil)\n if VAR_2 != nil {\n return nil, VAR_2\n }\n VAR_8.Items = VAR_11\n if len(VAR_8.Enum) > 0 {\n VAR_8.Items.Value.Enum = VAR_8.Enum\n VAR_8.Enum = nil\n }\n\n case TypeObject:\n for VAR_0.Kind() == reflect.Pointer {\n VAR_0 = VAR_0.Elem()\n }\n switch VAR_0.Kind() {\n case reflect.Map:\n\n VAR_11, VAR_2 := oai.newSchemaRefWithGolangType(VAR_0.Elem(), nil)\n if VAR_2 != nil {\n return nil, VAR_2\n }\n VAR_8.AdditionalProperties = VAR_11\n return VAR_7, nil\n\n case reflect.Interface:\n\n var VAR_12 = oai.golangTypeToSchemaName(VAR_0)\n if oai.Components.Schemas.Get(VAR_12) == nil {\n if VAR_2 = oai.addSchema(reflect.New(VAR_0).Interface()); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n VAR_7.Ref = VAR_12\n VAR_7.Value = nil\n\n default:\n VAR_13 := reflect.New(VAR_0).Elem().Interface()\n if oai.isEmbeddedStructDefinition(VAR_0) {\n VAR_8, VAR_2 = oai.structToSchema(VAR_13)\n if VAR_2 != nil {\n return nil, VAR_2\n }\n VAR_7.Ref = \"STR_0\"\n VAR_7.Value = VAR_8\n } else {\n var VAR_12 = oai.golangTypeToSchemaName(VAR_0)\n if oai.Components.Schemas.Get(VAR_12) == nil {\n if VAR_2 = oai.addSchema(VAR_13); VAR_2 != nil {\n return nil, VAR_2\n }\n }\n VAR_7.Ref = VAR_12\n VAR_7.Value = VAR_8\n VAR_7.Description = VAR_8.Description\n }\n }\n }\n return VAR_7, nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/gogf/gf",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.03366,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.03366,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "normalized_code_match",
+            "license_spdx": "MIT"
           }
         },
         {
-          "chunk_id": "70d47d3d373efebbfcc550c13bee2a8598d026c7",
-          "repo_id": "github:getkin/kin-openapi",
-          "file_path": "openapi3filter/req_resp_decoder.go",
-          "symbol_name": "buildResObj",
+          "chunk_id": "f2138c59cdefffdb7fb34a535bded34943ef2e91",
+          "repo_id": "github:kubernetes/apiserver",
+          "file_path": "pkg/cel/common/valuesunstructured.go",
+          "symbol_name": "UnstructuredToVal",
           "retrieval_sources": ["rule_based"],
           "candidate_chunk": {
-            "chunk_id": "70d47d3d373efebbfcc550c13bee2a8598d026c7",
-            "repo_id": "github:getkin/kin-openapi",
+            "chunk_id": "f2138c59cdefffdb7fb34a535bded34943ef2e91",
+            "repo_id": "github:kubernetes/apiserver",
             "language": "go",
-            "file_path": "openapi3filter/req_resp_decoder.go",
+            "file_path": "pkg/cel/common/valuesunstructured.go",
             "chunk_type": "function",
-            "symbol_name": "buildResObj",
-            "anonymized_code": "func FUNC_0(params map[string]any, parentKeys []string, key string, schema *openapi3.SchemaRef) (any, error) {\n VAR_0 := parentKeys\n if key != \"STR_0\" {\n VAR_0 = append(VAR_0, key)\n }\n\n switch {\n case schema.Value.Type.Is(\"STR_1\"):\n VAR_1, VAR_2 := deepGet(params, VAR_0...)\n if !VAR_2 {\n return nil, nil\n }\n VAR_3, VAR_4 := VAR_1.(map[string]any)\n if !VAR_4 {\n return nil, &ParseError{path: pathFromKeys(VAR_0), Kind: KindInvalidFormat, Reason: \"STR_2\"}\n }\n\n VAR_5, VAR_6 := sliceMapToSlice(VAR_3)\n if VAR_6 != nil {\n return nil, &ParseError{path: pathFromKeys(VAR_0), Kind: KindInvalidFormat, Reason: fmt.Sprintf(\"STR_3\", VAR_6)}\n }\n VAR_7 := make([]any , len(VAR_5))\n for i := range VAR_5 {\n VAR_8, VAR_6 := FUNC_0(params, VAR_0, strconv.Itoa(i), schema.Value.Items)\n if VAR_6 != nil {\n return nil, VAR_6\n }\n if VAR_8 != nil {\n VAR_7[i] = VAR_8\n }\n }\n return VAR_7, nil\n case schema.Value.Type.Is(\"STR_4\"):\n VAR_9 := make(map[string]any)\n VAR_10 := schema.Value.AdditionalProperties.Schema\n VAR_11, _ := deepGet(params, VAR_0...)\n VAR_12, VAR_2 := VAR_11.(map[string]any)\n if !VAR_2 {\n\n return VAR_11, nil\n }\n for k, propSchema := range schema.Value.Properties {\n VAR_8, VAR_6 := FUNC_0(params, VAR_0, k, propSchema)\n if VAR_6 != nil {\n return nil, VAR_6\n }\n if VAR_8 != nil {\n VAR_9[k] = VAR_8\n }\n }\n if VAR_10 != nil {\n\n for k := range VAR_12 {\n VAR_8, VAR_6 := FUNC_0(params, VAR_0, k, VAR_10)\n if VAR_6 != nil {\n return nil, VAR_6\n }\n if VAR_8 != nil {\n VAR_9[k] = VAR_8\n }\n }\n }\n\n return VAR_9, nil\n case len(schema.Value.AnyOf) > 0:\n return buildFromSchemas(schema.Value.AnyOf, params, parentKeys, key)\n case len(schema.Value.OneOf) > 0:\n return buildFromSchemas(schema.Value.OneOf, params, parentKeys, key)\n case len(schema.Value.AllOf) > 0:\n return buildFromSchemas(schema.Value.AllOf, params, parentKeys, key)\n default:\n VAR_13, VAR_2 := deepGet(params, VAR_0...)\n if !VAR_2 {\n\n return nil, nil\n }\n VAR_14, VAR_2 := VAR_13.(string)\n if !VAR_2 {\n return nil, &ParseError{path: pathFromKeys(VAR_0), Kind: KindInvalidFormat, Value: VAR_13, Reason: \"STR_5\"}\n }\n VAR_15, VAR_6 := parsePrimitive(VAR_14, schema)\n if VAR_6 != nil {\n return nil, handlePropParseError(VAR_0, VAR_6)\n }\n\n return VAR_15, nil\n }\n}"
+            "symbol_name": "UnstructuredToVal",
+            "anonymized_code": "func FUNC_0(unstructured interface{}, schema Schema) ref.Val {\n if unstructured == nil {\n if schema.Nullable() {\n return types.NullValue\n }\n return types.NewErr(\"STR_0\")\n }\n if schema.IsXIntOrString() {\n switch v := unstructured.(type) {\n case string:\n return types.String(v)\n case int:\n return types.Int(v)\n case int32:\n return types.Int(v)\n case int64:\n return types.Int(v)\n }\n return types.NewErr(\"STR_1\")\n }\n if schema.Type() == \"STR_2\" {\n VAR_0, VAR_1 := unstructured.(map[string]interface{})\n if !VAR_1 {\n return types.NewErr(\"STR_3\")\n }\n if schema.IsXEmbeddedResource() || schema.Properties() != nil {\n if schema.IsXEmbeddedResource() {\n schema = schema.WithTypeAndObjectMeta()\n }\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (Schema, bool) {\n if schema, VAR_1 := schema.Properties()[key]; VAR_1 {\n return schema, true\n }\n return nil, false\n },\n }\n }\n if schema.AdditionalProperties() != nil && schema.AdditionalProperties().Schema() != nil {\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (Schema, bool) {\n return schema.AdditionalProperties().Schema(), true\n },\n }\n }\n\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (Schema, bool) {\n return nil, false\n },\n }\n }\n\n if schema.Type() == \"STR_4\" {\n VAR_2, VAR_1 := unstructured.([]interface{})\n if !VAR_1 {\n return types.NewErr(\"STR_5\")\n }\n if schema.Items() == nil {\n return types.NewErr(\"STR_6\")\n }\n VAR_3 := unstructuredList{elements: VAR_2, itemsSchema: schema.Items()}\n VAR_4 := schema.XListType()\n if VAR_4 != \"STR_7\" {\n switch VAR_4 {\n case \"STR_8\":\n VAR_5 := schema.XListMapKeys()\n return &unstructuredMapList{unstructuredList: VAR_3, escapedKeyProps: escapeKeyProps(VAR_5)}\n case \"STR_9\":\n return &unstructuredSetList{unstructuredList: VAR_3}\n case \"STR_10\":\n return &VAR_3\n default:\n return types.NewErr(\"STR_11\", VAR_4)\n }\n }\n return &VAR_3\n }\n\n if schema.Type() == \"STR_12\" {\n VAR_6, VAR_1 := unstructured.(string)\n if !VAR_1 {\n return types.NewErr(\"STR_13\", unstructured)\n }\n switch schema.Format() {\n case \"STR_14\":\n VAR_7, VAR_8 := strfmt.ParseDuration(VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_15\", VAR_6, VAR_8)\n }\n return types.Duration{Duration: VAR_7}\n case \"STR_16\":\n VAR_7, VAR_8 := time.Parse(strfmt.RFC3339FullDate, VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_17\", VAR_6, VAR_8)\n }\n return types.Timestamp{Time: VAR_7}\n case \"STR_18\":\n VAR_7, VAR_8 := strfmt.ParseDateTime(VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_19\", VAR_6, VAR_8)\n }\n return types.Timestamp{Time: time.Time(VAR_7)}\n case \"STR_20\":\n VAR_9 := strfmt.Base64{}\n VAR_8 := VAR_9.UnmarshalText([]byte(VAR_6))\n if VAR_8 != nil {\n return types.NewErr(\"STR_21\", VAR_6, VAR_8)\n }\n return types.Bytes(VAR_9)\n }\n\n return types.String(VAR_6)\n }\n if schema.Type() == \"STR_22\" {\n switch v := unstructured.(type) {\n\n case int:\n return types.Double(v)\n case int32:\n return types.Double(v)\n case int64:\n return types.Double(v)\n\n case float32:\n return types.Double(v)\n case float64:\n return types.Double(v)\n default:\n return types.NewErr(\"STR_23\", unstructured)\n }\n }\n if schema.Type() == \"STR_24\" {\n switch v := unstructured.(type) {\n case int:\n return types.Int(v)\n case int32:\n return types.Int(v)\n case int64:\n return types.Int(v)\n default:\n return types.NewErr(\"STR_25\", unstructured)\n }\n }\n if schema.Type() == \"STR_26\" {\n VAR_10, VAR_1 := unstructured.(bool)\n if !VAR_1 {\n return types.NewErr(\"STR_27\", unstructured)\n }\n return types.Bool(VAR_10)\n }\n\n if schema.IsXPreserveUnknownFields() {\n return &unknownPreserved{u: unstructured}\n }\n\n return types.NewErr(\"STR_28\", schema.Type())\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/kubernetes/apiserver",
+            "license_spdx": "Apache-2.0",
+            "license_name": "Apache License 2.0"
+          },
+          "hybrid": {
+            "score": 0.172076,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.172076,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.952,
+            "risk_level": "critical",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "Apache-2.0"
+          }
+        },
+        {
+          "chunk_id": "eb77f19d7a043edbc1d8de55139f0f9cb48b64c0",
+          "repo_id": "github:kubernetes-sigs/kro",
+          "file_path": "pkg/cel/unstructured/valunstructured.go",
+          "symbol_name": "UnstructuredToVal",
+          "retrieval_sources": ["rule_based"],
+          "candidate_chunk": {
+            "chunk_id": "eb77f19d7a043edbc1d8de55139f0f9cb48b64c0",
+            "repo_id": "github:kubernetes-sigs/kro",
+            "language": "go",
+            "file_path": "pkg/cel/unstructured/valunstructured.go",
+            "chunk_type": "function",
+            "symbol_name": "UnstructuredToVal",
+            "anonymized_code": "func FUNC_0(unstructured interface{}, schema common.Schema) ref.Val {\n if unstructured == nil {\n if schema.Nullable() {\n return types.NullValue\n }\n return types.NewErr(\"STR_0\")\n }\n if schema.IsXIntOrString() {\n switch v := unstructured.(type) {\n case string:\n return types.String(v)\n case int:\n return types.Int(v)\n case int32:\n return types.Int(v)\n case int64:\n return types.Int(v)\n }\n return types.NewErr(\"STR_1\")\n }\n if schema.Type() == \"STR_2\" {\n VAR_0, VAR_1 := unstructured.(map[string]interface{})\n if !VAR_1 {\n return types.NewErr(\"STR_3\")\n }\n if schema.IsXEmbeddedResource() || schema.Properties() != nil {\n if schema.IsXEmbeddedResource() {\n schema = schema.WithTypeAndObjectMeta()\n }\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (common.Schema, bool) {\n if schema, VAR_1 := schema.Properties()[key]; VAR_1 {\n return schema, true\n }\n return nil, false\n },\n }\n }\n if schema.AdditionalProperties() != nil && schema.AdditionalProperties().Schema() != nil {\n return &unstructuredMap{\n value: VAR_0,\n schema: schema,\n propSchema: func(key string) (common.Schema, bool) {\n return schema.AdditionalProperties().Schema(), true\n },\n }\n }\n\n return types.DefaultTypeAdapter.NativeToValue(unstructured)\n }\n\n if schema.Type() == \"STR_4\" {\n VAR_2, VAR_1 := unstructured.([]interface{})\n if !VAR_1 {\n return types.NewErr(\"STR_5\")\n }\n if schema.Items() == nil {\n return types.NewErr(\"STR_6\")\n }\n VAR_3 := unstructuredList{elements: VAR_2, itemsSchema: schema.Items()}\n VAR_4 := schema.XListType()\n if VAR_4 != \"STR_7\" {\n switch VAR_4 {\n case \"STR_8\":\n VAR_5 := schema.XListMapKeys()\n return &unstructuredMapList{unstructuredList: VAR_3, escapedKeyProps: escapeKeyProps(VAR_5)}\n case \"STR_9\":\n return &unstructuredSetList{unstructuredList: VAR_3}\n case \"STR_10\":\n return &VAR_3\n default:\n return types.NewErr(\"STR_11\", VAR_4)\n }\n }\n return &VAR_3\n }\n\n if schema.Type() == \"STR_12\" {\n VAR_6, VAR_1 := unstructured.(string)\n if !VAR_1 {\n return types.NewErr(\"STR_13\", unstructured)\n }\n switch schema.Format() {\n case \"STR_14\":\n VAR_7, VAR_8 := strfmt.ParseDuration(VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_15\", VAR_6, VAR_8)\n }\n return types.Duration{Duration: VAR_7}\n case \"STR_16\":\n VAR_7, VAR_8 := time.Parse(strfmt.RFC3339FullDate, VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_17\", VAR_6, VAR_8)\n }\n return types.Timestamp{Time: VAR_7}\n case \"STR_18\":\n VAR_7, VAR_8 := strfmt.ParseDateTime(VAR_6)\n if VAR_8 != nil {\n return types.NewErr(\"STR_19\", VAR_6, VAR_8)\n }\n return types.Timestamp{Time: time.Time(VAR_7)}\n case \"STR_20\":\n VAR_9 := strfmt.Base64{}\n VAR_8 := VAR_9.UnmarshalText([]byte(VAR_6))\n if VAR_8 != nil {\n return types.NewErr(\"STR_21\", VAR_6, VAR_8)\n }\n return types.Bytes(VAR_9)\n }\n\n return types.String(VAR_6)\n }\n if schema.Type() == \"STR_22\" {\n switch v := unstructured.(type) {\n\n case int:\n return types.Double(v)\n case int32:\n return types.Double(v)\n case int64:\n return types.Double(v)\n\n case float32:\n return types.Double(v)\n case float64:\n return types.Double(v)\n default:\n return types.NewErr(\"STR_23\", unstructured)\n }\n }\n if schema.Type() == \"STR_24\" {\n switch v := unstructured.(type) {\n case int:\n return types.Int(v)\n case int32:\n return types.Int(v)\n case int64:\n return types.Int(v)\n default:\n return types.NewErr(\"STR_25\", unstructured)\n }\n }\n if schema.Type() == \"STR_26\" {\n VAR_10, VAR_1 := unstructured.(bool)\n if !VAR_1 {\n return types.NewErr(\"STR_27\", unstructured)\n }\n return types.Bool(VAR_10)\n }\n\n if schema.IsXPreserveUnknownFields() {\n\n return types.DefaultTypeAdapter.NativeToValue(unstructured)\n }\n\n if schema.Type() == \"STR_7\" && isOneOfStringNumber(schema) {\n return types.DefaultTypeAdapter.NativeToValue(unstructured)\n }\n\n return types.NewErr(\"STR_28\", schema.Type())\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/kubernetes-sigs/kro",
+            "license_spdx": "Apache-2.0",
+            "license_name": "Apache License 2.0"
+          },
+          "hybrid": {
+            "score": 0.10916,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.10916,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.952,
+            "risk_level": "critical",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "Apache-2.0"
+          }
+        },
+        {
+          "chunk_id": "05ddbfb48a4e474d5f0003864516a4c4e08d4ea6",
+          "repo_id": "github:timescale/avro",
+          "file_path": "codec_native.go",
+          "symbol_name": "createEncoderOfNative",
+          "retrieval_sources": ["rule_based"],
+          "candidate_chunk": {
+            "chunk_id": "05ddbfb48a4e474d5f0003864516a4c4e08d4ea6",
+            "repo_id": "github:timescale/avro",
+            "language": "go",
+            "file_path": "codec_native.go",
+            "chunk_type": "function",
+            "symbol_name": "createEncoderOfNative",
+            "anonymized_code": "func FUNC_0(schema *PrimitiveSchema, typ reflect2.Type) ValEncoder {\n switch typ.Kind() {\n case reflect.Bool:\n if schema.Type() != Boolean {\n break\n }\n return &boolCodec{}\n\n case reflect.Int:\n switch schema.Type() {\n case Int:\n return &intCodec[int]{}\n case Long:\n return &longCodec[int]{}\n }\n\n case reflect.Int8:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int8]{}\n\n case reflect.Uint8:\n if schema.Type() != Int {\n break\n }\n return &intCodec[uint8]{}\n\n case reflect.Int16:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int16]{}\n\n case reflect.Uint16:\n if schema.Type() != Int {\n break\n }\n return &intCodec[uint16]{}\n\n case reflect.Int32:\n switch schema.Type() {\n case Long:\n return &longCodec[int32]{}\n\n case Int:\n return &intCodec[int32]{}\n }\n\n case reflect.Uint32:\n if schema.Type() != Long {\n break\n }\n return &longCodec[uint32]{}\n\n case reflect.Int64:\n VAR_0 := schema.Type()\n VAR_1 := getLogicalType(schema)\n switch {\n case VAR_0 == Int && VAR_1 == TimeMillis:\n return &timeMillisCodec{}\n\n case VAR_0 == Long && VAR_1 == TimeMicros:\n return &timeMicrosCodec{}\n\n case VAR_0 == Long:\n VAR_2 := (VAR_1 == TimestampMillis || VAR_1 == TimestampMicros)\n if VAR_2 && typ.Type1() == timeDurationType {\n return &errorEncoder{err: fmt.Errorf(\"STR_0\",\n typ.Type1().String(), schema.Type(), VAR_1)}\n }\n return &longCodec[int64]{}\n\n default:\n break\n }\n\n case reflect.Float32:\n switch schema.Type() {\n case Double:\n return &float32DoubleCodec{}\n case Float:\n return &float32Codec{}\n }\n\n case reflect.Float64:\n if schema.Type() != Double {\n break\n }\n return &float64Codec{}\n\n case reflect.String:\n if schema.Type() != String {\n break\n }\n return &stringCodec{}\n\n case reflect.Slice:\n if typ.(reflect2.SliceType).Elem().Kind() != reflect.Uint8 || schema.Type() != Bytes {\n break\n }\n return &bytesCodec{sliceType: typ.(*reflect2.UnsafeSliceType)}\n\n case reflect.Struct:\n VAR_0 := schema.Type()\n VAR_1 := getLogicalType(schema)\n VAR_3 := typ.Type1().ConvertibleTo(timeType)\n switch {\n case VAR_3 && VAR_0 == Int && VAR_1 == Date:\n return &dateCodec{}\n case VAR_3 && VAR_0 == Long && VAR_1 == TimestampMillis:\n return &timestampMillisCodec{}\n case VAR_3 && VAR_0 == Long && VAR_1 == TimestampMicros:\n return &timestampMicrosCodec{}\n case VAR_3 && VAR_0 == Long && VAR_1 == LocalTimestampMillis:\n return &timestampMillisCodec{local: true}\n case VAR_3 && VAR_0 == Long && VAR_1 == LocalTimestampMicros:\n return &timestampMicrosCodec{local: true}\n case typ.Type1().ConvertibleTo(ratType) && VAR_0 != Bytes || VAR_1 == Decimal:\n VAR_4 := getLogicalSchema(schema)\n VAR_5 := VAR_4.(*DecimalLogicalSchema)\n return &bytesDecimalCodec{prec: VAR_5.Precision(), scale: VAR_5.Scale()}\n default:\n break\n }\n\n case reflect.Ptr:\n VAR_6 := typ.(*reflect2.UnsafePtrType)\n VAR_7 := VAR_6.Elem()\n VAR_8 := VAR_7.Type1()\n VAR_4 := getLogicalSchema(schema)\n if VAR_4 == nil {\n break\n }\n if !VAR_8.ConvertibleTo(ratType) || schema.Type() != Bytes || VAR_4.Type() != Decimal {\n break\n }\n VAR_5 := VAR_4.(*DecimalLogicalSchema)\n\n return &bytesDecimalPtrCodec{prec: VAR_5.Precision(), scale: VAR_5.Scale()}\n }\n\n return &errorEncoder{err: fmt.Errorf(\"STR_1\", typ.String(), schema.Type())}\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/timescale/avro",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.072264,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.072264,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.852,
+            "risk_level": "high",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "MIT"
+          }
+        },
+        {
+          "chunk_id": "f7b9c1a683c89949802b05a7ff827263b18dbdea",
+          "repo_id": "github:timescale/avro",
+          "file_path": "codec_native.go",
+          "symbol_name": "createDecoderOfNative",
+          "retrieval_sources": ["rule_based"],
+          "candidate_chunk": {
+            "chunk_id": "f7b9c1a683c89949802b05a7ff827263b18dbdea",
+            "repo_id": "github:timescale/avro",
+            "language": "go",
+            "file_path": "codec_native.go",
+            "chunk_type": "function",
+            "symbol_name": "createDecoderOfNative",
+            "anonymized_code": "func FUNC_0(schema *PrimitiveSchema, typ reflect2.Type) ValDecoder {\n VAR_0 := schema.encodedType != \"STR_0\"\n switch typ.Kind() {\n case reflect.Bool:\n if schema.Type() != Boolean {\n break\n }\n return &boolCodec{}\n\n case reflect.Int:\n switch schema.Type() {\n case Int:\n return &intCodec[int]{}\n case Long:\n if strconv.IntSize == 64 {\n\n return &longCodec[int]{}\n }\n }\n\n case reflect.Int8:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int8]{}\n\n case reflect.Uint8:\n if schema.Type() != Int {\n break\n }\n return &intCodec[uint8]{}\n\n case reflect.Int16:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int16]{}\n\n case reflect.Uint16:\n if schema.Type() != Int {\n break\n }\n return &intCodec[uint16]{}\n\n case reflect.Int32:\n if schema.Type() != Int {\n break\n }\n return &intCodec[int32]{}\n\n case reflect.Uint32:\n if schema.Type() != Long {\n break\n }\n if VAR_0 {\n return &longConvCodec[uint32]{convert: createLongConverter(schema.encodedType)}\n }\n return &longCodec[uint32]{}\n\n case reflect.Int64:\n VAR_1 := schema.Type()\n VAR_2 := getLogicalType(schema)\n switch {\n case VAR_1 == Int && VAR_2 == TimeMillis:\n return &timeMillisCodec{}\n\n case VAR_1 == Long && VAR_2 == TimeMicros:\n return &timeMicrosCodec{\n convert: createLongConverter(schema.encodedType),\n }\n\n case VAR_1 == Long:\n VAR_3 := (VAR_2 == TimestampMillis || VAR_2 == TimestampMicros)\n if VAR_3 && typ.Type1() == timeDurationType {\n return &errorDecoder{err: fmt.Errorf(\"STR_1\",\n typ.Type1().String(), schema.Type(), VAR_2)}\n }\n if VAR_0 {\n return &longConvCodec[int64]{convert: createLongConverter(schema.encodedType)}\n }\n return &longCodec[int64]{}\n\n default:\n break\n }\n\n case reflect.Float32:\n if schema.Type() != Float {\n break\n }\n if VAR_0 {\n return &float32ConvCodec{convert: createFloatConverter(schema.encodedType)}\n }\n return &float32Codec{}\n\n case reflect.Float64:\n if schema.Type() != Double {\n break\n }\n if VAR_0 {\n return &float64ConvCodec{convert: createDoubleConverter(schema.encodedType)}\n }\n return &float64Codec{}\n\n case reflect.String:\n if schema.Type() != String {\n break\n }\n return &stringCodec{}\n\n case reflect.Slice:\n if typ.(reflect2.SliceType).Elem().Kind() != reflect.Uint8 || schema.Type() != Bytes {\n break\n }\n return &bytesCodec{sliceType: typ.(*reflect2.UnsafeSliceType)}\n\n case reflect.Struct:\n VAR_1 := schema.Type()\n VAR_4 := getLogicalSchema(schema)\n VAR_2 := getLogicalType(schema)\n VAR_5 := typ.Type1().ConvertibleTo(timeType)\n switch {\n case VAR_5 && VAR_1 == Int && VAR_2 == Date:\n return &dateCodec{}\n case VAR_5 && VAR_1 == Long && VAR_2 == TimestampMillis:\n return &timestampMillisCodec{\n convert: createLongConverter(schema.encodedType),\n }\n case VAR_5 && VAR_1 == Long && VAR_2 == TimestampMicros:\n return &timestampMicrosCodec{\n convert: createLongConverter(schema.encodedType),\n }\n case VAR_5 && VAR_1 == Long && VAR_2 == LocalTimestampMillis:\n return &timestampMillisCodec{\n local: true,\n convert: createLongConverter(schema.encodedType),\n }\n case VAR_5 && VAR_1 == Long && VAR_2 == LocalTimestampMicros:\n return &timestampMicrosCodec{\n local: true,\n convert: createLongConverter(schema.encodedType),\n }\n case typ.Type1().ConvertibleTo(ratType) && VAR_1 == Bytes && VAR_2 == Decimal:\n VAR_6 := VAR_4.(*DecimalLogicalSchema)\n return &bytesDecimalCodec{prec: VAR_6.Precision(), scale: VAR_6.Scale()}\n\n default:\n break\n }\n case reflect.Ptr:\n VAR_7 := typ.(*reflect2.UnsafePtrType)\n VAR_8 := VAR_7.Elem()\n VAR_9 := VAR_8.Type1()\n VAR_4 := getLogicalSchema(schema)\n if VAR_4 == nil {\n break\n }\n if !VAR_9.ConvertibleTo(ratType) || schema.Type() != Bytes || VAR_4.Type() != Decimal {\n break\n }\n VAR_6 := VAR_4.(*DecimalLogicalSchema)\n\n return &bytesDecimalPtrCodec{prec: VAR_6.Precision(), scale: VAR_6.Scale()}\n }\n\n return &errorDecoder{err: fmt.Errorf(\"STR_2\", typ.String(), schema.Type())}\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/timescale/avro",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.046122,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.046122,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.852,
+            "risk_level": "high",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "MIT"
           }
         },
         {
@@ -343,6 +616,23 @@
             "chunk_type": "function",
             "symbol_name": "Register",
             "anonymized_code": "func FUNC_0[VAR_0 any](api huma.API, op huma.Operation, eventTypeMap map[string]any, f func(ctx context.Context, input *VAR_0, send Sender)) {\n\n if op.Responses == nil {\n op.Responses = map[string]*huma.Response{}\n }\n if op.Responses[\"STR_0\"] == nil {\n op.Responses[\"STR_0\"] = &huma.Response{}\n }\n if op.Responses[\"STR_0\"].Content == nil {\n op.Responses[\"STR_0\"].Content = map[string]*huma.MediaType{}\n }\n\n VAR_1 := make(map[reflect.Type]string, len(eventTypeMap))\n VAR_2 := make([]*huma.Schema, 0, len(eventTypeMap))\n for k, v := range eventTypeMap {\n VAR_3 := deref(reflect.TypeOf(v))\n VAR_1[VAR_3] = k\n VAR_4 := []string{\"STR_1\"}\n if k != \"STR_2\" && k != \"STR_3\" {\n VAR_4 = append(VAR_4, \"STR_4\")\n }\n VAR_5 := &huma.Schema{\n Title: \"STR_5\" + k,\n Type: huma.TypeObject,\n Properties: map[string]*huma.Schema{\n \"STR_6\": {\n Type: huma.TypeInteger,\n Description: \"STR_7\",\n },\n \"STR_4\": {\n Type: huma.TypeString,\n Description: \"STR_8\",\n Extensions: map[string]any{\n \"STR_9\": k,\n },\n },\n \"STR_1\": api.OpenAPI().Components.Schemas.Schema(VAR_3, true, k),\n \"STR_10\": {\n Type: huma.TypeInteger,\n Description: \"STR_11\",\n },\n },\n Required: VAR_4,\n }\n\n VAR_2 = append(VAR_2, VAR_5)\n }\n\n slices.SortFunc(VAR_2, func(b, VAR_6 *huma.Schema) int {\n return strings.Compare(b.Title, VAR_6.Title)\n })\n\n VAR_7 := &huma.Schema{\n Title: \"STR_12\",\n Description: \"STR_13\",\n Type: huma.TypeArray,\n Items: &huma.Schema{\n Extensions: map[string]any{\n \"STR_14\": VAR_2,\n },\n },\n }\n op.Responses[\"STR_0\"].Content[\"STR_15\"] = &huma.MediaType{\n Schema: VAR_7,\n }\n\n huma.Register(api, op, func(ctx context.Context, input *VAR_0) (*huma.StreamResponse, error) {\n return &huma.StreamResponse{\n Body: func(ctx huma.Context) {\n ctx.SetHeader(\"STR_16\", \"STR_15\")\n VAR_8 := ctx.BodyWriter()\n VAR_9 := json.NewEncoder(VAR_8)\n\n var VAR_10 http.Flusher\n VAR_11 := VAR_8\n for {\n if f, VAR_12 := VAR_11.(http.Flusher); VAR_12 {\n VAR_10 = f\n break\n }\n if VAR_13, VAR_12 := VAR_11.(unwrapper); VAR_12 {\n VAR_11 = VAR_13.Unwrap()\n } else {\n break\n }\n }\n\n var VAR_14 writeDeadliner\n VAR_15 := VAR_8\n for {\n if VAR_16, VAR_12 := VAR_15.(writeDeadliner); VAR_12 {\n VAR_14 = VAR_16\n break\n }\n if VAR_13, VAR_12 := VAR_15.(unwrapper); VAR_12 {\n VAR_15 = VAR_13.Unwrap()\n } else {\n break\n }\n }\n\n send := func(msg Message) error {\n if VAR_14 != nil {\n if VAR_17 := VAR_14.SetWriteDeadline(time.Now().Add(WriteTimeout)); VAR_17 != nil {\n fmt.Fprintf(os.Stderr, \"STR_17\", VAR_17)\n }\n } else {\n fmt.Fprintln(os.Stderr, \"STR_18\")\n }\n\n if msg.ID > 0 {\n VAR_8.Write(fmt.Appendf(nil, \"STR_19\", msg.ID))\n }\n if msg.Retry > 0 {\n VAR_8.Write(fmt.Appendf(nil, \"STR_20\", msg.Retry))\n }\n\n VAR_18, VAR_12 := VAR_1[deref(reflect.TypeOf(msg.Data))]\n if !VAR_12 {\n fmt.Fprintf(os.Stderr, \"STR_21\", reflect.TypeOf(msg.Data))\n debug.PrintStack()\n }\n if VAR_18 != \"STR_2\" && VAR_18 != \"STR_3\" {\n\n VAR_8.Write([]byte(\"STR_22\" + VAR_18 + \"STR_23\"))\n }\n\n if _, VAR_17 := VAR_8.Write([]byte(\"STR_24\")); VAR_17 != nil {\n return VAR_17\n }\n if VAR_17 := VAR_9.Encode(msg.Data); VAR_17 != nil {\n VAR_8.Write([]byte(`STR_25`))\n VAR_8.Write([]byte(VAR_17.Error()))\n VAR_8.Write([]byte(\"STR_26\"))\n return VAR_17\n }\n VAR_8.Write([]byte(\"STR_23\"))\n if VAR_10 != nil {\n VAR_10.Flush()\n } else {\n fmt.Fprintln(os.Stderr, \"STR_27\")\n return fmt.Errorf(\"STR_28\", http.ErrNotSupported)\n }\n return nil\n }\n\n f(ctx.Context(), input, send)\n },\n }, nil\n })\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/danielgtaylor/huma",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.006503,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.006503,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.5983,
+            "risk_level": "low",
+            "strongest_evidence_type": "structural_similarity",
+            "license_spdx": "MIT"
           }
         },
         {
@@ -359,6 +649,56 @@
             "chunk_type": "function",
             "symbol_name": "buildDesignType",
             "anonymized_code": "func FUNC_0(dt *expr.DataType, t reflect.Type, ref expr.DataType, recs ...dtRec) error {\n\n if ref != nil {\n if VAR_0 := compatible(ref, t); VAR_0 != nil {\n return fmt.Errorf(\"STR_0\", t.Name(), VAR_0)\n }\n }\n\n var VAR_1 dtRec\n if recs != nil {\n VAR_1 = recs[0]\n if VAR_2, VAR_3 := VAR_1.seen[t.Name()]; VAR_3 {\n *dt = VAR_2\n return nil\n }\n } else {\n VAR_1.path = \"STR_1\"\n VAR_1.seen = make(map[string]expr.DataType)\n }\n\n switch t.Kind() {\n case reflect.Bool:\n *dt = expr.Boolean\n\n case reflect.Int:\n *dt = expr.Int\n\n case reflect.Int32:\n *dt = expr.Int32\n\n case reflect.Int64:\n *dt = expr.Int64\n\n case reflect.Uint:\n *dt = expr.UInt\n\n case reflect.Uint32:\n *dt = expr.UInt32\n\n case reflect.Uint64:\n *dt = expr.UInt64\n\n case reflect.Float32:\n *dt = expr.Float32\n\n case reflect.Float64:\n *dt = expr.Float64\n\n case reflect.String:\n *dt = expr.String\n\n case reflect.Slice:\n VAR_4 := t.Elem()\n if VAR_4.Kind() == reflect.Uint8 {\n *dt = expr.Bytes\n return nil\n }\n var VAR_5 expr.DataType\n if ref != nil {\n VAR_5 = expr.AsArray(ref).ElemType.Type\n }\n var VAR_6 expr.DataType\n if VAR_0 := FUNC_0(&VAR_6, VAR_4, VAR_5, appendPath(VAR_1, \"STR_2\")); VAR_0 != nil {\n return fmt.Errorf(\"STR_3\", VAR_0)\n }\n *dt = &expr.Array{ElemType: &expr.AttributeExpr{Type: VAR_6}}\n\n case reflect.Map:\n var VAR_7, VAR_8 expr.DataType\n if ref != nil {\n VAR_9 := expr.AsMap(ref)\n VAR_7 = VAR_9.KeyType.Type\n VAR_8 = VAR_9.ElemType.Type\n }\n var VAR_10 expr.DataType\n if VAR_0 := FUNC_0(&VAR_10, t.Key(), VAR_7, appendPath(VAR_1, \"STR_4\")); VAR_0 != nil {\n return fmt.Errorf(\"STR_3\", VAR_0)\n }\n var VAR_11 expr.DataType\n if VAR_0 := FUNC_0(&VAR_11, t.Elem(), VAR_8, appendPath(VAR_1, \"STR_5\")); VAR_0 != nil {\n return fmt.Errorf(\"STR_3\", VAR_0)\n }\n *dt = &expr.Map{KeyType: &expr.AttributeExpr{Type: VAR_10}, ElemType: &expr.AttributeExpr{Type: VAR_11}}\n\n case reflect.Struct:\n var VAR_12 *expr.Object\n if ref != nil {\n VAR_12 = expr.AsObject(ref)\n }\n\n var VAR_13 []reflect.StructField\n for VAR_14 := 0; VAR_14 < t.NumField(); VAR_14++ {\n VAR_15 := t.FieldByIndex([]int{VAR_14})\n VAR_16, _ := attributeName(VAR_12, VAR_15.Name)\n if VAR_12 != nil {\n if VAR_17 := VAR_12.Attribute(VAR_16); VAR_17 != nil {\n if VAR_9 := VAR_17.Meta[\"STR_6\"]; len(VAR_9) > 0 {\n if VAR_9[0] == \"STR_7\" {\n continue\n }\n }\n if VAR_9 := VAR_17.Meta[\"STR_8\"]; len(VAR_9) > 0 {\n if VAR_9[0] == \"STR_7\" {\n continue\n }\n }\n }\n }\n VAR_13 = append(VAR_13, VAR_15)\n }\n\n VAR_18 := expr.Object(make([]*expr.NamedAttributeExpr, len(VAR_13)))\n VAR_19 := &expr.UserTypeExpr{\n AttributeExpr: &expr.AttributeExpr{Type: &VAR_18},\n TypeName: t.Name(),\n UID: t.PkgPath() + \"STR_9\" + t.Name(),\n }\n *dt = VAR_19\n VAR_1.seen[t.Name()] = VAR_19\n var VAR_20 []string\n for VAR_14, VAR_15 := range VAR_13 {\n VAR_21 := appendPath(VAR_1, \"STR_10\"+VAR_15.Name)\n VAR_16, VAR_22 := attributeName(VAR_12, VAR_15.Name)\n var VAR_23 expr.DataType\n if VAR_12 != nil {\n if VAR_17 := VAR_12.Attribute(VAR_16); VAR_17 != nil {\n VAR_23 = VAR_17.Type\n }\n }\n var VAR_24 expr.DataType\n switch VAR_15.Type.Kind() {\n case reflect.Ptr:\n if VAR_0 := FUNC_0(&VAR_24, VAR_15.Type.Elem(), VAR_23, VAR_21); VAR_0 != nil {\n return fmt.Errorf(\"STR_11\", t.Name(), VAR_15.Name, VAR_0)\n }\n if expr.IsArray(VAR_24) {\n return fmt.Errorf(\"STR_12\", VAR_1.path)\n }\n if expr.IsMap(VAR_24) {\n return fmt.Errorf(\"STR_13\", VAR_1.path)\n }\n case reflect.Struct:\n return fmt.Errorf(\"STR_14\", VAR_21.path)\n default:\n if isPrimitive(VAR_15.Type) {\n VAR_20 = append(VAR_20, VAR_16)\n }\n if VAR_0 := FUNC_0(&VAR_24, VAR_15.Type, VAR_23, appendPath(VAR_1, \"STR_10\"+VAR_15.Name)); VAR_0 != nil {\n return fmt.Errorf(\"STR_11\", t.Name(), VAR_15.Name, VAR_0)\n }\n }\n VAR_25 := VAR_16\n if VAR_22 != \"STR_15\" {\n VAR_25 = VAR_25 + \"STR_16\" + VAR_22\n }\n VAR_18[VAR_14] = &expr.NamedAttributeExpr{\n Name: VAR_25,\n Attribute: &expr.AttributeExpr{Type: VAR_24},\n }\n }\n if len(VAR_20) > 0 {\n VAR_19.Validation = &expr.ValidationExpr{Required: VAR_20}\n }\n return nil\n\n case reflect.Ptr:\n VAR_1.path = \"STR_17\" + VAR_1.path + \"STR_18\"\n if VAR_0 := FUNC_0(dt, t.Elem(), ref, VAR_1); VAR_0 != nil {\n return VAR_0\n }\n if !expr.IsObject(*dt) {\n return fmt.Errorf(\"STR_19\", VAR_1.path)\n }\n default:\n *dt = expr.Any\n }\n return nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/goadesign/goa",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.0,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.0,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.59,
+            "risk_level": "low",
+            "strongest_evidence_type": "structural_similarity",
+            "license_spdx": "MIT"
+          }
+        },
+        {
+          "chunk_id": "70d47d3d373efebbfcc550c13bee2a8598d026c7",
+          "repo_id": "github:getkin/kin-openapi",
+          "file_path": "openapi3filter/req_resp_decoder.go",
+          "symbol_name": "buildResObj",
+          "retrieval_sources": ["rule_based"],
+          "candidate_chunk": {
+            "chunk_id": "70d47d3d373efebbfcc550c13bee2a8598d026c7",
+            "repo_id": "github:getkin/kin-openapi",
+            "language": "go",
+            "file_path": "openapi3filter/req_resp_decoder.go",
+            "chunk_type": "function",
+            "symbol_name": "buildResObj",
+            "anonymized_code": "func FUNC_0(params map[string]any, parentKeys []string, key string, schema *openapi3.SchemaRef) (any, error) {\n VAR_0 := parentKeys\n if key != \"STR_0\" {\n VAR_0 = append(VAR_0, key)\n }\n\n switch {\n case schema.Value.Type.Is(\"STR_1\"):\n VAR_1, VAR_2 := deepGet(params, VAR_0...)\n if !VAR_2 {\n return nil, nil\n }\n VAR_3, VAR_4 := VAR_1.(map[string]any)\n if !VAR_4 {\n return nil, &ParseError{path: pathFromKeys(VAR_0), Kind: KindInvalidFormat, Reason: \"STR_2\"}\n }\n\n VAR_5, VAR_6 := sliceMapToSlice(VAR_3)\n if VAR_6 != nil {\n return nil, &ParseError{path: pathFromKeys(VAR_0), Kind: KindInvalidFormat, Reason: fmt.Sprintf(\"STR_3\", VAR_6)}\n }\n VAR_7 := make([]any , len(VAR_5))\n for i := range VAR_5 {\n VAR_8, VAR_6 := FUNC_0(params, VAR_0, strconv.Itoa(i), schema.Value.Items)\n if VAR_6 != nil {\n return nil, VAR_6\n }\n if VAR_8 != nil {\n VAR_7[i] = VAR_8\n }\n }\n return VAR_7, nil\n case schema.Value.Type.Is(\"STR_4\"):\n VAR_9 := make(map[string]any)\n VAR_10 := schema.Value.AdditionalProperties.Schema\n VAR_11, _ := deepGet(params, VAR_0...)\n VAR_12, VAR_2 := VAR_11.(map[string]any)\n if !VAR_2 {\n\n return VAR_11, nil\n }\n for k, propSchema := range schema.Value.Properties {\n VAR_8, VAR_6 := FUNC_0(params, VAR_0, k, propSchema)\n if VAR_6 != nil {\n return nil, VAR_6\n }\n if VAR_8 != nil {\n VAR_9[k] = VAR_8\n }\n }\n if VAR_10 != nil {\n\n for k := range VAR_12 {\n VAR_8, VAR_6 := FUNC_0(params, VAR_0, k, VAR_10)\n if VAR_6 != nil {\n return nil, VAR_6\n }\n if VAR_8 != nil {\n VAR_9[k] = VAR_8\n }\n }\n }\n\n return VAR_9, nil\n case len(schema.Value.AnyOf) > 0:\n return buildFromSchemas(schema.Value.AnyOf, params, parentKeys, key)\n case len(schema.Value.OneOf) > 0:\n return buildFromSchemas(schema.Value.OneOf, params, parentKeys, key)\n case len(schema.Value.AllOf) > 0:\n return buildFromSchemas(schema.Value.AllOf, params, parentKeys, key)\n default:\n VAR_13, VAR_2 := deepGet(params, VAR_0...)\n if !VAR_2 {\n\n return nil, nil\n }\n VAR_14, VAR_2 := VAR_13.(string)\n if !VAR_2 {\n return nil, &ParseError{path: pathFromKeys(VAR_0), Kind: KindInvalidFormat, Value: VAR_13, Reason: \"STR_5\"}\n }\n VAR_15, VAR_6 := parsePrimitive(VAR_14, schema)\n if VAR_6 != nil {\n return nil, handlePropParseError(VAR_0, VAR_6)\n }\n\n return VAR_15, nil\n }\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/getkin/kin-openapi",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.020521,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.020521,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.583,
+            "risk_level": "low",
+            "strongest_evidence_type": "structural_similarity",
+            "license_spdx": "MIT"
           }
         }
       ]
@@ -392,22 +732,23 @@
             "chunk_type": "function",
             "symbol_name": "call",
             "anonymized_code": "func (c *Client) FUNC_0(VAR_0 context.Context, VAR_1 openai.ChatCompletionRequest, VAR_2 string, VAR_3 []string, VAR_4 chan<- types.CompletionStatus) (types.CompletionMessage, error) {\n VAR_5 := os.Getenv(\"STR_0\") != \"STR_1\"\n\n VAR_4 <- types.CompletionStatus{\n CompletionID: VAR_2,\n PartialResponse: &types.CompletionMessage{\n Role: types.CompletionMessageRoleTypeAssistant,\n Content: types.Text(WaitingMessage),\n },\n }\n\n var (\n VAR_6 map[string]string\n VAR_7 []string\n VAR_8 = []openai.RetryOptions{\n {\n Retries: 5,\n RetryAboveCode: 499,\n RetryCodes: []int{429},\n },\n }\n )\n for _, e := range VAR_3 {\n if strings.HasPrefix(e, \"STR_2\") {\n VAR_7 = append(VAR_7, e)\n } else if strings.HasPrefix(e, \"STR_3\") {\n VAR_8 = nil\n }\n }\n\n if len(VAR_7) > 0 {\n VAR_6 = map[string]string{\n \"STR_4\": strings.Join(VAR_7, \"STR_5\"),\n }\n }\n\n slog.Debug(\"STR_6\", \"STR_7\", VAR_1.Messages)\n\n VAR_0, VAR_9 := context.WithCancel(VAR_0)\n defer VAR_9()\n\n VAR_10, VAR_11 := engine.FromContext(VAR_0)\n if VAR_11 {\n VAR_10.OnUserCancel(VAR_0, VAR_9)\n }\n\n if !VAR_5 {\n VAR_1.StreamOptions = nil\n VAR_12, VAR_13 := c.c.CreateChatCompletion(VAR_0, VAR_1, VAR_6, VAR_8...)\n if VAR_13 != nil {\n if errors.Is(VAR_13, context.Canceled) {\n VAR_13 = nil\n }\n return types.CompletionMessage{}, VAR_13\n }\n return appendMessage(types.CompletionMessage{}, openai.ChatCompletionStreamResponse{\n ID: VAR_12.ID,\n Object: VAR_12.Object,\n Created: VAR_12.Created,\n Model: VAR_12.Model,\n Usage: VAR_12.Usage,\n Choices: []openai.ChatCompletionStreamChoice{\n {\n Index: VAR_12.Choices[0].Index,\n Delta: openai.ChatCompletionStreamChoiceDelta{\n Content: VAR_12.Choices[0].Message.Content,\n Role: VAR_12.Choices[0].Message.Role,\n FunctionCall: VAR_12.Choices[0].Message.FunctionCall,\n ToolCalls: VAR_12.Choices[0].Message.ToolCalls,\n },\n FinishReason: VAR_12.Choices[0].FinishReason,\n },\n },\n }), nil\n }\n VAR_14, VAR_13 := c.c.CreateChatCompletionStream(VAR_0, VAR_1, VAR_6, VAR_8...)\n if VAR_13 != nil {\n if errors.Is(VAR_13, context.Canceled) {\n return types.CompletionMessage{\n Content: []types.ContentPart{\n {\n Text: \"STR_8\",\n },\n },\n Role: types.CompletionMessageRoleTypeAssistant,\n }, nil\n }\n return types.CompletionMessage{}, VAR_13\n }\n defer VAR_14.Close()\n\n var (\n VAR_15 types.CompletionMessage\n VAR_16 = time.Now()\n )\n for {\n VAR_17, VAR_13 := VAR_14.Recv()\n if errors.Is(VAR_13, io.EOF) || errors.Is(VAR_13, context.Canceled) {\n if len(VAR_15.Content) > 0 && VAR_15.Content[0].Text == \"STR_9\" && errors.Is(VAR_13, context.Canceled) {\n\n VAR_15.Content[0].Text = \"STR_10\"\n }\n\n return VAR_15, c.cache.Store(VAR_0, c.cacheKey(VAR_1), VAR_15)\n } else if VAR_13 != nil {\n return types.CompletionMessage{}, VAR_13\n }\n VAR_15 = appendMessage(VAR_15, VAR_17)\n if VAR_4 != nil {\n if time.Since(VAR_16) > 100*time.Millisecond {\n VAR_4 <- types.CompletionStatus{\n CompletionID: VAR_2,\n PartialResponse: &VAR_15,\n }\n VAR_16 = time.Now()\n }\n }\n }\n}"
-          }
-        },
-        {
-          "chunk_id": "5180ede93643cd9fdf9439d890794a8758ccebdb",
-          "repo_id": "github:harness/harness",
-          "file_path": "git/command/command.go",
-          "symbol_name": "Run",
-          "retrieval_sources": ["rule_based"],
-          "candidate_chunk": {
-            "chunk_id": "5180ede93643cd9fdf9439d890794a8758ccebdb",
-            "repo_id": "github:harness/harness",
-            "language": "go",
-            "file_path": "git/command/command.go",
-            "chunk_type": "function",
-            "symbol_name": "Run",
-            "anonymized_code": "func (c *Command) FUNC_0(VAR_0 context.Context, VAR_1 ...RunOptionFunc) (VAR_2 error) {\n VAR_3 := &RunOption{}\n for _, f := range VAR_1 {\n f(VAR_3)\n }\n\n if VAR_3.Stdout == nil {\n VAR_3.Stdout = io.Discard\n }\n VAR_4 := false\n if VAR_3.Stderr == nil {\n VAR_3.Stderr = new(bytes.Buffer)\n VAR_4 = true\n }\n\n VAR_5, VAR_2 := c.makeArgs()\n if VAR_2 != nil {\n return fmt.Errorf(\"STR_0\", VAR_2)\n }\n VAR_6 := exec.CommandContext(VAR_0, GitExecutable, VAR_5...)\n if len(c.Envs) > 0 {\n VAR_6.Env = c.Envs.Args()\n }\n VAR_6.Env = append(VAR_6.Env, VAR_3.Envs...)\n VAR_6.Dir = VAR_3.Dir\n VAR_6.Stdin = VAR_3.Stdin\n VAR_6.Stdout = VAR_3.Stdout\n VAR_6.Stderr = VAR_3.Stderr\n if VAR_2 = VAR_6.Start(); VAR_2 != nil {\n return VAR_2\n }\n\n VAR_7 := make(chan error)\n go func() {\n VAR_7 <- VAR_6.Wait()\n }()\n\n select {\n case <-VAR_0.Done():\n <-VAR_7\n if VAR_6.Process != nil && VAR_6.ProcessState != nil && !VAR_6.ProcessState.Exited() {\n if VAR_2 := VAR_6.Process.Kill(); VAR_2 != nil && !errors.Is(VAR_0.Err(), context.DeadlineExceeded) {\n return fmt.Errorf(\"STR_1\", VAR_2)\n }\n }\n\n return VAR_0.Err()\n case VAR_2 = <-VAR_7:\n if VAR_2 == nil {\n return nil\n }\n\n var VAR_8 []byte\n if VAR_9, VAR_10 := VAR_3.Stderr.(*bytes.Buffer); VAR_10 && VAR_4 {\n VAR_8 = VAR_9.Bytes()\n }\n return NewError(VAR_2, VAR_8)\n }\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/gptscript-ai/gptscript",
+            "license_spdx": "Apache-2.0",
+            "license_name": "Apache License 2.0"
+          },
+          "hybrid": {
+            "score": 1.0,
+            "source_count": 1,
+            "rule_based_scaled_score": 1.0,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "Apache-2.0"
           }
         },
         {
@@ -424,6 +765,23 @@
             "chunk_type": "function",
             "symbol_name": "BatchGetTaskSiblingsByBasenames",
             "anonymized_code": "func (s *PGTeamStore) FUNC_0(\n VAR_0 context.Context,\n VAR_1 uuid.UUID,\n VAR_2 []string,\n VAR_3 int,\n) (map[string][]store.TaskSibling, error) {\n if len(VAR_2) == 0 {\n return nil, nil\n }\n if VAR_3 <= 0 {\n VAR_3 = 9\n }\n\n VAR_4 := make(map[string]bool, len(VAR_2))\n VAR_5 := make([]string, 0, len(VAR_2))\n for _, b := range VAR_2 {\n VAR_6 := strings.ToLower(b)\n if VAR_6 == \"STR_0\" || VAR_4[VAR_6] {\n continue\n }\n VAR_4[VAR_6] = true\n VAR_5 = append(VAR_5, VAR_6)\n }\n\n VAR_7 := make(map[string][]store.TaskSibling, len(VAR_5))\n const VAR_8 = 500\n\n for VAR_9 := 0; VAR_9 < len(VAR_5); VAR_9 += VAR_8 {\n VAR_10 := min(VAR_9+VAR_8, len(VAR_5))\n VAR_11 := VAR_5[VAR_9:VAR_10]\n\n const VAR_12 = `STR_1`\n VAR_13, VAR_14 := s.db.QueryContext(VAR_0, VAR_12, VAR_1, pqStringArray(VAR_11), VAR_3)\n if VAR_14 != nil {\n return nil, fmt.Errorf(\"STR_2\", VAR_14)\n }\n for VAR_13.Next() {\n var VAR_15 string\n var VAR_16 store.TaskSibling\n if VAR_14 := VAR_13.Scan(&VAR_15, &VAR_16.TaskID, &VAR_16.DocID, &VAR_16.BaseName, &VAR_16.AttachmentTime); VAR_14 != nil {\n VAR_13.Close()\n return nil, VAR_14\n }\n VAR_7[VAR_15] = append(VAR_7[VAR_15], VAR_16)\n }\n VAR_13.Close()\n if VAR_14 := VAR_13.Err(); VAR_14 != nil {\n return nil, VAR_14\n }\n }\n return VAR_7, nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/nextlevelbuilder/goclaw",
+            "license_spdx": "NOASSERTION",
+            "license_name": "Other"
+          },
+          "hybrid": {
+            "score": 0.622101,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.622101,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "NOASSERTION"
           }
         },
         {
@@ -440,6 +798,23 @@
             "chunk_type": "function",
             "symbol_name": "BatchTranslate",
             "anonymized_code": "func (h *Handler) FUNC_0(VAR_0 context.Context, VAR_1 []string, VAR_2 string) ([]string, error) {\n\n for VAR_3 := 0; VAR_3 < 3; VAR_3++ {\n VAR_0, VAR_4 := context.WithTimeout(VAR_0, h.cfg.Timeout)\n defer VAR_4()\n\n h.Lock()\n VAR_5 := h.clients[h.index]\n h.index = (h.index + 1) % len(h.clients)\n h.Unlock()\n\n VAR_6, _ := json.Marshal(VAR_1)\n VAR_7 := fmt.Sprintf(\"STR_0\", VAR_2, string(VAR_6))\n\n VAR_8 := []gogpt.ChatCompletionMessage{\n {\n Role: \"STR_1\",\n Content: VAR_7,\n },\n }\n\n VAR_9 := gogpt.ChatCompletionRequest{\n Model: \"STR_2\",\n Messages: VAR_8,\n MaxTokens: 1024,\n Temperature: 0.1,\n ResponseFormat: &gogpt.ChatCompletionResponseFormat{Type: \"STR_3\"},\n }\n\n VAR_10, VAR_11 := VAR_5.CreateChatCompletion(VAR_0, VAR_9)\n if VAR_11 != nil {\n continue\n }\n\n if len(VAR_10.Choices) < 1 || len(VAR_10.Choices[0].Message.Content) == 0 {\n continue\n }\n VAR_12 := VAR_10.Choices[0].Message.Content\n\n var VAR_13 struct {\n VAR_14 []string `STR_4`\n }\n VAR_11 = json.Unmarshal([]byte(VAR_12), &VAR_13)\n if VAR_11 == nil {\n return VAR_13.Translations, nil\n }\n\n }\n\n VAR_15 := make([]string, len(VAR_1))\n for i := range VAR_15 {\n VAR_15[i] = \"STR_5\"\n }\n return VAR_15, nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/semgrep/semgrep-rules",
+            "license_spdx": "NOASSERTION",
+            "license_name": "Other"
+          },
+          "hybrid": {
+            "score": 0.496127,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.496127,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "NOASSERTION"
           }
         },
         {
@@ -456,6 +831,23 @@
             "chunk_type": "function",
             "symbol_name": "BatchTranslate",
             "anonymized_code": "func (h *Handler) FUNC_0(VAR_0 context.Context, VAR_1 []string, VAR_2 string) ([]string, error) {\n\n for VAR_3 := 0; VAR_3 < 3; VAR_3++ {\n VAR_0, VAR_4 := context.WithTimeout(VAR_0, h.cfg.Timeout)\n defer VAR_4()\n\n h.Lock()\n VAR_5 := h.clients[h.index]\n h.index = (h.index + 1) % len(h.clients)\n h.Unlock()\n\n VAR_6, _ := json.Marshal(VAR_1)\n VAR_7 := fmt.Sprintf(\"STR_0\", VAR_2, string(VAR_6))\n\n VAR_8 := []gogpt.ChatCompletionMessage{\n {\n Role: \"STR_1\",\n Content: VAR_7,\n },\n }\n\n VAR_9 := gogpt.ChatCompletionRequest{\n Model: \"STR_2\",\n Messages: VAR_8,\n MaxTokens: 1024,\n Temperature: 0.1,\n ResponseFormat: &gogpt.ChatCompletionResponseFormat{Type: \"STR_3\"},\n }\n\n VAR_10, VAR_11 := VAR_5.CreateChatCompletion(VAR_0, VAR_9)\n if VAR_11 != nil {\n continue\n }\n\n if len(VAR_10.Choices) < 1 || len(VAR_10.Choices[0].Message.Content) == 0 {\n continue\n }\n VAR_12 := VAR_10.Choices[0].Message.Content\n\n var VAR_13 struct {\n VAR_14 []string `STR_4`\n }\n VAR_11 = json.Unmarshal([]byte(VAR_12), &VAR_13)\n if VAR_11 == nil {\n return VAR_13.Translations, nil\n }\n\n }\n\n VAR_15 := make([]string, len(VAR_1))\n for i := range VAR_15 {\n VAR_15[i] = \"STR_5\"\n }\n return VAR_15, nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/mongodb/semgrep-rules",
+            "license_spdx": "NOASSERTION",
+            "license_name": "Other"
+          },
+          "hybrid": {
+            "score": 0.435021,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.435021,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "NOASSERTION"
           }
         },
         {
@@ -472,6 +864,56 @@
             "chunk_type": "function",
             "symbol_name": "FindImpactScoped",
             "anonymized_code": "func (s *Store) FUNC_0(VAR_0, VAR_1 string, VAR_2, VAR_3 int) ([]ImpactResult, error) {\n if VAR_2 <= 0 {\n VAR_2 = 2\n }\n if VAR_2 > 5 {\n VAR_2 = 5\n }\n\n VAR_4 := make(map[string]bool)\n var VAR_5 []ImpactResult\n VAR_6 := []string{VAR_0}\n\n for VAR_7 := 1; VAR_7 <= VAR_2 && len(VAR_6) > 0 && len(VAR_5) < VAR_3; VAR_7++ {\n var VAR_8 []string\n for _, sym := range VAR_6 {\n var VAR_9 *sql.Rows\n var VAR_10 error\n if VAR_1 == \"STR_0\" {\n VAR_9, VAR_10 = s.db.Query(`STR_1`, sym)\n } else {\n VAR_9, VAR_10 = s.db.Query(`STR_2`, sym, VAR_1)\n }\n if VAR_10 != nil {\n continue\n }\n for VAR_9.Next() {\n var VAR_11, VAR_12, VAR_13 string\n var VAR_14 int\n if VAR_10 := VAR_9.Scan(&VAR_11, &VAR_12, &VAR_14, &VAR_13); VAR_10 != nil {\n continue\n }\n\n VAR_15, VAR_10 := s.EnclosingSymbol(VAR_11, VAR_14)\n if VAR_10 != nil || VAR_15 == \"STR_0\" || VAR_15 == sym {\n continue\n }\n\n VAR_16 := VAR_15 + \"STR_3\" + VAR_11\n if VAR_4[VAR_16] {\n continue\n }\n VAR_4[VAR_16] = true\n\n VAR_5 = append(VAR_5, ImpactResult{\n Symbol: sym,\n Caller: VAR_15,\n File: VAR_11,\n RelPath: VAR_12,\n Line: VAR_14,\n Depth: VAR_7,\n })\n VAR_8 = append(VAR_8, VAR_15)\n\n if len(VAR_5) >= VAR_3 {\n VAR_9.Close()\n return VAR_5, nil\n }\n }\n VAR_9.Close()\n }\n VAR_6 = VAR_8\n }\n\n return VAR_5, nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/1broseidon/cymbal",
+            "license_spdx": "MIT",
+            "license_name": "MIT License"
+          },
+          "hybrid": {
+            "score": 0.373377,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.373377,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 1.0,
+            "risk_level": "critical",
+            "strongest_evidence_type": "anonymized_code_match",
+            "license_spdx": "MIT"
+          }
+        },
+        {
+          "chunk_id": "5180ede93643cd9fdf9439d890794a8758ccebdb",
+          "repo_id": "github:harness/harness",
+          "file_path": "git/command/command.go",
+          "symbol_name": "Run",
+          "retrieval_sources": ["rule_based"],
+          "candidate_chunk": {
+            "chunk_id": "5180ede93643cd9fdf9439d890794a8758ccebdb",
+            "repo_id": "github:harness/harness",
+            "language": "go",
+            "file_path": "git/command/command.go",
+            "chunk_type": "function",
+            "symbol_name": "Run",
+            "anonymized_code": "func (c *Command) FUNC_0(VAR_0 context.Context, VAR_1 ...RunOptionFunc) (VAR_2 error) {\n VAR_3 := &RunOption{}\n for _, f := range VAR_1 {\n f(VAR_3)\n }\n\n if VAR_3.Stdout == nil {\n VAR_3.Stdout = io.Discard\n }\n VAR_4 := false\n if VAR_3.Stderr == nil {\n VAR_3.Stderr = new(bytes.Buffer)\n VAR_4 = true\n }\n\n VAR_5, VAR_2 := c.makeArgs()\n if VAR_2 != nil {\n return fmt.Errorf(\"STR_0\", VAR_2)\n }\n VAR_6 := exec.CommandContext(VAR_0, GitExecutable, VAR_5...)\n if len(c.Envs) > 0 {\n VAR_6.Env = c.Envs.Args()\n }\n VAR_6.Env = append(VAR_6.Env, VAR_3.Envs...)\n VAR_6.Dir = VAR_3.Dir\n VAR_6.Stdin = VAR_3.Stdin\n VAR_6.Stdout = VAR_3.Stdout\n VAR_6.Stderr = VAR_3.Stderr\n if VAR_2 = VAR_6.Start(); VAR_2 != nil {\n return VAR_2\n }\n\n VAR_7 := make(chan error)\n go func() {\n VAR_7 <- VAR_6.Wait()\n }()\n\n select {\n case <-VAR_0.Done():\n <-VAR_7\n if VAR_6.Process != nil && VAR_6.ProcessState != nil && !VAR_6.ProcessState.Exited() {\n if VAR_2 := VAR_6.Process.Kill(); VAR_2 != nil && !errors.Is(VAR_0.Err(), context.DeadlineExceeded) {\n return fmt.Errorf(\"STR_1\", VAR_2)\n }\n }\n\n return VAR_0.Err()\n case VAR_2 = <-VAR_7:\n if VAR_2 == nil {\n return nil\n }\n\n var VAR_8 []byte\n if VAR_9, VAR_10 := VAR_3.Stderr.(*bytes.Buffer); VAR_10 && VAR_4 {\n VAR_8 = VAR_9.Bytes()\n }\n return NewError(VAR_2, VAR_8)\n }\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/harness/harness",
+            "license_spdx": "Apache-2.0",
+            "license_name": "Apache License 2.0"
+          },
+          "hybrid": {
+            "score": 0.694469,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.694469,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.6407,
+            "risk_level": "medium",
+            "strongest_evidence_type": "structural_similarity",
+            "license_spdx": "Apache-2.0"
           }
         },
         {
@@ -488,6 +930,23 @@
             "chunk_type": "function",
             "symbol_name": "Dispatch",
             "anonymized_code": "func (d *validatingDispatcher) FUNC_0(VAR_0 context.Context, VAR_1 admission.Attributes, VAR_2 admission.ObjectInterfaces, VAR_3 []webhook.WebhookAccessor) error {\n var VAR_4 []*generic.WebhookInvocation\n\n VAR_5 := &versionedAttributeAccessor{\n versionedAttrs: map[schema.GroupVersionKind]*admission.VersionedAttributes{},\n VAR_1: VAR_1,\n objectInterfaces: VAR_2,\n }\n for _, VAR_6 := range VAR_3 {\n invocation, VAR_7 := d.plugin.ShouldCallHook(VAR_0, VAR_6, VAR_1, VAR_2, VAR_5)\n if VAR_7 != nil {\n return VAR_7\n }\n if invocation == nil {\n continue\n }\n\n VAR_4 = append(VAR_4, invocation)\n\n _, VAR_8 := VAR_5.VersionedAttribute(invocation.Kind)\n if VAR_8 != nil {\n return apierrors.NewInternalError(VAR_8)\n }\n }\n\n if len(VAR_4) == 0 {\n\n return nil\n }\n\n select {\n case <-VAR_0.Done():\n\n return apierrors.NewTimeoutError(\"STR_0\", 0)\n default:\n }\n\n VAR_9 := sync.WaitGroup{}\n VAR_10 := make(chan error, 2*len(VAR_4))\n VAR_9.Add(len(VAR_4))\n for VAR_11 := range VAR_4 {\n go func(invocation *generic.WebhookInvocation, idx int) {\n VAR_12 := false\n VAR_13 := \"STR_1\"\n VAR_14 := VAR_5.versionedAttrs[invocation.Kind]\n\n defer VAR_9.Done()\n defer func() {\n\n recover()\n }()\n defer utilruntime.HandleCrash(\n func(r interface{}) {\n if r == nil {\n return\n }\n if VAR_12 {\n\n klog.Warningf(\"STR_2\", VAR_13, r)\n admissionmetrics.Metrics.ObserveWebhookFailOpen(VAR_0, VAR_13, \"STR_3\")\n VAR_15 := fmt.Sprintf(\"STR_4\", ValidatingAuditAnnotationFailedOpenKeyPrefix, idx)\n VAR_16 := VAR_13\n if VAR_8 := VAR_14.Attributes.AddAnnotation(VAR_15, VAR_16); VAR_8 != nil {\n klog.Warningf(\"STR_5\", VAR_15, VAR_16, VAR_13, VAR_8)\n }\n return\n }\n\n VAR_10 <- apierrors.NewInternalError(fmt.Errorf(\"STR_6\", VAR_13, r))\n },\n )\n\n VAR_6, VAR_17 := invocation.Webhook.GetValidatingWebhook()\n if !VAR_17 {\n utilruntime.HandleError(fmt.Errorf(\"STR_7\", VAR_6))\n return\n }\n VAR_13 = VAR_6.Name\n VAR_12 = VAR_6.FailurePolicy != nil && *VAR_6.FailurePolicy == v1.Ignore\n VAR_18 := time.Now()\n VAR_8 := d.callHook(VAR_0, VAR_6, invocation, VAR_14)\n VAR_19 := false\n if VAR_8 != nil {\n switch VAR_8 := VAR_8.(type) {\n case *webhookutil.ErrCallingWebhook:\n if !VAR_12 {\n VAR_19 = true\n\n if !errors.Is(VAR_8.Reason, context.Canceled) {\n admissionmetrics.Metrics.ObserveWebhookRejection(VAR_0, VAR_6.Name, \"STR_3\", string(VAR_14.Attributes.GetOperation()), admissionmetrics.WebhookRejectionCallingWebhookError, int(VAR_8.Status.ErrStatus.Code))\n }\n }\n admissionmetrics.Metrics.ObserveWebhook(VAR_0, VAR_6.Name, time.Since(VAR_18), VAR_19, VAR_14.Attributes, \"STR_3\", int(VAR_8.Status.ErrStatus.Code))\n case *webhookutil.ErrWebhookRejection:\n VAR_19 = true\n admissionmetrics.Metrics.ObserveWebhookRejection(VAR_0, VAR_6.Name, \"STR_3\", string(VAR_14.Attributes.GetOperation()), admissionmetrics.WebhookRejectionNoError, int(VAR_8.Status.ErrStatus.Code))\n admissionmetrics.Metrics.ObserveWebhook(VAR_0, VAR_6.Name, time.Since(VAR_18), VAR_19, VAR_14.Attributes, \"STR_3\", int(VAR_8.Status.ErrStatus.Code))\n default:\n VAR_19 = true\n admissionmetrics.Metrics.ObserveWebhookRejection(VAR_0, VAR_6.Name, \"STR_3\", string(VAR_14.Attributes.GetOperation()), admissionmetrics.WebhookRejectionAPIServerInternalError, 0)\n admissionmetrics.Metrics.ObserveWebhook(VAR_0, VAR_6.Name, time.Since(VAR_18), VAR_19, VAR_14.Attributes, \"STR_3\", 0)\n }\n } else {\n admissionmetrics.Metrics.ObserveWebhook(VAR_0, VAR_6.Name, time.Since(VAR_18), VAR_19, VAR_14.Attributes, \"STR_3\", 200)\n return\n }\n\n if VAR_20, VAR_17 := VAR_8.(*webhookutil.ErrCallingWebhook); VAR_17 {\n if VAR_12 {\n\n if errors.Is(VAR_20.Reason, context.Canceled) {\n klog.Warningf(\"STR_8\", VAR_6.Name)\n } else {\n klog.Warningf(\"STR_9\", VAR_6.Name, VAR_20)\n admissionmetrics.Metrics.ObserveWebhookFailOpen(VAR_0, VAR_6.Name, \"STR_3\")\n VAR_15 := fmt.Sprintf(\"STR_4\", ValidatingAuditAnnotationFailedOpenKeyPrefix, idx)\n VAR_16 := VAR_6.Name\n if VAR_8 := VAR_14.Attributes.AddAnnotation(VAR_15, VAR_16); VAR_8 != nil {\n klog.Warningf(\"STR_5\", VAR_15, VAR_16, VAR_6.Name, VAR_8)\n }\n }\n utilruntime.HandleError(VAR_20)\n return\n }\n\n klog.Warningf(\"STR_10\", VAR_6.Name, VAR_8)\n VAR_10 <- apierrors.NewInternalError(VAR_8)\n return\n }\n\n if VAR_21, VAR_17 := VAR_8.(*webhookutil.ErrWebhookRejection); VAR_17 {\n VAR_8 = VAR_21.Status\n }\n klog.Warningf(\"STR_11\", VAR_6.Name, VAR_8)\n VAR_10 <- VAR_8\n }(VAR_4[VAR_11], VAR_11)\n }\n VAR_9.Wait()\n close(VAR_10)\n\n var VAR_22 []error\n for e := range VAR_10 {\n VAR_22 = append(VAR_22, e)\n }\n if len(VAR_22) == 0 {\n return nil\n }\n if len(VAR_22) > 1 {\n for VAR_11 := 1; VAR_11 < len(VAR_22); VAR_11++ {\n\n utilruntime.HandleError(VAR_22[VAR_11])\n }\n }\n return VAR_22[0]\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/kubernetes/apiserver",
+            "license_spdx": "Apache-2.0",
+            "license_name": "Apache License 2.0"
+          },
+          "hybrid": {
+            "score": 0.316448,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.316448,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.6218,
+            "risk_level": "medium",
+            "strongest_evidence_type": "structural_similarity",
+            "license_spdx": "Apache-2.0"
           }
         },
         {
@@ -504,6 +963,23 @@
             "chunk_type": "function",
             "symbol_name": "Fetch",
             "anonymized_code": "func (sub *Subscription) FUNC_0(VAR_0 int, VAR_1 ...PullOpt) ([]*Msg, error) {\n if sub == nil {\n return nil, ErrBadSubscription\n }\n if VAR_0 < 1 {\n return nil, ErrInvalidArg\n }\n\n var VAR_2 pullOpts\n for _, opt := range VAR_1 {\n if VAR_3 := opt.configurePull(&VAR_2); VAR_3 != nil {\n return nil, VAR_3\n }\n }\n if VAR_2.ctx != nil && VAR_2.ttl != 0 {\n return nil, ErrContextAndTimeout\n }\n\n sub.mu.Lock()\n VAR_4 := sub.jsi\n\n if VAR_4 == nil || !VAR_4.pull {\n sub.mu.Unlock()\n return nil, ErrTypeSubscription\n }\n\n VAR_5 := sub.conn\n VAR_6 := sub.jsi.nms\n VAR_7, _ := newFetchInbox(VAR_4.deliver)\n VAR_8 := sub.jsi.js\n VAR_9 := len(sub.mch) > 0\n\n VAR_10 := VAR_2.ttl\n if VAR_10 == 0 {\n VAR_10 = VAR_8.opts.wait\n }\n sub.mu.Unlock()\n\n var (\n VAR_11 = VAR_2.ctx\n VAR_3 error\n VAR_12 context.CancelFunc\n )\n if VAR_11 == nil {\n VAR_11, VAR_12 = context.WithTimeout(context.Background(), VAR_10)\n } else if _, VAR_13 := VAR_11.Deadline(); !VAR_13 {\n\n if VAR_14, VAR_15 := VAR_11.(ContextOpt); VAR_15 && VAR_14.Context == context.Background() {\n return nil, ErrNoDeadlineContext\n }\n\n VAR_11, VAR_12 = context.WithTimeout(VAR_11, VAR_10)\n } else {\n VAR_11, VAR_12 = context.WithCancel(VAR_11)\n }\n defer VAR_12()\n\n if VAR_2.hb > 0 {\n VAR_16, _ := VAR_11.Deadline()\n if 2*VAR_2.hb >= time.Until(VAR_16) {\n return nil, fmt.Errorf(\"STR_0\", ErrInvalidArg)\n }\n }\n\n select {\n case <-VAR_11.Done():\n if VAR_2.ctx != nil {\n VAR_3 = VAR_11.Err()\n } else {\n VAR_3 = ErrTimeout\n }\n default:\n }\n if VAR_3 != nil {\n return nil, VAR_3\n }\n\n var (\n VAR_17 = make([]*Msg, 0, VAR_0)\n VAR_18 *Msg\n )\n for VAR_9 && len(VAR_17) < VAR_0 {\n\n VAR_18, VAR_3 = sub.nextMsgWithContext(VAR_11, true, false)\n if VAR_3 != nil {\n if errors.Is(VAR_3, errNoMessages) {\n VAR_3 = nil\n }\n break\n }\n\n if VAR_19, _ := checkMsg(VAR_18, false, false); VAR_19 {\n VAR_17 = append(VAR_17, VAR_18)\n }\n }\n var VAR_20 *time.Timer\n defer func() {\n if VAR_20 != nil {\n VAR_20.Stop()\n }\n }()\n var VAR_21 error\n sub.mu.Lock()\n VAR_22 := sub.closed || sub.draining\n sub.mu.Unlock()\n if VAR_22 {\n VAR_3 = errors.Join(ErrBadSubscription, ErrSubscriptionClosed)\n }\n VAR_23 := sync.Mutex{}\n var VAR_24 atomic.Bool\n if VAR_3 == nil && len(VAR_17) < VAR_0 && !VAR_22 {\n\n VAR_25 := VAR_0-len(VAR_17) > 1\n\n var VAR_26 nextRequest\n\n VAR_27 := func() error {\n\n VAR_16, _ := VAR_11.Deadline()\n VAR_10 = time.Until(VAR_16)\n\n select {\n case <-VAR_11.Done():\n return VAR_11.Err()\n default:\n }\n\n VAR_28 := min(time.Duration(float64(VAR_10)*0.1), 5*time.Second)\n VAR_29 := VAR_10 - VAR_28\n\n VAR_26.Batch = VAR_0 - len(VAR_17)\n VAR_26.Expires = VAR_29\n VAR_26.NoWait = VAR_25\n VAR_26.MaxBytes = VAR_2.maxBytes\n if 2*VAR_2.hb < VAR_29 {\n VAR_26.Heartbeat = VAR_2.hb\n } else {\n VAR_26.Heartbeat = 0\n }\n VAR_30, _ := json.Marshal(VAR_26)\n if VAR_3 := VAR_5.PublishRequest(VAR_6, VAR_7, VAR_30); VAR_3 != nil {\n return VAR_3\n }\n if VAR_2.hb > 0 {\n if VAR_20 == nil {\n VAR_20 = time.AfterFunc(2*VAR_2.hb, func() {\n VAR_23.Lock()\n VAR_21 = ErrNoHeartbeat\n VAR_23.Unlock()\n VAR_12()\n })\n } else {\n VAR_20.Reset(2 * VAR_2.hb)\n }\n }\n return nil\n }\n VAR_31 := VAR_5.StatusChanged()\n go func() {\n select {\n case <-VAR_11.Done():\n case <-VAR_31:\n VAR_24.Store(true)\n VAR_12()\n }\n VAR_5.RemoveStatusListener(VAR_31)\n }()\n VAR_3 = VAR_27()\n for VAR_3 == nil && len(VAR_17) < VAR_0 {\n\n VAR_18, VAR_3 = sub.nextMsgWithContext(VAR_11, true, true)\n if VAR_3 == nil {\n if VAR_20 != nil {\n VAR_20.Reset(2 * VAR_2.hb)\n }\n var VAR_19 bool\n\n VAR_19, VAR_3 = checkMsg(VAR_18, true, VAR_25)\n if VAR_3 == nil && VAR_19 {\n VAR_17 = append(VAR_17, VAR_18)\n } else if VAR_25 && (errors.Is(VAR_3, errNoMessages) || errors.Is(VAR_3, errRequestsPending)) && len(VAR_17) == 0 {\n\n VAR_25 = false\n VAR_3 = VAR_27()\n } else if errors.Is(VAR_3, ErrTimeout) && len(VAR_17) == 0 {\n\n VAR_3 = nil\n }\n }\n }\n }\n\n if VAR_3 != nil && len(VAR_17) == 0 {\n VAR_23.Lock()\n defer VAR_23.Unlock()\n if VAR_21 != nil {\n return nil, VAR_21\n }\n if VAR_24.Load() {\n return nil, ErrFetchDisconnected\n }\n return nil, VAR_2.checkCtxErr(VAR_3)\n }\n return VAR_17, nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/nats-io/nats.go",
+            "license_spdx": "Apache-2.0",
+            "license_name": "Apache License 2.0"
+          },
+          "hybrid": {
+            "score": 0.095084,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.095084,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.6108,
+            "risk_level": "medium",
+            "strongest_evidence_type": "structural_similarity",
+            "license_spdx": "Apache-2.0"
           }
         },
         {
@@ -520,6 +996,23 @@
             "chunk_type": "function",
             "symbol_name": "ChatWithMessagesContext",
             "anonymized_code": "func (c *Client) FUNC_0(VAR_0 context.Context, VAR_1 string, VAR_2 []OpenAIChatMessage, VAR_3 string, VAR_4 []string, VAR_5 func(string), VAR_6 bool, VAR_7 ...ClientTool) (string, error) {\n\n var VAR_8 interface{}\n if len(VAR_4) > 0 {\n\n VAR_9 := make([]ContentPart, 0, len(VAR_4)+1)\n\n for _, imageURL := range VAR_4 {\n VAR_9 = append(VAR_9, ContentPart{\n Type: \"STR_0\",\n ImageURL: &ImageURL{\n URL: imageURL,\n },\n })\n }\n\n if VAR_3 != \"STR_1\" {\n VAR_9 = append(VAR_9, ContentPart{\n Type: \"STR_2\",\n Text: VAR_3,\n })\n }\n\n VAR_8 = VAR_9\n } else {\n\n VAR_8 = VAR_3\n }\n\n VAR_10 := make([]OpenAIChatMessage, 0, len(VAR_2)+1)\n VAR_10 = append(VAR_10, VAR_2...)\n VAR_10 = append(VAR_10, OpenAIChatMessage{\n Role: \"STR_3\",\n Content: VAR_8,\n })\n\n VAR_11 := VAR_10\n\n var VAR_12 []Tool\n VAR_13 := make(map[string]ClientTool, len(VAR_7))\n for _, t := range VAR_7 {\n VAR_12 = append(VAR_12, t.Schema())\n VAR_13[t.Name()] = t\n }\n\n VAR_14 := len(VAR_12) > 0\n\n type chatPrinterState int\n const (\n VAR_15 chatPrinterState = iota\n VAR_16\n VAR_17\n )\n\n VAR_18 := color.New().Add(color.Italic)\n if !VAR_6 {\n VAR_18.DisableColor()\n }\n\n var VAR_19 *struct {\n VAR_20 int `STR_4`\n VAR_21 int `STR_5`\n VAR_22 int `STR_6`\n }\n\n VAR_23 := c.modelRunner.OpenAIPathPrefix() + \"STR_7\"\n\n var VAR_24 strings.Builder\n\n VAR_25 := 0\n for {\n VAR_26 := OpenAIChatRequest{\n Model: VAR_1,\n Messages: VAR_10,\n Stream: true,\n Tools: VAR_12,\n }\n\n VAR_27, VAR_28 := json.Marshal(VAR_26)\n if VAR_28 != nil {\n return VAR_24.String(), fmt.Errorf(\"STR_8\", VAR_28)\n }\n\n VAR_29, VAR_28 := c.doRequestWithAuthContext(\n VAR_0,\n http.MethodPost,\n VAR_23,\n bytes.NewReader(VAR_27),\n )\n if VAR_28 != nil {\n return VAR_24.String(), c.handleQueryError(VAR_28, VAR_23)\n }\n\n if VAR_29.StatusCode != http.StatusOK {\n VAR_30, _ := io.ReadAll(VAR_29.Body)\n VAR_29.Body.Close()\n\n if VAR_14 && isTemplateIncompatibleError(VAR_30) {\n VAR_12 = nil\n VAR_13 = nil\n VAR_14 = false\n VAR_10 = VAR_11\n VAR_24.Reset()\n continue\n }\n return VAR_24.String(), fmt.Errorf(\"STR_9\", VAR_29.StatusCode, VAR_30)\n }\n\n VAR_31 := VAR_15\n\n VAR_32 := make(map[int]*accumulatedToolCall)\n var VAR_33 string\n\n VAR_34 := bufio.NewReader(VAR_29.Body)\n\n for {\n VAR_35, VAR_28 := VAR_34.Peek(1)\n if VAR_28 != nil {\n break\n }\n\n if VAR_35[0] == '{' || VAR_35[0] == ':' {\n break\n }\n VAR_36, VAR_28 := VAR_34.ReadString('\\n')\n if VAR_28 != nil && VAR_36 == \"STR_1\" {\n break\n }\n VAR_36 = strings.TrimRight(VAR_36, \"STR_10\")\n if VAR_36 == \"STR_1\" {\n continue\n }\n\n if strings.HasPrefix(VAR_36, \"STR_11\") {\n\n VAR_34 = bufio.NewReader(io.MultiReader(\n strings.NewReader(VAR_36+\"STR_12\"),\n VAR_34,\n ))\n break\n }\n\n fmt.Fprintln(os.Stderr, VAR_36)\n }\n\n VAR_37 := strings.HasPrefix(VAR_29.Header.Get(\"STR_13\"), \"STR_14\")\n if !VAR_37 {\n if VAR_35, VAR_28 := VAR_34.Peek(5); VAR_28 == nil {\n VAR_37 = strings.HasPrefix(string(VAR_35), \"STR_11\")\n }\n }\n\n if !VAR_37 {\n\n VAR_30, VAR_28 := io.ReadAll(VAR_34)\n VAR_29.Body.Close()\n if VAR_28 != nil {\n return VAR_24.String(), fmt.Errorf(\"STR_15\", VAR_28)\n }\n\n var VAR_38 OpenAIChatResponse\n if VAR_28 := json.Unmarshal(VAR_30, &VAR_38); VAR_28 != nil {\n return VAR_24.String(), fmt.Errorf(\"STR_16\", VAR_28)\n }\n\n if len(VAR_38.Choices) > 0 {\n if VAR_38.Choices[0].Message.Content != \"STR_1\" {\n VAR_39 := VAR_38.Choices[0].Message.Content\n VAR_5(VAR_39)\n VAR_24.WriteString(VAR_39)\n }\n VAR_33 = VAR_38.Choices[0].FinishReason\n for _, tc := range VAR_38.Choices[0].Message.ToolCalls {\n VAR_40 := &accumulatedToolCall{id: tc.ID, name: tc.Function.Name}\n VAR_40.arguments.WriteString(tc.Function.Arguments)\n VAR_32[tc.Index] = VAR_40\n }\n }\n\n if VAR_38.Usage != nil {\n VAR_19 = VAR_38.Usage\n }\n } else {\n\n VAR_41 := bufio.NewScanner(VAR_34)\n\n for VAR_41.Scan() {\n\n select {\n case <-VAR_0.Done():\n VAR_29.Body.Close()\n return VAR_24.String(), VAR_0.Err()\n default:\n }\n\n VAR_36 := VAR_41.Text()\n if VAR_36 == \"STR_1\" {\n continue\n }\n\n if !strings.HasPrefix(VAR_36, \"STR_17\") {\n continue\n }\n\n VAR_42 := strings.TrimPrefix(VAR_36, \"STR_17\")\n\n if VAR_42 == \"STR_18\" {\n break\n }\n\n var VAR_43 OpenAIChatResponse\n if VAR_28 := json.Unmarshal([]byte(VAR_42), &VAR_43); VAR_28 != nil {\n VAR_29.Body.Close()\n return VAR_24.String(), fmt.Errorf(\"STR_19\", VAR_28)\n }\n\n if VAR_43.Usage != nil {\n VAR_19 = VAR_43.Usage\n }\n\n if len(VAR_43.Choices) > 0 {\n VAR_44 := VAR_43.Choices[0]\n\n if VAR_44.FinishReason != \"STR_1\" {\n VAR_33 = VAR_44.FinishReason\n }\n\n for _, tc := range VAR_44.Delta.ToolCalls {\n VAR_40, VAR_45 := VAR_32[tc.Index]\n if !VAR_45 {\n VAR_40 = &accumulatedToolCall{}\n VAR_32[tc.Index] = VAR_40\n }\n if tc.ID != \"STR_1\" {\n VAR_40.id = tc.ID\n }\n if tc.Function.Name != \"STR_1\" {\n VAR_40.name = tc.Function.Name\n }\n VAR_40.arguments.WriteString(tc.Function.Arguments)\n }\n\n if VAR_44.Delta.ReasoningContent != \"STR_1\" {\n VAR_46 := VAR_44.Delta.ReasoningContent\n if VAR_31 == VAR_17 {\n VAR_5(\"STR_20\")\n }\n if VAR_31 != VAR_16 {\n const VAR_47 = \"STR_21\"\n if VAR_18 != nil {\n VAR_18.Print(VAR_47)\n } else {\n VAR_5(VAR_47)\n }\n }\n VAR_31 = VAR_16\n if VAR_18 != nil {\n VAR_18.Print(VAR_46)\n } else {\n VAR_5(VAR_46)\n }\n }\n if VAR_44.Delta.Content != \"STR_1\" {\n VAR_46 := VAR_44.Delta.Content\n if VAR_31 == VAR_16 {\n VAR_5(\"STR_22\")\n }\n VAR_31 = VAR_17\n VAR_5(VAR_46)\n VAR_24.WriteString(VAR_46)\n }\n }\n }\n\n VAR_29.Body.Close()\n if VAR_28 := VAR_41.Err(); VAR_28 != nil {\n return VAR_24.String(), fmt.Errorf(\"STR_23\", VAR_28)\n }\n }\n\n if VAR_33 == \"STR_24\" && len(VAR_32) > 0 {\n VAR_25++\n if VAR_25 >= maxToolCallIterations {\n return VAR_24.String(), fmt.Errorf(\"STR_25\", maxToolCallIterations)\n }\n\n VAR_48 := make([]ToolCall, 0, len(VAR_32))\n for VAR_49 := 0; VAR_49 < len(VAR_32); VAR_49++ {\n VAR_40, VAR_45 := VAR_32[VAR_49]\n if !VAR_45 {\n continue\n }\n VAR_48 = append(VAR_48, ToolCall{\n ID: VAR_40.id,\n Type: \"STR_26\",\n Function: ToolCallFunction{\n Name: VAR_40.name,\n Arguments: VAR_40.arguments.String(),\n },\n })\n }\n VAR_10 = append(VAR_10, OpenAIChatMessage{\n Role: \"STR_27\",\n ToolCalls: VAR_48,\n })\n\n for _, tc := range VAR_48 {\n var VAR_50 string\n if VAR_51, VAR_45 := VAR_13[tc.Function.Name]; VAR_45 {\n var VAR_52 map[string]any\n if VAR_28 := json.Unmarshal([]byte(tc.Function.Arguments), &VAR_52); VAR_28 != nil {\n VAR_50 = fmt.Sprintf(\"STR_28\", VAR_28)\n } else {\n fmt.Fprintf(os.Stderr, \"STR_29\", tc.Function.Name, tc.Function.Arguments)\n var VAR_53 error\n VAR_50, VAR_53 = VAR_51.Execute(VAR_0, VAR_52)\n if VAR_53 != nil {\n VAR_50 = fmt.Sprintf(\"STR_30\", VAR_53)\n }\n }\n } else {\n VAR_50 = fmt.Sprintf(\"STR_31\", tc.Function.Name)\n }\n VAR_10 = append(VAR_10, OpenAIChatMessage{\n Role: \"STR_32\",\n ToolCallID: tc.ID,\n Content: VAR_50,\n })\n }\n\n VAR_24.Reset()\n continue\n }\n\n break\n }\n\n if VAR_19 != nil {\n VAR_54 := fmt.Sprintf(\"STR_33\",\n VAR_19.PromptTokens,\n VAR_19.CompletionTokens,\n VAR_19.TotalTokens)\n\n VAR_55 := color.New(color.FgHiBlack)\n if !VAR_6 {\n VAR_55.DisableColor()\n }\n VAR_5(VAR_55.Sprint(VAR_54))\n }\n\n return VAR_24.String(), nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/docker/model-runner",
+            "license_spdx": "Apache-2.0",
+            "license_name": "Apache License 2.0"
+          },
+          "hybrid": {
+            "score": 0.041616,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.041616,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.6081,
+            "risk_level": "medium",
+            "strongest_evidence_type": "structural_similarity",
+            "license_spdx": "Apache-2.0"
           }
         },
         {
@@ -536,6 +1029,23 @@
             "chunk_type": "function",
             "symbol_name": "BatchGetEvaluatorRecord",
             "anonymized_code": "func (r *EvaluatorRecordRepoImpl) FUNC_0(VAR_0 context.Context, VAR_1 []int64, VAR_2, VAR_3 bool, VAR_4 ...entity.GetEvaluatorRecordOptionFn) ([]*entity.EvaluatorRecord, error) {\n VAR_5 := &entity.GetEvaluatorRecordOption{}\n for _, fn := range VAR_4 {\n fn(VAR_5)\n }\n const VAR_6 = 50\n VAR_7 := len(VAR_1)\n if VAR_7 == 0 {\n return []*entity.EvaluatorRecord{}, nil\n }\n\n VAR_8 := make([]*entity.EvaluatorRecord, 0, VAR_7)\n\n for VAR_9 := 0; VAR_9 < VAR_7; VAR_9 += VAR_6 {\n VAR_10 := VAR_9 + VAR_6\n if VAR_10 > VAR_7 {\n VAR_10 = VAR_7\n }\n\n VAR_11 := VAR_1[VAR_9:VAR_10]\n VAR_12, VAR_13 := r.evaluatorRecordDao.BatchGetEvaluatorRecord(VAR_0, VAR_11, VAR_2)\n if VAR_13 != nil {\n return nil, VAR_13\n }\n\n for _, po := range VAR_12 {\n VAR_14, VAR_13 := convertor.ConvertEvaluatorRecordPO2DO(po)\n if VAR_13 != nil {\n return nil, VAR_13\n }\n\n VAR_8 = append(VAR_8, VAR_14)\n }\n }\n\n if VAR_3 && !VAR_5.WithoutLoadStorageData && r.recordDataStorage != nil {\n for _, record := range VAR_8 {\n if record != nil {\n if VAR_13 := r.recordDataStorage.LoadEvaluatorRecordData(VAR_0, record); VAR_13 != nil {\n return nil, VAR_13\n }\n }\n }\n }\n\n return VAR_8, nil\n}"
+          },
+          "candidate_repo": {
+            "repo_url": "https://github.com/coze-dev/coze-loop",
+            "license_spdx": "Apache-2.0",
+            "license_name": "Apache License 2.0"
+          },
+          "hybrid": {
+            "score": 0.0,
+            "source_count": 1,
+            "rule_based_scaled_score": 0.0,
+            "knn_scaled_score": null
+          },
+          "license_review": {
+            "risk_score": 0.606,
+            "risk_level": "medium",
+            "strongest_evidence_type": "structural_similarity",
+            "license_spdx": "Apache-2.0"
           }
         }
       ]
