@@ -26,14 +26,24 @@ def _load_env_file(env_path: Path) -> None:
 
 _load_env_file(PROJECT_ROOT / ".env")
 
-from worker.repo.repo_direct_url_service import process_github_repo_url  # noqa: E402
-from worker.retrieval.hybrid_chunk_retrieval_service import (  # noqa: E402
-    find_repo_chunk,
-    retrieve_hybrid_candidates,
-    retrieve_hybrid_candidates_by_chunk_id,
-    retrieve_hybrid_candidates_for_repo,
-)
-from worker.storage.opensearch_store import OpenSearchStore  # noqa: E402
+try:
+    from worker.repo.repo_direct_url_service import process_github_repo_url  # noqa: E402
+    from worker.retrieval.hybrid_chunk_retrieval_service import (  # noqa: E402
+        find_repo_chunk,
+        retrieve_hybrid_candidates,
+        retrieve_hybrid_candidates_by_chunk_id,
+        retrieve_hybrid_candidates_for_repo,
+    )
+    from worker.storage.opensearch_store import OpenSearchStore  # noqa: E402
+except ModuleNotFoundError as exc:  # pragma: no cover - import-time dependency guard
+    if exc.name == "opensearchpy":
+        raise SystemExit(
+            "Missing dependency 'opensearchpy'. Install runtime deps first:\n"
+            "  python3 -m pip install -r airflow/requirements.txt\n"
+            "or minimally:\n"
+            "  python3 -m pip install opensearch-py==2.7.1"
+        ) from exc
+    raise
 
 
 def _load_input_json(path: str) -> dict[str, Any]:
