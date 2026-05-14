@@ -11,8 +11,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - runtime dependency guar
         "Install with: python3 -m pip install fastapi uvicorn"
     ) from exc
 
-from worker.repo.repo_direct_url_service import process_github_repo_url
-from worker.retrieval.hybrid_chunk_retrieval_service import retrieve_hybrid_candidates_for_repo
+from worker.repo.local_query_repo_service import prepare_local_query_repo
+from worker.retrieval.hybrid_chunk_retrieval_service import retrieve_hybrid_candidates_for_source_chunks
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -37,6 +37,17 @@ class HybridRepoRetrieveRequest(BaseModel):
     merged_top_k: int = Field(default=100, ge=1, le=500)
     include_same_repo: bool = Field(default=False)
     skip_validation: bool = Field(default=False)
+
+
+def _compact_repo_processing(process_result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "repo_id": process_result.get("repo_id"),
+        "canonical_repo_url": process_result.get("canonical_repo_url"),
+        "snapshot_ref": process_result.get("snapshot_ref"),
+        "snapshot_archive_url": process_result.get("snapshot_archive_url"),
+        "source_chunk_count": process_result.get("source_chunk_count"),
+        "local_snapshot_cleanup": process_result.get("local_snapshot_cleanup"),
+    }
 
 
 def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -90,7 +101,7 @@ def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
 
 def _compact_repo_hybrid_payload(process_result: dict[str, Any], retrieval_result: dict[str, Any]) -> dict[str, Any]:
     return {
-        "repo_processing": process_result,
+        "repo_processing": _compact_repo_processing(process_result),
         "retrieval_version": retrieval_result.get("retrieval_version"),
         "repo_id": retrieval_result.get("repo_id"),
         "source_chunk_count": retrieval_result.get("source_chunk_count"),
@@ -119,15 +130,14 @@ def health() -> dict[str, str]:
 def retrieve_hybrid_by_repo_url(request: HybridRepoRetrieveRequest) -> dict[str, Any]:
     store = OpenSearchStore()
     try:
-        process_result = process_github_repo_url(
+        process_result = prepare_local_query_repo(
             request.repo_url,
-            store=store,
-            run_validation=not request.skip_validation,
-        )
-        retrieval_result = retrieve_hybrid_candidates_for_repo(
-            str(process_result["repo_id"]),
-            store=store,
             source_chunk_limit=request.source_chunk_limit,
+            precompute_embeddings=True,
+        )
+        retrieval_result = retrieve_hybrid_candidates_for_source_chunks(
+            list(process_result["source_chunks"]),
+            store=store,
             rule_based_top_k=request.rule_based_top_k,
             per_variant_k=request.per_variant_k,
             knn_top_k=request.knn_top_k,

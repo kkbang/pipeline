@@ -27,12 +27,13 @@ def _load_env_file(env_path: Path) -> None:
 _load_env_file(PROJECT_ROOT / ".env")
 
 try:
-    from worker.repo.repo_direct_url_service import process_github_repo_url  # noqa: E402
+    from worker.repo.local_query_repo_service import prepare_local_query_repo  # noqa: E402
     from worker.retrieval.hybrid_chunk_retrieval_service import (  # noqa: E402
         find_repo_chunk,
         retrieve_hybrid_candidates,
         retrieve_hybrid_candidates_by_chunk_id,
         retrieve_hybrid_candidates_for_repo,
+        retrieve_hybrid_candidates_for_source_chunks,
     )
     from worker.storage.opensearch_store import OpenSearchStore  # noqa: E402
 except ModuleNotFoundError as exc:  # pragma: no cover - import-time dependency guard
@@ -118,6 +119,17 @@ def _compact_result_payload(result: Any) -> dict[str, Any]:
     }
 
 
+def _compact_repo_processing_payload(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "repo_id": result.get("repo_id"),
+        "canonical_repo_url": result.get("canonical_repo_url"),
+        "snapshot_ref": result.get("snapshot_ref"),
+        "snapshot_archive_url": result.get("snapshot_archive_url"),
+        "source_chunk_count": result.get("source_chunk_count"),
+        "local_snapshot_cleanup": result.get("local_snapshot_cleanup"),
+    }
+
+
 def _compact_repo_result_payload(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "retrieval_version": result.get("retrieval_version"),
@@ -167,13 +179,11 @@ def main() -> int:
     process_result: dict[str, Any] | None = None
     resolved_repo_id = args.repo_id.strip()
     if args.repo_url.strip():
-        process_result = process_github_repo_url(
+        process_result = prepare_local_query_repo(
             args.repo_url.strip(),
-            store=store,
-            run_validation=not args.skip_validation,
+            source_chunk_limit=(args.source_chunk_limit if args.source_chunk_limit > 0 else None),
+            precompute_embeddings=True,
         )
-        if not resolved_repo_id:
-            resolved_repo_id = str(process_result["repo_id"])
 
     if args.input_json.strip():
         source_doc = _load_input_json(args.input_json.strip())
@@ -201,6 +211,26 @@ def main() -> int:
             )
             resolved_chunk_id = str(chunk_info["chunk_id"])
 
+        if process_result is not None:
+            repo_result = retrieve_hybrid_candidates_for_source_chunks(
+                list(process_result["source_chunks"]),
+                store=store,
+                rule_based_top_k=args.rule_based_top_k,
+                per_variant_k=args.per_variant_k,
+                knn_top_k=args.knn_top_k,
+                merged_top_k=args.merged_top_k,
+                include_same_repo=args.include_same_repo,
+            )
+            payload = repo_result if args.verbose else _compact_repo_result_payload(repo_result)
+            payload = {
+                "repo_processing": (
+                    process_result if args.verbose else _compact_repo_processing_payload(process_result)
+                ),
+                **payload,
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+
         if not resolved_chunk_id and resolved_repo_id:
             repo_result = retrieve_hybrid_candidates_for_repo(
                 resolved_repo_id,
@@ -213,11 +243,6 @@ def main() -> int:
                 include_same_repo=args.include_same_repo,
             )
             payload = repo_result if args.verbose else _compact_repo_result_payload(repo_result)
-            if process_result is not None:
-                payload = {
-                    "repo_processing": process_result,
-                    **payload,
-                }
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
 
@@ -239,7 +264,9 @@ def main() -> int:
     payload = result.as_dict() if args.verbose else _compact_result_payload(result)
     if process_result is not None:
         payload = {
-            "repo_processing": process_result,
+            "repo_processing": (
+                process_result if args.verbose else _compact_repo_processing_payload(process_result)
+            ),
             **payload,
         }
     print(json.dumps(payload, ensure_ascii=False, indent=2))

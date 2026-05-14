@@ -555,6 +555,47 @@ def retrieve_hybrid_candidates_for_repo(
     }
 
 
+def retrieve_hybrid_candidates_for_source_chunks(
+    source_chunks: list[Mapping[str, Any]],
+    *,
+    store: OpenSearchStore | None = None,
+    rule_based_top_k: int = DEFAULT_RULE_BASED_TOP_K,
+    per_variant_k: int = DEFAULT_RULE_BASED_PER_VARIANT_K,
+    knn_top_k: int = DEFAULT_KNN_TOP_K,
+    merged_top_k: int = DEFAULT_MERGED_TOP_K,
+    include_same_repo: bool = False,
+) -> dict[str, Any]:
+    resolved_store = store or OpenSearchStore()
+    normalized_source_chunks = [dict(source_chunk) for source_chunk in source_chunks]
+    repo_id = _clean_text(normalized_source_chunks[0].get("repo_id")) if normalized_source_chunks else ""
+    chunk_results: list[dict[str, Any]] = []
+    for source_chunk in normalized_source_chunks:
+        hybrid_result = retrieve_hybrid_candidates(
+            source_chunk,
+            store=resolved_store,
+            rule_based_top_k=rule_based_top_k,
+            per_variant_k=per_variant_k,
+            knn_top_k=knn_top_k,
+            merged_top_k=merged_top_k,
+            include_same_repo=include_same_repo,
+        )
+        chunk_results.append(
+            {
+                "source_chunk_id": _clean_text(source_chunk.get("chunk_id")),
+                "file_path": _clean_text(source_chunk.get("file_path")),
+                "symbol_name": _clean_text(source_chunk.get("symbol_name")),
+                "result": hybrid_result,
+            }
+        )
+
+    return {
+        "retrieval_version": DEFAULT_HYBRID_RETRIEVAL_VERSION,
+        "repo_id": repo_id,
+        "source_chunk_count": len(normalized_source_chunks),
+        "chunk_results": chunk_results,
+    }
+
+
 def find_repo_chunk(
     *,
     repo_id: str,

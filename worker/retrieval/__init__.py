@@ -26,6 +26,7 @@ try:
         retrieve_hybrid_candidates,
         retrieve_hybrid_candidates_by_chunk_id,
         retrieve_hybrid_candidates_for_repo,
+        retrieve_hybrid_candidates_for_source_chunks,
     )
 except ModuleNotFoundError:  # pragma: no cover - optional dependency for lighter test envs
     DEFAULT_HYBRID_RETRIEVAL_VERSION = "hybrid_retrieval_v1"
@@ -59,5 +60,6 @@ if "retrieve_hybrid_candidates" in globals():
             "retrieve_hybrid_candidates",
             "retrieve_hybrid_candidates_by_chunk_id",
             "retrieve_hybrid_candidates_for_repo",
+            "retrieve_hybrid_candidates_for_source_chunks",
         ]
     )
