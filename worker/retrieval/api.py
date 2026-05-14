@@ -128,13 +128,13 @@ def health() -> dict[str, str]:
 
 @app.post("/retrieve/hybrid/by-repo-url")
 def retrieve_hybrid_by_repo_url(request: HybridRepoRetrieveRequest) -> dict[str, Any]:
-    store = OpenSearchStore()
     try:
         process_result = prepare_local_query_repo(
             request.repo_url,
             source_chunk_limit=request.source_chunk_limit,
             precompute_embeddings=True,
         )
+        store = OpenSearchStore()
         retrieval_result = retrieve_hybrid_candidates_for_source_chunks(
             list(process_result["source_chunks"]),
             store=store,

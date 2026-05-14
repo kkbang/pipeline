@@ -27,7 +27,18 @@ class OpenSearchStore:
             else:
                 base_dir = Path(__file__).resolve().parents[2] / "local_data"
         self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError as exc:
+            raise PermissionError(
+                f"Cannot create LOCAL_DATA_DIR at '{self.base_dir}'. "
+                "Set LOCAL_DATA_DIR to a writable path."
+            ) from exc
+
+        if not settings.opensearch_host.strip():
+            raise ValueError(
+                "OPENSEARCH_HOST is empty. Set OPENSEARCH_HOST and OPENSEARCH_PORT before starting the API."
+            )
 
         http_auth = None
         if settings.opensearch_user and settings.opensearch_password:
