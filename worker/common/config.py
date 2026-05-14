@@ -281,6 +281,22 @@ class Settings:
         ).lower()
         == "true"
     )
+    code_chunk_embedding_backfill_scan_size: int = int(
+        os.getenv("CODE_CHUNK_EMBEDDING_BACKFILL_SCAN_SIZE", "200")
+    )
+    code_chunk_embedding_backfill_write_batch_size: int = int(
+        os.getenv("CODE_CHUNK_EMBEDDING_BACKFILL_WRITE_BATCH_SIZE", "100")
+    )
+    code_chunk_embedding_backfill_write_buffer_size: int = int(
+        os.getenv("CODE_CHUNK_EMBEDDING_BACKFILL_WRITE_BUFFER_SIZE", "5000")
+    )
+    code_chunk_embedding_backfill_run_limit: int = int(
+        os.getenv("CODE_CHUNK_EMBEDDING_BACKFILL_RUN_LIMIT", "4150")
+    )
+    code_chunk_embedding_backfill_self_loop_enabled: bool = (
+        os.getenv("CODE_CHUNK_EMBEDDING_BACKFILL_SELF_LOOP_ENABLED", "true").lower()
+        == "true"
+    )
     repo_validation_repo_limit: int = int(os.getenv("REPO_VALIDATION_REPO_LIMIT", "1000"))
     repo_pipeline_batch_size: int = int(os.getenv("REPO_PIPELINE_BATCH_SIZE", "200"))
     repo_pipeline_parallelism: int = int(os.getenv("REPO_PIPELINE_PARALLELISM", "36"))

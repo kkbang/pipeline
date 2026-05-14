@@ -53,6 +53,7 @@ def _user_visible_reasons(reasons: Sequence[Any], *, limit: int = DEFAULT_REASON
 def _user_candidate_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
     source_repo = dict(candidate.get("source_repo") or {})
     review = dict(candidate.get("license_review") or {})
+    candidate_source = dict(candidate.get("source") or {})
     return {
         "repository": _compact_dict(
             {
@@ -71,6 +72,11 @@ def _user_candidate_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
             {
                 "level": _clean_text(review.get("risk_level")),
                 "score": review.get("risk_score"),
+            }
+        ),
+        "matched_chunk": _compact_dict(
+            {
+                "raw_code": _clean_text(candidate_source.get("raw_code")),
             }
         ),
         "matched_by": [str(source_name) for source_name in list(candidate.get("retrieval_sources") or [])],
@@ -144,6 +150,7 @@ def build_user_facing_hybrid_result_payload(
             {
                 "file_path": _clean_text((source_chunk or {}).get("file_path")),
                 "symbol_name": _clean_text((source_chunk or {}).get("symbol_name")),
+                "raw_code": _clean_text((source_chunk or {}).get("raw_code")),
             }
         ),
         "summary": _compact_dict(
@@ -169,6 +176,11 @@ def build_user_facing_repo_hybrid_payload(
     max_candidates_per_source: int = DEFAULT_MAX_CANDIDATES_PER_SOURCE,
 ) -> dict[str, Any]:
     raw_chunk_results = list(retrieval_result.get("chunk_results") or [])
+    source_chunk_lookup = {
+        _clean_text(chunk.get("chunk_id")): dict(chunk)
+        for chunk in list(process_result.get("source_chunks") or [])
+        if _clean_text(chunk.get("chunk_id"))
+    }
     findings: list[dict[str, Any]] = []
     review_counts = {"critical": 0, "high": 0, "medium": 0}
     suppressed_low_risk_count = 0
@@ -194,6 +206,9 @@ def build_user_facing_repo_hybrid_payload(
                     {
                         "file_path": _clean_text(chunk_result.get("file_path")),
                         "symbol_name": _clean_text(chunk_result.get("symbol_name")),
+                        "raw_code": _clean_text(
+                            source_chunk_lookup.get(_clean_text(chunk_result.get("source_chunk_id")), {}).get("raw_code")
+                        ),
                     }
                 ),
                 "top_risk": _compact_dict(
