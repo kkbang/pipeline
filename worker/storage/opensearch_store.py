@@ -21,19 +21,37 @@ _T = TypeVar("_T")
 class OpenSearchStore:
     def __init__(self, base_dir: str | Path | None = None) -> None:
         configured_dir = os.getenv("LOCAL_DATA_DIR", "").strip()
+        project_local_dir = Path(__file__).resolve().parents[2] / "local_data"
         if base_dir is None:
             if configured_dir:
                 base_dir = configured_dir
             else:
-                base_dir = Path(__file__).resolve().parents[2] / "local_data"
+                base_dir = project_local_dir
         self.base_dir = Path(base_dir)
         try:
             self.base_dir.mkdir(parents=True, exist_ok=True)
         except PermissionError as exc:
-            raise PermissionError(
-                f"Cannot create LOCAL_DATA_DIR at '{self.base_dir}'. "
-                "Set LOCAL_DATA_DIR to a writable path."
-            ) from exc
+            can_fallback = (
+                base_dir is not None
+                and configured_dir
+                and Path(configured_dir).resolve() == self.base_dir.resolve()
+                and project_local_dir.resolve() != self.base_dir.resolve()
+            )
+            if can_fallback:
+                fallback_dir = project_local_dir
+                try:
+                    fallback_dir.mkdir(parents=True, exist_ok=True)
+                    self.base_dir = fallback_dir
+                except PermissionError as fallback_exc:
+                    raise PermissionError(
+                        f"Cannot create LOCAL_DATA_DIR at '{self.base_dir}' and fallback local_data at '{fallback_dir}'. "
+                        "Set LOCAL_DATA_DIR to a writable path."
+                    ) from fallback_exc
+            else:
+                raise PermissionError(
+                    f"Cannot create LOCAL_DATA_DIR at '{self.base_dir}'. "
+                    "Set LOCAL_DATA_DIR to a writable path."
+                ) from exc
 
         if not settings.opensearch_host.strip():
             raise ValueError(
