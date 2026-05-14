@@ -71,19 +71,14 @@ def _compact_result_payload(result: Any) -> dict[str, Any]:
     }
 
 
-def _compact_repo_processing_payload(result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "repo_id": result.get("repo_id"),
-        "canonical_repo_url": result.get("canonical_repo_url"),
-        "source_chunk_count": result.get("source_chunk_count"),
-        "local_snapshot_cleanup": result.get("local_snapshot_cleanup"),
-    }
-
-
-def _compact_repo_result_payload(result: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _compact_repo_result_payload(
+    result: dict[str, Any],
+    *,
+    process_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = {
         "retrieval_version": result.get("retrieval_version"),
-        "repo_id": result.get("repo_id"),
+        "repo_id": result.get("repo_id") or (process_result or {}).get("repo_id"),
         "source_chunk_count": result.get("source_chunk_count"),
         "chunk_results": [
             {
@@ -99,6 +94,18 @@ def _compact_repo_result_payload(result: dict[str, Any]) -> dict[str, Any]:
             for chunk_result in (result.get("chunk_results") or [])
         ],
     }
+    if process_result is not None:
+        payload["canonical_repo_url"] = process_result.get("canonical_repo_url")
+        payload["local_snapshot_cleanup"] = process_result.get("local_snapshot_cleanup")
+    return payload
+
+
+def _flatten_query_repo_payload(payload: dict[str, Any], process_result: dict[str, Any]) -> dict[str, Any]:
+    merged_payload = dict(payload)
+    merged_payload["repo_id"] = merged_payload.get("repo_id") or process_result.get("repo_id")
+    merged_payload["canonical_repo_url"] = process_result.get("canonical_repo_url")
+    merged_payload["local_snapshot_cleanup"] = process_result.get("local_snapshot_cleanup")
+    return merged_payload
 
 
 def parse_args() -> argparse.Namespace:
@@ -171,13 +178,11 @@ def main() -> int:
                 merged_top_k=args.merged_top_k,
                 include_same_repo=args.include_same_repo,
             )
-            payload = repo_result if args.verbose else _compact_repo_result_payload(repo_result)
-            payload = {
-                "repo_processing": (
-                    process_result if args.verbose else _compact_repo_processing_payload(process_result)
-                ),
-                **payload,
-            }
+            payload = (
+                _flatten_query_repo_payload(dict(repo_result), process_result)
+                if args.verbose
+                else _compact_repo_result_payload(repo_result, process_result=process_result)
+            )
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
 
@@ -213,12 +218,7 @@ def main() -> int:
 
     payload = result.as_dict() if args.verbose else _compact_result_payload(result)
     if process_result is not None:
-        payload = {
-            "repo_processing": (
-                process_result if args.verbose else _compact_repo_processing_payload(process_result)
-            ),
-            **payload,
-        }
+        payload = _flatten_query_repo_payload(dict(payload), process_result)
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 

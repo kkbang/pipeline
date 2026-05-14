@@ -52,15 +52,6 @@ def _exception_detail(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def _compact_repo_processing(process_result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "repo_id": process_result.get("repo_id"),
-        "canonical_repo_url": process_result.get("canonical_repo_url"),
-        "source_chunk_count": process_result.get("source_chunk_count"),
-        "local_snapshot_cleanup": process_result.get("local_snapshot_cleanup"),
-    }
-
-
 def _compact_candidate(candidate: dict[str, Any], candidate_source: dict[str, Any] | None = None) -> dict[str, Any]:
     return compact_candidate_for_rerank(candidate, candidate_source=candidate_source)
 
@@ -89,10 +80,11 @@ def _compact_repo_hybrid_payload(
     candidate_source_lookup: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     return {
-        "repo_processing": _compact_repo_processing(process_result),
         "retrieval_version": retrieval_result.get("retrieval_version"),
-        "repo_id": retrieval_result.get("repo_id"),
+        "repo_id": retrieval_result.get("repo_id") or process_result.get("repo_id"),
+        "canonical_repo_url": process_result.get("canonical_repo_url"),
         "source_chunk_count": retrieval_result.get("source_chunk_count"),
+        "local_snapshot_cleanup": process_result.get("local_snapshot_cleanup"),
         "chunk_results": [
             {
                 "source_chunk_id": chunk_result.get("source_chunk_id"),

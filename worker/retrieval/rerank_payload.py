@@ -9,7 +9,6 @@ def compact_chunk_for_rerank(chunk: Mapping[str, Any]) -> dict[str, Any]:
         "file_path": chunk.get("file_path"),
         "chunk_type": chunk.get("chunk_type"),
         "symbol_name": chunk.get("symbol_name"),
-        "raw_code": chunk.get("raw_code"),
         "anonymized_code": chunk.get("anonymized_code"),
     }
 
