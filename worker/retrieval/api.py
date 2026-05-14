@@ -18,6 +18,7 @@ from worker.storage.opensearch_store import OpenSearchStore
 
 
 logger = logging.getLogger(__name__)
+CODE_CHUNK_INDEX = "code_chunk_index"
 
 
 app = FastAPI(
@@ -54,14 +55,25 @@ def _compact_repo_processing(process_result: dict[str, Any]) -> dict[str, Any]:
     return {
         "repo_id": process_result.get("repo_id"),
         "canonical_repo_url": process_result.get("canonical_repo_url"),
-        "snapshot_ref": process_result.get("snapshot_ref"),
-        "snapshot_archive_url": process_result.get("snapshot_archive_url"),
         "source_chunk_count": process_result.get("source_chunk_count"),
         "local_snapshot_cleanup": process_result.get("local_snapshot_cleanup"),
     }
 
 
-def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+def _compact_chunk_for_rerank(chunk: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "chunk_id": chunk.get("chunk_id"),
+        "repo_id": chunk.get("repo_id"),
+        "language": chunk.get("language"),
+        "file_path": chunk.get("file_path"),
+        "chunk_type": chunk.get("chunk_type"),
+        "symbol_name": chunk.get("symbol_name"),
+        "raw_code": chunk.get("raw_code"),
+        "anonymized_code": chunk.get("anonymized_code"),
+    }
+
+
+def _compact_candidate(candidate: dict[str, Any], candidate_source: dict[str, Any] | None = None) -> dict[str, Any]:
     retrieval_sources = candidate.get("retrieval_sources")
     if not retrieval_sources:
         if candidate.get("rule_based") and candidate.get("knn"):
@@ -76,10 +88,7 @@ def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         "file_path": candidate.get("file_path"),
         "symbol_name": candidate.get("symbol_name"),
         "retrieval_sources": retrieval_sources,
-        "source_repo": {
-            "repo_url": (candidate.get("source_repo") or {}).get("repo_url"),
-            "license_spdx": (candidate.get("source_repo") or {}).get("license_spdx"),
-        },
+        "candidate_chunk": _compact_chunk_for_rerank(candidate_source or dict(candidate.get("source") or {})),
     }
     if candidate.get("rule_based"):
         payload["rule_based"] = {
@@ -110,7 +119,29 @@ def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _compact_repo_hybrid_payload(process_result: dict[str, Any], retrieval_result: dict[str, Any]) -> dict[str, Any]:
+def _build_candidate_source_lookup(store: OpenSearchStore, retrieval_result: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    chunk_ids: list[str] = []
+    for chunk_result in retrieval_result.get("chunk_results") or []:
+        result = chunk_result.get("result")
+        merged_candidates = getattr(result, "merged_candidates", ())
+        for candidate in merged_candidates:
+            chunk_id = str(candidate.get("chunk_id") or "").strip()
+            if chunk_id:
+                chunk_ids.append(chunk_id)
+
+    docs = store.multi_get_documents(CODE_CHUNK_INDEX, chunk_ids)
+    return {
+        chunk_id: {"chunk_id": chunk_id, **dict((doc or {}).get("_source", {}))}
+        for chunk_id, doc in docs.items()
+    }
+
+
+def _compact_repo_hybrid_payload(
+    process_result: dict[str, Any],
+    retrieval_result: dict[str, Any],
+    *,
+    candidate_source_lookup: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     return {
         "repo_processing": _compact_repo_processing(process_result),
         "retrieval_version": retrieval_result.get("retrieval_version"),
@@ -121,9 +152,22 @@ def _compact_repo_hybrid_payload(process_result: dict[str, Any], retrieval_resul
                 "source_chunk_id": chunk_result.get("source_chunk_id"),
                 "file_path": chunk_result.get("file_path"),
                 "symbol_name": chunk_result.get("symbol_name"),
+                "source_chunk": _compact_chunk_for_rerank(
+                    next(
+                        (
+                            source_chunk
+                            for source_chunk in process_result.get("source_chunks") or []
+                            if source_chunk.get("chunk_id") == chunk_result.get("source_chunk_id")
+                        ),
+                        {},
+                    )
+                ),
                 "merged_candidate_count": len(chunk_result["result"].merged_candidates),
                 "merged_candidates": [
-                    _compact_candidate(candidate)
+                    _compact_candidate(
+                        candidate,
+                        candidate_source_lookup.get(str(candidate.get("chunk_id") or "").strip()),
+                    )
                     for candidate in chunk_result["result"].merged_candidates
                 ],
             }
@@ -155,7 +199,12 @@ def retrieve_hybrid_by_repo_url(request: HybridRepoRetrieveRequest) -> dict[str,
             merged_top_k=request.merged_top_k,
             include_same_repo=request.include_same_repo,
         )
-        return _compact_repo_hybrid_payload(process_result, retrieval_result)
+        candidate_source_lookup = _build_candidate_source_lookup(store, retrieval_result)
+        return _compact_repo_hybrid_payload(
+            process_result,
+            retrieval_result,
+            candidate_source_lookup=candidate_source_lookup,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:

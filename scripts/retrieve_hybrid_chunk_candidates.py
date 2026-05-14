@@ -67,9 +67,15 @@ def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         "file_path": candidate.get("file_path"),
         "symbol_name": candidate.get("symbol_name"),
         "retrieval_sources": retrieval_sources,
-        "source_repo": {
-            "repo_url": (candidate.get("source_repo") or {}).get("repo_url"),
-            "license_spdx": (candidate.get("source_repo") or {}).get("license_spdx"),
+        "candidate_chunk": {
+            "chunk_id": (candidate.get("source") or {}).get("chunk_id"),
+            "repo_id": (candidate.get("source") or {}).get("repo_id"),
+            "language": (candidate.get("source") or {}).get("language"),
+            "file_path": (candidate.get("source") or {}).get("file_path"),
+            "chunk_type": (candidate.get("source") or {}).get("chunk_type"),
+            "symbol_name": (candidate.get("source") or {}).get("symbol_name"),
+            "raw_code": (candidate.get("source") or {}).get("raw_code"),
+            "anonymized_code": (candidate.get("source") or {}).get("anonymized_code"),
         },
     }
     if candidate.get("rule_based"):
@@ -123,8 +129,6 @@ def _compact_repo_processing_payload(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "repo_id": result.get("repo_id"),
         "canonical_repo_url": result.get("canonical_repo_url"),
-        "snapshot_ref": result.get("snapshot_ref"),
-        "snapshot_archive_url": result.get("snapshot_archive_url"),
         "source_chunk_count": result.get("source_chunk_count"),
         "local_snapshot_cleanup": result.get("local_snapshot_cleanup"),
     }
