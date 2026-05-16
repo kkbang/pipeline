@@ -8,36 +8,37 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from worker.common.config import settings
-from worker.repo.repo_chunk_phase import (
-    CHUNK_PHASE_LIGHT,
-    is_whale_repo,
-    normalize_chunk_phase,
-)
-from worker.repo.code_chunk_document import (
+from worker.repo.chunking.code_chunk_document import (
     CODE_CHUNK_INDEX_ALIAS,
     CodeChunkCandidate,
     build_code_chunk_candidates,
     build_code_chunk_id as build_code_chunk_stable_id,
 )
-from worker.repo.code_chunk_embedding_service import get_code_chunk_embedding_client
-from worker.repo.repo_pipeline_manifest_service import (
+from worker.repo.chunking.code_chunk_embedding_service import get_code_chunk_embedding_client
+from worker.repo.chunking.repo_chunk_phase import (
+    CHUNK_PHASE_LIGHT,
+    is_whale_repo,
+    normalize_chunk_phase,
+)
+from worker.repo.common.time_utils import is_stale_timestamp
+from worker.repo.pipeline.repo_pipeline_manifest_service import (
     CHUNK_COMPLETED_STAGE,
     write_stage_manifest,
 )
-from worker.repo.repo_processing_recovery import (
+from worker.repo.pipeline.repo_processing_recovery import (
     build_crawl_retry_source,
     is_missing_snapshot_root_error,
 )
-from worker.repo.repo_snapshot_cleanup import (
+from worker.repo.pipeline.repo_stage_service import list_repo_ids_for_chunking
+from worker.repo.snapshot.repo_snapshot_cleanup import (
     needs_snapshot_cleanup_retry,
     prune_local_snapshot_artifacts,
     SNAPSHOT_CLEANUP_ELIGIBLE_CHUNK_STATUSES,
 )
-from worker.repo.repo_snapshot_local_paths import (
+from worker.repo.snapshot.repo_snapshot_local_paths import (
     resolve_snapshot_root_path,
     strip_local_snapshot_fields,
 )
-from worker.repo.repo_stage_service import list_repo_ids_for_chunking
 from worker.storage.opensearch_store import OpenSearchStore
 
 try:
@@ -245,31 +246,15 @@ def _is_test_like_file_path(relative_path: str) -> bool:
     return any(file_name.endswith(suffix) for suffix in TEST_LIKE_FILE_SUFFIXES)
 
 
-def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-
-    return parsed.astimezone(timezone.utc)
-
-
 def _is_stale_chunking(source: dict, now: datetime) -> bool:
     if source.get("chunk_status") != "chunking":
         return False
 
-    started_at = _parse_datetime(source.get("chunk_started_at"))
-    if started_at is None:
-        return True
-
-    elapsed_seconds = (now - started_at).total_seconds()
-    return elapsed_seconds >= settings.repo_crawl_lease_seconds
+    return is_stale_timestamp(
+        source.get("chunk_started_at"),
+        now=now,
+        stale_after_seconds=settings.repo_crawl_lease_seconds,
+    )
 
 
 def _load_repo_docs_for_chunking(store: OpenSearchStore, now: datetime) -> list[dict]:

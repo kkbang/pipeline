@@ -1,10 +1,9 @@
 from datetime import datetime, timezone
 
 from worker.common.config import settings
-from worker.repo.repo_crawl_service import run_repo_snapshot_download_for_repo
-from worker.repo.repo_file_extract_service import run_repo_file_extraction_for_repo
-from worker.repo.repo_pipeline_manifest_service import repo_id_shard_index
-from worker.repo.repo_retry_state import (
+from worker.repo.extraction.repo_file_extract_service import run_repo_file_extraction_for_repo
+from worker.repo.pipeline.repo_pipeline_manifest_service import repo_id_shard_index
+from worker.repo.pipeline.repo_retry_state import (
     REPO_PROCESSING_RETRY_STAGE_CRAWL,
     REPO_PROCESSING_RETRY_STAGE_EXTRACT,
     clear_repo_processing_retry_state,
@@ -13,6 +12,7 @@ from worker.repo.repo_retry_state import (
     mark_repo_processing_retrying,
     refresh_repo_processing_retry_candidates,
 )
+from worker.repo.snapshot.repo_crawl_service import run_repo_snapshot_download_for_repo
 from worker.storage.opensearch_store import OpenSearchStore
 
 

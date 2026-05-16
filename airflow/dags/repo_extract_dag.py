@@ -6,9 +6,9 @@ from airflow.models.dagrun import DagRun
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
-from worker.repo.repo_chunk_phase import CHUNK_PHASE_LIGHT
-from worker.repo.repo_chunk_planning_service import plan_chunk_shards_for_batch
-from worker.repo.repo_file_extract_service import run_repo_file_extraction_for_shard
+from worker.repo.chunking.repo_chunk_phase import CHUNK_PHASE_LIGHT
+from worker.repo.extraction.repo_file_extract_service import run_repo_file_extraction_for_shard
+from worker.repo.pipeline.repo_chunk_planning_service import plan_chunk_shards_for_batch
 
 
 default_args = {

@@ -2,8 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from worker.repo.code_chunk_document import CODE_CHUNK_INDEX_ALIAS, VALID_CHUNK_VALIDATION_STATUSES
-from worker.repo.code_chunk_embedding_service import get_code_chunk_embedding_client
+from worker.repo.chunking.code_chunk_document import CODE_CHUNK_INDEX_ALIAS, VALID_CHUNK_VALIDATION_STATUSES
+from worker.repo.chunking.code_chunk_embedding_service import get_code_chunk_embedding_client
 from worker.retrieval.chunk_retrieval_service import (
     MAX_EVIDENCE_PER_CANDIDATE,
     REPO_REGISTRY_INDEX,

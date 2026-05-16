@@ -34,8 +34,8 @@ def _load_env_file(env_path: Path) -> None:
 _load_env_file(PROJECT_ROOT / ".env")
 
 from worker.common.config import settings
-from worker.repo.code_chunk_document import CODE_CHUNK_INDEX_ALIAS, VALID_CHUNK_VALIDATION_STATUSES
-from worker.repo.code_chunk_embedding_service import CodeChunkEmbeddingClient
+from worker.repo.chunking.code_chunk_document import CODE_CHUNK_INDEX_ALIAS, VALID_CHUNK_VALIDATION_STATUSES
+from worker.repo.chunking.code_chunk_embedding_service import CodeChunkEmbeddingClient
 
 
 CODE_CHUNK_INDEX = CODE_CHUNK_INDEX_ALIAS
@@ -424,7 +424,10 @@ def _raw_code_line_count(source: dict[str, Any]) -> int:
 
 
 def _is_eligible_source_chunk(source: dict[str, Any]) -> bool:
-    return _raw_code_line_count(source) >= EMBEDDING_BACKFILL_MIN_RAW_CODE_LINES
+    return (
+        _raw_code_line_count(source) >= EMBEDDING_BACKFILL_MIN_RAW_CODE_LINES
+        and bool(str(source.get("anonymized_code") or "").strip())
+    )
 
 
 def _filter_missing_embedding_docs(

@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 from typing import Callable
 
-from worker.repo.repo_snapshot_local_paths import (
+from worker.repo.snapshot.repo_snapshot_local_paths import (
     RAW_REPO_SNAPSHOT_DIR,
     RAW_REPO_SNAPSHOT_DOWNLOAD_DIR,
     resolve_snapshot_download_path,

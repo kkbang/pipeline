@@ -4,7 +4,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
-from worker.repo.repo_crawl_service import repo_crawler
+from worker.repo.snapshot.repo_crawl_service import repo_crawler
 
 
 default_args = {

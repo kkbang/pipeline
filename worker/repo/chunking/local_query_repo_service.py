@@ -7,9 +7,11 @@ from typing import Any
 import httpx
 
 from worker.common.config import settings
-from worker.repo.code_chunk_embedding_service import get_code_chunk_embedding_client
-from worker.repo.repo_chunk_service import _chunk_parameters, _chunk_single_file
-from worker.repo.repo_crawl_service import (
+from worker.repo.chunking.code_chunk_embedding_service import get_code_chunk_embedding_client
+from worker.repo.chunking.repo_chunk_service import _chunk_parameters, _chunk_single_file
+from worker.repo.common.identity import build_github_repo_id
+from worker.repo.extraction.repo_file_extract_service import _classify_file, _iter_snapshot_files
+from worker.repo.snapshot.repo_crawl_service import (
     _build_archive_url,
     _build_async_client,
     _clear_existing_download_path,
@@ -17,14 +19,9 @@ from worker.repo.repo_crawl_service import (
     _extract_repo_tar,
     _stream_download_async,
 )
-from worker.repo.repo_file_extract_service import _classify_file, _iter_snapshot_files
-from worker.repo.repo_snapshot_local_paths import resolve_extracted_root
+from worker.repo.snapshot.repo_snapshot_local_paths import resolve_extracted_root
 from worker.retrieval.source_chunk_selection import select_source_chunks
 from worker.seed.resolvers.github_url_canonicalizer import canonicalize_github_repo_url
-
-
-def _repo_id(owner: str, repo_name: str) -> str:
-    return f"github:{owner.lower()}/{repo_name.lower()}"
 
 
 async def _download_repo_snapshot_to_paths(
@@ -116,7 +113,7 @@ def prepare_local_query_repo(
         raise ValueError(f"unsupported GitHub repository URL: {repo_url}")
 
     owner, repo_name, canonical_repo_url = canonicalized
-    repo_id = _repo_id(owner, repo_name)
+    repo_id = build_github_repo_id(owner, repo_name)
     snapshot_root: Path | None = None
 
     with TemporaryDirectory(prefix=f"query-repo-{owner.lower()}-{repo_name.lower()}-") as temp_dir:

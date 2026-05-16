@@ -12,7 +12,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - runtime dependency guar
         "Install with: python3 -m pip install fastapi uvicorn"
     ) from exc
 
-from worker.repo.local_query_repo_service import prepare_local_query_repo
+from worker.repo.chunking.local_query_repo_service import prepare_local_query_repo
 from worker.retrieval.hybrid_chunk_retrieval_service import retrieve_hybrid_candidates_for_source_chunks
 from worker.retrieval.user_report_payload import build_user_facing_repo_hybrid_payload
 from worker.storage.opensearch_store import OpenSearchStore

@@ -1,14 +1,16 @@
 from datetime import datetime, timezone
 
 from worker.common.config import settings
-from worker.repo.repo_chunk_phase import (
+from worker.repo.chunking.repo_chunk_phase import (
     CHUNK_PHASE_LIGHT,
     CHUNK_PHASE_WHALE,
     is_whale_repo,
     normalize_chunk_phase,
     parse_non_negative_int,
 )
-from worker.repo.repo_pipeline_manifest_service import (
+from worker.repo.common.opensearch_queries import build_keyword_or_term_query
+from worker.repo.common.time_utils import has_newer_timestamp, is_stale_timestamp
+from worker.repo.pipeline.repo_pipeline_manifest_service import (
     CRAWL_DOWNLOADED_STAGE,
     EXTRACT_READY_STAGE,
     CHUNK_READY_STAGE,
@@ -17,58 +19,23 @@ from worker.repo.repo_pipeline_manifest_service import (
     repo_id_shard_index,
     resolve_pipeline_base_dir,
 )
-from worker.repo.repo_retry_state import is_repo_processing_retry_managed
-from worker.repo.repo_snapshot_cleanup import needs_snapshot_cleanup_retry
+from worker.repo.pipeline.repo_retry_state import is_repo_processing_retry_managed
+from worker.repo.snapshot.repo_snapshot_cleanup import needs_snapshot_cleanup_retry
 from worker.storage.opensearch_store import OpenSearchStore
 
 
 REPO_REGISTRY_INDEX = "repo_registry_index"
 
-
-def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-
-    return parsed.astimezone(timezone.utc)
-
-
 def _is_stale(started_at: object, now: datetime) -> bool:
-    parsed_started_at = _parse_datetime(started_at)
-    if parsed_started_at is None:
-        return True
-
-    elapsed_seconds = (now - parsed_started_at).total_seconds()
-    return elapsed_seconds >= settings.repo_crawl_lease_seconds
+    return is_stale_timestamp(
+        started_at,
+        now=now,
+        stale_after_seconds=settings.repo_crawl_lease_seconds,
+    )
 
 
 def _has_newer_chunk_than_validation(source: dict) -> bool:
-    chunk_finished_at = _parse_datetime(source.get("chunk_finished_at"))
-    validation_checked_at = _parse_datetime(source.get("validation_checked_at"))
-    if chunk_finished_at is None:
-        return False
-    if validation_checked_at is None:
-        return True
-    return chunk_finished_at > validation_checked_at
-
-
-def _field_term_query(field_name: str, value: str) -> dict:
-    return {
-        "bool": {
-            "should": [
-                {"term": {f"{field_name}.keyword": value}},
-                {"term": {field_name: value}},
-            ],
-            "minimum_should_match": 1,
-        }
-    }
+    return has_newer_timestamp(source.get("chunk_finished_at"), source.get("validation_checked_at"))
 
 
 def _matches_batch_id(source: dict, field_name: str, batch_id: str | None) -> bool:
@@ -80,7 +47,7 @@ def _matches_batch_id(source: dict, field_name: str, batch_id: str | None) -> bo
 def _iter_repo_docs_by_field(store: OpenSearchStore, field_name: str, value: str):
     yield from store.iterate_documents_by_query(
         collection_name=REPO_REGISTRY_INDEX,
-        query=_field_term_query(field_name, value),
+        query=build_keyword_or_term_query(field_name, value),
         size=1000,
         sort=[{"_id": "asc"}],
     )

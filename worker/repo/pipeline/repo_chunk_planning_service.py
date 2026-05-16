@@ -2,13 +2,13 @@ import logging
 from datetime import datetime, timezone
 
 from worker.common.config import settings
-from worker.repo.repo_chunk_phase import (
+from worker.repo.chunking.repo_chunk_phase import (
     CHUNK_PHASE_LIGHT,
     CHUNK_PHASE_WHALE,
     parse_non_negative_int,
     resolve_chunk_phase_for_repo,
 )
-from worker.repo.repo_pipeline_manifest_service import (
+from worker.repo.pipeline.repo_pipeline_manifest_service import (
     CHUNK_READY_STAGE,
     EXTRACT_READY_STAGE,
     iter_stage_manifest_entries,

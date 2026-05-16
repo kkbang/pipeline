@@ -16,12 +16,15 @@ from worker.common.repo_size_tiering import (
     parse_repo_size_kb,
     repo_size_tier_rank,
 )
-from worker.repo.repo_pipeline_manifest_service import (
+from worker.repo.common.opensearch_queries import build_keyword_or_term_query
+from worker.repo.common.time_utils import is_stale_timestamp
+from worker.repo.pipeline.repo_pipeline_manifest_service import (
     CRAWL_DOWNLOADED_STAGE,
     repo_id_shard_index,
     write_stage_manifest,
 )
-from worker.repo.repo_retry_state import (
+from worker.repo.pipeline.repo_processing_recovery import reset_downstream_processing_fields
+from worker.repo.pipeline.repo_retry_state import (
     REPO_PROCESSING_RETRY_STATE_PENDING,
     REPO_PROCESSING_RETRY_STATE_RETRYING,
     REPO_PROCESSING_RETRY_STAGE_CRAWL,
@@ -29,7 +32,7 @@ from worker.repo.repo_retry_state import (
     mark_repo_processing_retry_pending,
     refresh_repo_processing_retry_candidates,
 )
-from worker.repo.repo_snapshot_local_paths import (
+from worker.repo.snapshot.repo_snapshot_local_paths import (
     normalize_repo_identity,
     resolve_extracted_root,
     resolve_snapshot_paths,
@@ -57,20 +60,6 @@ class CrawlSemaphores:
     extract: asyncio.Semaphore
 
 
-def _reset_downstream_processing_fields(source: dict) -> dict:
-    cleaned = {}
-    for key, value in source.items():
-        if key.startswith("file_extract_"):
-            continue
-        if key.startswith("chunk_"):
-            continue
-        if key.startswith("validation_"):
-            continue
-        if key.startswith("snapshot_local_cleanup_"):
-            continue
-        cleaned[key] = value
-    return cleaned
-
 def _build_ref_candidates(source: dict) -> list[str]:
     candidates: list[str] = []
     seen = set()
@@ -96,22 +85,6 @@ def _build_ref_candidates(source: dict) -> list[str]:
 
 def _build_archive_url(owner: str, repo: str, ref: str) -> str:
     return f"https://codeload.github.com/{owner}/{repo}/tar.gz/refs/heads/{quote(ref, safe='/')}"
-
-
-def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-
-    return parsed.astimezone(timezone.utc)
-
 
 def _clear_existing_snapshot(download_path: Path, extract_dir: Path) -> None:
     if extract_dir.exists():
@@ -197,30 +170,17 @@ def _is_stale_downloading(source: dict, now: datetime) -> bool:
     if source.get("crawl_status") != "downloading":
         return False
 
-    started_at = _parse_datetime(source.get("crawl_started_at"))
-    if started_at is None:
-        return True
-
-    elapsed_seconds = (now - started_at).total_seconds()
-    return elapsed_seconds >= settings.repo_crawl_lease_seconds
-
-
-def _field_term_query(field_name: str, value: str) -> dict:
-    return {
-        "bool": {
-            "should": [
-                {"term": {f"{field_name}.keyword": value}},
-                {"term": {field_name: value}},
-            ],
-            "minimum_should_match": 1,
-        }
-    }
+    return is_stale_timestamp(
+        source.get("crawl_started_at"),
+        now=now,
+        stale_after_seconds=settings.repo_crawl_lease_seconds,
+    )
 
 
 def _iter_repo_docs_by_field(store: OpenSearchStore, field_name: str, value: str):
     yield from store.iterate_documents_by_query(
         collection_name="repo_registry_index",
-        query=_field_term_query(field_name, value),
+        query=build_keyword_or_term_query(field_name, value),
         size=1000,
         sort=[{"_id": "asc"}],
     )
@@ -532,7 +492,7 @@ def _mark_repo_downloaded(
 ) -> None:
     store = OpenSearchStore(base_dir=base_dir)
     crawl_finished_at = datetime.now(timezone.utc).isoformat()
-    reset_source = clear_repo_processing_retry_state(_reset_downstream_processing_fields(
+    reset_source = clear_repo_processing_retry_state(reset_downstream_processing_fields(
         strip_local_snapshot_fields(claimed_source)
     ))
     downloaded_source = {

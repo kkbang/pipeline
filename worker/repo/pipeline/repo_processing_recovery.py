@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from worker.repo.repo_snapshot_local_paths import strip_local_snapshot_fields
+from worker.repo.snapshot.repo_snapshot_local_paths import strip_local_snapshot_fields
 
 
 _RESETTABLE_PREFIXES = (

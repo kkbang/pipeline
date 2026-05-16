@@ -6,26 +6,27 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from worker.common.config import settings
-from worker.repo.repo_pipeline_manifest_service import (
+from worker.repo.common.time_utils import is_stale_timestamp
+from worker.repo.pipeline.repo_pipeline_manifest_service import (
     EXTRACT_READY_STAGE,
     write_stage_manifest,
 )
-from worker.repo.repo_processing_recovery import (
+from worker.repo.pipeline.repo_processing_recovery import (
     build_crawl_retry_source,
     is_missing_snapshot_root_error,
 )
-from worker.repo.repo_retry_state import (
+from worker.repo.pipeline.repo_retry_state import (
     REPO_PROCESSING_RETRY_STAGE_CRAWL,
     REPO_PROCESSING_RETRY_STAGE_EXTRACT,
     clear_repo_processing_retry_state,
     is_repo_processing_retry_managed,
     mark_repo_processing_retry_pending,
 )
-from worker.repo.repo_snapshot_local_paths import (
+from worker.repo.pipeline.repo_stage_service import list_repo_ids_for_extraction
+from worker.repo.snapshot.repo_snapshot_local_paths import (
     resolve_snapshot_root_path,
     strip_local_snapshot_fields,
 )
-from worker.repo.repo_stage_service import list_repo_ids_for_extraction
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -122,31 +123,15 @@ class RepoFileExtractStats:
     deleted_previous_docs: int = 0
 
 
-def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-
-    return parsed.astimezone(timezone.utc)
-
-
 def _is_stale_extracting(source: dict, now: datetime) -> bool:
     if source.get("file_extract_status") != "extracting":
         return False
 
-    started_at = _parse_datetime(source.get("file_extract_started_at"))
-    if started_at is None:
-        return True
-
-    elapsed_seconds = (now - started_at).total_seconds()
-    return elapsed_seconds >= settings.repo_crawl_lease_seconds
+    return is_stale_timestamp(
+        source.get("file_extract_started_at"),
+        now=now,
+        stale_after_seconds=settings.repo_crawl_lease_seconds,
+    )
 
 
 def _normalize_repo_identity(source: dict) -> tuple[str, str]:

@@ -6,13 +6,13 @@ from airflow.models.dagrun import DagRun
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
-from worker.repo.repo_chunk_phase import (
+from worker.repo.chunking.repo_chunk_phase import (
     CHUNK_PHASE_LIGHT,
     CHUNK_PHASE_WHALE,
     normalize_chunk_phase,
 )
-from worker.repo.repo_chunk_service import run_repo_code_chunking_for_shard
-from worker.repo.repo_stage_service import has_pending_chunk_work
+from worker.repo.chunking.repo_chunk_service import run_repo_code_chunking_for_shard
+from worker.repo.pipeline.repo_stage_service import has_pending_chunk_work
 
 
 default_args = {

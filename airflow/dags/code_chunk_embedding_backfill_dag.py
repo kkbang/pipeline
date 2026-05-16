@@ -6,10 +6,10 @@ from airflow.exceptions import AirflowSkipException
 from airflow.models.dagrun import DagRun
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
-from worker.repo.code_chunk_embedding_backfill_service import (
-    has_pending_code_chunk_embedding_backfill_work,
+from worker.repo.chunking.code_chunk_embedding_backfill_service import (
     is_code_chunk_embedding_backfill_enabled,
     run_code_chunk_embedding_backfill,
+    should_continue_code_chunk_embedding_backfill_loop,
 )
 from worker.common.config import settings
 
@@ -53,19 +53,20 @@ with DAG(
     backfill_result = backfill_embeddings()
 
     @task.short_circuit(task_id="has_pending_embedding_backfill_work")
-    def has_pending_work(dag_run: DagRun | None = None) -> bool:
+    def has_pending_work(backfill_result: dict, dag_run: DagRun | None = None) -> bool:
         if not is_code_chunk_embedding_backfill_enabled():
             return False
         if not settings.code_chunk_embedding_backfill_self_loop_enabled:
             return False
         conf = dag_run.conf if dag_run and dag_run.conf else {}
-        return has_pending_code_chunk_embedding_backfill_work(
+        return should_continue_code_chunk_embedding_backfill_loop(
+            backfill_result=backfill_result,
             repo_id=conf.get("repo_id"),
             force_reembed=conf.get("force_reembed", False),
             skip_writes=conf.get("skip_writes", False),
         )
 
-    pending_work = has_pending_work()
+    pending_work = has_pending_work(backfill_result)
 
     trigger_next_backfill = TriggerDagRunOperator(
         task_id="trigger_next_code_chunk_embedding_backfill_dag",

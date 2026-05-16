@@ -1,36 +1,20 @@
-from typing import Any
-
-from worker.repo.code_chunk_document import CODE_CHUNK_INDEX_ALIAS
-from worker.repo.repo_chunk_service import run_repo_code_chunking_for_repo
-from worker.repo.repo_crawl_service import run_repo_snapshot_download_for_repo
-from worker.repo.repo_file_extract_service import run_repo_file_extraction_for_repo
-from worker.repo.repo_snapshot_cleanup import (
+from worker.repo.chunking.code_chunk_document import CODE_CHUNK_INDEX_ALIAS
+from worker.repo.chunking.repo_chunk_service import run_repo_code_chunking_for_repo
+from worker.repo.common.identity import build_github_repo_id
+from worker.repo.common.opensearch_queries import build_keyword_or_term_query
+from worker.repo.extraction.repo_file_extract_service import run_repo_file_extraction_for_repo
+from worker.repo.snapshot.repo_crawl_service import run_repo_snapshot_download_for_repo
+from worker.repo.snapshot.repo_snapshot_cleanup import (
     FINAL_SNAPSHOT_CLEANUP_STATUSES,
     prune_local_snapshot_artifacts,
 )
-from worker.repo.repo_snapshot_local_paths import resolve_snapshot_root_path
-from worker.repo.repo_validation_service import run_repo_processing_validation_for_repo
+from worker.repo.snapshot.repo_snapshot_local_paths import resolve_snapshot_root_path
+from worker.repo.validation.repo_validation_service import run_repo_processing_validation_for_repo
 from worker.seed.resolvers.github_url_canonicalizer import canonicalize_github_repo_url
 from worker.storage.opensearch_store import OpenSearchStore
 
 
 REPO_REGISTRY_INDEX = "repo_registry_index"
-
-
-def _repo_id(owner: str, repo_name: str) -> str:
-    return f"github:{owner.lower()}/{repo_name.lower()}"
-
-
-def _field_term_query(field_name: str, value: str) -> dict[str, Any]:
-    return {
-        "bool": {
-            "should": [
-                {"term": {f"{field_name}.keyword": value}},
-                {"term": {field_name: value}},
-            ],
-            "minimum_should_match": 1,
-        }
-    }
 
 
 def _ensure_local_snapshot_cleanup(
@@ -96,7 +80,7 @@ def register_github_repo_url(
         raise ValueError(f"unsupported GitHub repository URL: {repo_url}")
 
     owner, repo_name, canonical_repo_url = canonicalized
-    repo_id = _repo_id(owner, repo_name)
+    repo_id = build_github_repo_id(owner, repo_name)
     existing_doc = resolved_store.get_document(REPO_REGISTRY_INDEX, repo_id)
     existing_source = existing_doc.get("_source") if isinstance(existing_doc, dict) else {}
     created = not isinstance(existing_source, dict) or not existing_source
@@ -175,7 +159,7 @@ def process_github_repo_url(
     repo_source = dict((repo_doc or {}).get("_source", {})) if isinstance(repo_doc, dict) else {}
     chunk_doc_count = resolved_store.count_documents(
         collection_name=CODE_CHUNK_INDEX_ALIAS,
-        query=_field_term_query("repo_id", repo_id),
+        query=build_keyword_or_term_query("repo_id", repo_id),
     )
     return {
         "repo_id": repo_id,

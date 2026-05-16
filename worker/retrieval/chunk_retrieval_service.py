@@ -3,7 +3,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from worker.repo.code_chunk_document import CODE_CHUNK_INDEX_ALIAS, VALID_CHUNK_VALIDATION_STATUSES
+from worker.repo.chunking.code_chunk_document import CODE_CHUNK_INDEX_ALIAS, VALID_CHUNK_VALIDATION_STATUSES
 from worker.retrieval.query_expansion_service import QueryBundle, QueryVariant, build_query_bundle
 
 try:

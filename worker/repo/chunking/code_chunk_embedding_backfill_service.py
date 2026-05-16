@@ -54,6 +54,46 @@ def _normalize_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _resolve_scan_size(scan_size: int | None) -> int:
+    return max(
+        1,
+        int(scan_size or settings.code_chunk_embedding_backfill_scan_size or EMBEDDING_BACKFILL_SCAN_SIZE),
+    )
+
+
+def _resolve_write_batch_size(write_batch_size: int | None) -> int:
+    return max(
+        1,
+        int(
+            write_batch_size
+            or settings.code_chunk_embedding_backfill_write_batch_size
+            or EMBEDDING_BACKFILL_WRITE_BATCH_SIZE
+        ),
+    )
+
+
+def _resolve_write_buffer_size(write_buffer_size: int | None) -> int:
+    return max(
+        1,
+        int(
+            write_buffer_size
+            or settings.code_chunk_embedding_backfill_write_buffer_size
+            or EMBEDDING_BACKFILL_WRITE_BUFFER_SIZE
+        ),
+    )
+
+
+def _resolve_run_limit(limit: int | None) -> int:
+    return max(
+        0,
+        int(
+            limit
+            if limit is not None
+            else settings.code_chunk_embedding_backfill_run_limit
+        ),
+    )
+
+
 def is_code_chunk_embedding_backfill_enabled() -> bool:
     return bool(
         settings.code_chunk_embedding_enabled
@@ -84,38 +124,10 @@ def run_code_chunk_embedding_backfill(
 
     stats = backfill_code_chunk_embeddings(
         repo_id=normalized_repo_id,
-        scan_size=max(
-            1,
-            int(
-                normalized_scan_size
-                or settings.code_chunk_embedding_backfill_scan_size
-                or EMBEDDING_BACKFILL_SCAN_SIZE
-            ),
-        ),
-        write_batch_size=max(
-            1,
-            int(
-                normalized_write_batch_size
-                or settings.code_chunk_embedding_backfill_write_batch_size
-                or EMBEDDING_BACKFILL_WRITE_BATCH_SIZE
-            ),
-        ),
-        write_buffer_size=max(
-            1,
-            int(
-                normalized_write_buffer_size
-                or settings.code_chunk_embedding_backfill_write_buffer_size
-                or EMBEDDING_BACKFILL_WRITE_BUFFER_SIZE
-            ),
-        ),
-        limit=max(
-            0,
-            int(
-                normalized_limit
-                if normalized_limit is not None
-                else settings.code_chunk_embedding_backfill_run_limit
-            ),
-        ),
+        scan_size=_resolve_scan_size(normalized_scan_size),
+        write_batch_size=_resolve_write_batch_size(normalized_write_batch_size),
+        write_buffer_size=_resolve_write_buffer_size(normalized_write_buffer_size),
+        limit=_resolve_run_limit(normalized_limit),
         force_reembed=normalized_force_reembed,
         refresh_writes=normalized_refresh_writes,
         skip_writes=normalized_skip_writes,
@@ -128,14 +140,7 @@ def run_code_chunk_embedding_backfill(
         "force_reembed": normalized_force_reembed,
         "refresh_writes": normalized_refresh_writes,
         "skip_writes": normalized_skip_writes,
-        "run_limit": max(
-            0,
-            int(
-                normalized_limit
-                if normalized_limit is not None
-                else settings.code_chunk_embedding_backfill_run_limit
-            ),
-        ),
+        "run_limit": _resolve_run_limit(normalized_limit),
         **stats.as_dict(),
     }
 
@@ -157,10 +162,7 @@ def has_pending_code_chunk_embedding_backfill_work(
         return False
 
     resolved_store = store or OpenSearchHttpStore()
-    scan_size = max(
-        1,
-        int(settings.code_chunk_embedding_backfill_scan_size or EMBEDDING_BACKFILL_SCAN_SIZE),
-    )
+    scan_size = _resolve_scan_size(None)
 
     for language in EMBEDDING_BACKFILL_ALLOWED_LANGUAGES:
         query = _build_embedding_backfill_query(
@@ -192,3 +194,38 @@ def has_pending_code_chunk_embedding_backfill_work(
             return True
 
     return False
+
+
+def should_continue_code_chunk_embedding_backfill_loop(
+    *,
+    backfill_result: dict[str, Any] | None,
+    repo_id: str | None = None,
+    force_reembed: bool = False,
+    skip_writes: bool = False,
+    store: Any | None = None,
+) -> bool:
+    normalized_force_reembed = _normalize_bool(force_reembed)
+    normalized_skip_writes = _normalize_bool(skip_writes)
+    if normalized_skip_writes or normalized_force_reembed:
+        return False
+
+    result = backfill_result if isinstance(backfill_result, dict) else {}
+    seen_count = max(0, int(result.get("seen_count") or 0))
+    run_limit = _resolve_run_limit(_normalize_optional_int(result.get("run_limit")))
+
+    # No work was processed in this run, so there is no reason to keep self-looping.
+    if seen_count <= 0:
+        return False
+
+    # This run exhausted the available work before hitting the configured cap.
+    # Avoid re-querying immediately because freshly written embedding docs may not
+    # be visible yet to a non-refreshed read.
+    if run_limit <= 0 or seen_count < run_limit:
+        return False
+
+    return has_pending_code_chunk_embedding_backfill_work(
+        repo_id=repo_id,
+        force_reembed=normalized_force_reembed,
+        skip_writes=normalized_skip_writes,
+        store=store,
+    )

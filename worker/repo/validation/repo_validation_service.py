@@ -2,15 +2,16 @@ import logging
 from datetime import datetime, timezone
 
 from worker.common.config import settings
-from worker.repo.code_chunk_document import (
+from worker.repo.chunking.code_chunk_document import (
     CODE_CHUNK_INDEX_ALIAS,
     VALID_CHUNK_VALIDATION_STATUSES,
 )
-from worker.repo.repo_pipeline_manifest_service import (
+from worker.repo.common.time_utils import has_newer_timestamp, is_stale_timestamp
+from worker.repo.pipeline.repo_pipeline_manifest_service import (
     VALIDATION_COMPLETED_STAGE,
     write_stage_manifest,
 )
-from worker.repo.repo_stage_service import list_repo_ids_for_validation
+from worker.repo.pipeline.repo_stage_service import list_repo_ids_for_validation
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -21,42 +22,19 @@ REPO_FILE_INDEX = "repo_file_index"
 CODE_CHUNK_INDEX = CODE_CHUNK_INDEX_ALIAS
 REPO_VALIDATION_INDEX = "repo_processing_validation_index"
 
-
-def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-
-    return parsed.astimezone(timezone.utc)
-
-
 def _is_stale_validating(source: dict, now: datetime) -> bool:
     if source.get("validation_status") != "validating":
         return False
 
-    started_at = _parse_datetime(source.get("validation_started_at"))
-    if started_at is None:
-        return True
-
-    elapsed_seconds = (now - started_at).total_seconds()
-    return elapsed_seconds >= settings.repo_crawl_lease_seconds
+    return is_stale_timestamp(
+        source.get("validation_started_at"),
+        now=now,
+        stale_after_seconds=settings.repo_crawl_lease_seconds,
+    )
 
 
 def _has_newer_chunk_result_than_validation(source: dict) -> bool:
-    chunk_finished_at = _parse_datetime(source.get("chunk_finished_at"))
-    validation_checked_at = _parse_datetime(source.get("validation_checked_at"))
-    if chunk_finished_at is None:
-        return False
-    if validation_checked_at is None:
-        return True
-    return chunk_finished_at > validation_checked_at
+    return has_newer_timestamp(source.get("chunk_finished_at"), source.get("validation_checked_at"))
 
 
 def _load_repo_docs_for_validation(store: OpenSearchStore, now: datetime) -> list[dict]:

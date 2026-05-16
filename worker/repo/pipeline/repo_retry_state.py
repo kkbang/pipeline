@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 
 from worker.common.config import settings
-from worker.repo.repo_snapshot_local_paths import strip_local_snapshot_fields
+from worker.repo.common.opensearch_queries import build_keyword_or_term_query
+from worker.repo.common.time_utils import is_stale_timestamp, utcnow_iso
+from worker.repo.snapshot.repo_snapshot_local_paths import strip_local_snapshot_fields
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -22,32 +24,6 @@ _RETRY_STATE_FIELDS = (
     "processing_retry_last_at",
     "processing_retry_attempt_count",
 )
-
-
-def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-
-    return parsed.astimezone(timezone.utc)
-
-
-def _is_stale_timestamp(value: object, *, now: datetime, stale_after_seconds: int) -> bool:
-    parsed = _parse_datetime(value)
-    if parsed is None:
-        return True
-    return (now - parsed).total_seconds() >= max(1, stale_after_seconds)
 
 
 def clear_repo_processing_retry_state(source: dict) -> dict:
@@ -106,18 +82,6 @@ def is_repo_processing_retry_managed(source: dict, *, stage: str | None = None) 
     return str(source.get("processing_retry_stage") or "").strip() == stage
 
 
-def _field_term_query(field_name: str, value: str) -> dict:
-    return {
-        "bool": {
-            "should": [
-                {"term": {f"{field_name}.keyword": value}},
-                {"term": {field_name: value}},
-            ],
-            "minimum_should_match": 1,
-        }
-    }
-
-
 def iter_retry_candidate_docs(
     store: OpenSearchStore,
     *,
@@ -125,7 +89,7 @@ def iter_retry_candidate_docs(
 ):
     for hit in store.iterate_documents_by_query(
         collection_name=REPO_REGISTRY_INDEX,
-        query=_field_term_query("processing_retry_state", REPO_PROCESSING_RETRY_STATE_PENDING),
+        query=build_keyword_or_term_query("processing_retry_state", REPO_PROCESSING_RETRY_STATE_PENDING),
         size=1000,
         sort=[{"_id": "asc"}],
     ):
@@ -153,7 +117,7 @@ def refresh_repo_processing_retry_candidates(
 
     for hit in local_store.iterate_documents_by_query(
         collection_name=REPO_REGISTRY_INDEX,
-        query=_field_term_query("crawl_status", "crawl_failed"),
+        query=build_keyword_or_term_query("crawl_status", "crawl_failed"),
         size=1000,
         sort=[{"_id": "asc"}],
     ):
@@ -179,7 +143,7 @@ def refresh_repo_processing_retry_candidates(
 
     for hit in local_store.iterate_documents_by_query(
         collection_name=REPO_REGISTRY_INDEX,
-        query=_field_term_query("crawl_status", "downloading"),
+        query=build_keyword_or_term_query("crawl_status", "downloading"),
         size=1000,
         sort=[{"_id": "asc"}],
     ):
@@ -217,7 +181,7 @@ def refresh_repo_processing_retry_candidates(
 
     for hit in local_store.iterate_documents_by_query(
         collection_name=REPO_REGISTRY_INDEX,
-        query=_field_term_query("crawl_status", "downloaded"),
+        query=build_keyword_or_term_query("crawl_status", "downloaded"),
         size=1000,
         sort=[{"_id": "asc"}],
     ):
@@ -252,7 +216,7 @@ def refresh_repo_processing_retry_candidates(
 
     for hit in local_store.iterate_documents_by_query(
         collection_name=REPO_REGISTRY_INDEX,
-        query=_field_term_query("file_extract_status", "extract_failed"),
+        query=build_keyword_or_term_query("file_extract_status", "extract_failed"),
         size=1000,
         sort=[{"_id": "asc"}],
     ):
@@ -278,7 +242,7 @@ def refresh_repo_processing_retry_candidates(
 
     for hit in local_store.iterate_documents_by_query(
         collection_name=REPO_REGISTRY_INDEX,
-        query=_field_term_query("file_extract_status", "extracting"),
+        query=build_keyword_or_term_query("file_extract_status", "extracting"),
         size=1000,
         sort=[{"_id": "asc"}],
     ):

@@ -6,11 +6,11 @@ from airflow.models.dagrun import DagRun
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
-from worker.repo.repo_crawl_service import (
+from worker.repo.snapshot.repo_crawl_service import (
     get_pending_repo_crawl_stats,
     should_pause_repo_crawl_due_to_backlog,
 )
-from worker.repo.repo_validation_service import run_repo_processing_validation_for_shard
+from worker.repo.validation.repo_validation_service import run_repo_processing_validation_for_shard
 
 
 default_args = {

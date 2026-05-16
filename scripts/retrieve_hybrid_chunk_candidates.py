@@ -27,7 +27,7 @@ def _load_env_file(env_path: Path) -> None:
 _load_env_file(PROJECT_ROOT / ".env")
 
 try:
-    from worker.repo.local_query_repo_service import prepare_local_query_repo  # noqa: E402
+    from worker.repo.chunking.local_query_repo_service import prepare_local_query_repo  # noqa: E402
     from worker.retrieval.hybrid_chunk_retrieval_service import (  # noqa: E402
         find_repo_chunk,
         retrieve_hybrid_candidates,

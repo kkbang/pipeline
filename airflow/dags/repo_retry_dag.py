@@ -5,7 +5,7 @@ from airflow.decorators import task
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
-from worker.repo.repo_retry_service import run_repo_processing_retry_for_shard
+from worker.repo.pipeline.repo_retry_service import run_repo_processing_retry_for_shard
 
 
 default_args = {
