@@ -2,10 +2,16 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 
-USER_VISIBLE_RISK_LEVELS = ("critical", "high", "medium")
+USER_VISIBLE_REVIEW_LEVELS = ("critical", "high", "medium")
 DEFAULT_MAX_CANDIDATES_PER_SOURCE = 3
 DEFAULT_REASON_LIMIT = 3
-_RISK_LEVEL_RANK = {
+REVIEW_REPORT_KIND = "license_review_candidate_report"
+REVIEW_REPORT_MODE = "review_candidates_not_violation_judgment"
+REVIEW_REPORT_DISCLAIMER = (
+    "This report highlights similar external code that may require license review. "
+    "It does not automatically determine infringement, derivation, or legal violation."
+)
+_REVIEW_LEVEL_RANK = {
     "critical": 0,
     "high": 1,
     "medium": 2,
@@ -68,7 +74,7 @@ def _user_candidate_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
                 "symbol_name": _clean_text(candidate.get("symbol_name")),
             }
         ),
-        "risk": _compact_dict(
+        "review_priority": _compact_dict(
             {
                 "level": _clean_text(review.get("risk_level")),
                 "score": review.get("risk_score"),
@@ -80,8 +86,8 @@ def _user_candidate_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
             }
         ),
         "matched_by": [str(source_name) for source_name in list(candidate.get("retrieval_sources") or [])],
-        "match_signal": _clean_text(review.get("strongest_evidence_type")),
-        "why": _user_visible_reasons(list(review.get("reasons") or [])),
+        "primary_match_signal": _clean_text(review.get("strongest_evidence_type")),
+        "review_reasons": _user_visible_reasons(list(review.get("reasons") or [])),
     }
 
 
@@ -89,8 +95,15 @@ def _user_visible_candidates(candidates: Sequence[Mapping[str, Any]]) -> list[di
     return [
         dict(candidate)
         for candidate in candidates
-        if _clean_text((candidate.get("license_review") or {}).get("risk_level")) in USER_VISIBLE_RISK_LEVELS
+        if _clean_text((candidate.get("license_review") or {}).get("risk_level")) in USER_VISIBLE_REVIEW_LEVELS
     ]
+
+
+def _build_report_interpretation() -> dict[str, str]:
+    return {
+        "mode": REVIEW_REPORT_MODE,
+        "disclaimer": REVIEW_REPORT_DISCLAIMER,
+    }
 
 
 def _build_limitations(chunk_results: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -146,6 +159,8 @@ def build_user_facing_hybrid_result_payload(
             review_counts[risk_level] += 1
 
     payload = {
+        "report_kind": REVIEW_REPORT_KIND,
+        "interpretation": _build_report_interpretation(),
         "source": _compact_dict(
             {
                 "file_path": _clean_text((source_chunk or {}).get("file_path")),
@@ -155,10 +170,12 @@ def build_user_facing_hybrid_result_payload(
         ),
         "summary": _compact_dict(
             {
-                "critical": review_counts["critical"],
-                "high": review_counts["high"],
-                "medium": review_counts["medium"],
-                "suppressed_low_risk": low_risk_count,
+                "review_priority_counts": {
+                    "critical": review_counts["critical"],
+                    "high": review_counts["high"],
+                    "medium": review_counts["medium"],
+                },
+                "suppressed_low_priority": low_risk_count,
             }
         ),
         "candidates": [_user_candidate_payload(candidate) for candidate in displayed_candidates],
@@ -183,13 +200,13 @@ def build_user_facing_repo_hybrid_payload(
     }
     findings: list[dict[str, Any]] = []
     review_counts = {"critical": 0, "high": 0, "medium": 0}
-    suppressed_low_risk_count = 0
+    suppressed_low_priority_count = 0
 
     for chunk_result in raw_chunk_results:
         result = chunk_result.get("result")
         merged_candidates = list(_result_attr(result, "merged_candidates", ()) or ())
         review_candidates = _user_visible_candidates(merged_candidates)
-        suppressed_low_risk_count += max(0, len(merged_candidates) - len(review_candidates))
+        suppressed_low_priority_count += max(0, len(merged_candidates) - len(review_candidates))
         if not review_candidates:
             continue
 
@@ -211,7 +228,7 @@ def build_user_facing_repo_hybrid_payload(
                         ),
                     }
                 ),
-                "top_risk": _compact_dict(
+                "top_review_priority": _compact_dict(
                     {
                         "level": _clean_text(top_review.get("risk_level")),
                         "score": top_review.get("risk_score"),
@@ -225,8 +242,8 @@ def build_user_facing_repo_hybrid_payload(
 
     findings.sort(
         key=lambda item: (
-            _RISK_LEVEL_RANK.get(_clean_text((item.get("top_risk") or {}).get("level")), 99),
-            -float((item.get("top_risk") or {}).get("score") or 0.0),
+            _REVIEW_LEVEL_RANK.get(_clean_text((item.get("top_review_priority") or {}).get("level")), 99),
+            -float((item.get("top_review_priority") or {}).get("score") or 0.0),
             -int(item.get("review_candidate_count") or 0),
             _clean_text((item.get("source") or {}).get("file_path")),
             _clean_text((item.get("source") or {}).get("symbol_name")),
@@ -234,14 +251,18 @@ def build_user_facing_repo_hybrid_payload(
     )
 
     summary = {
-        "critical": review_counts["critical"],
-        "high": review_counts["high"],
-        "medium": review_counts["medium"],
+        "review_priority_counts": {
+            "critical": review_counts["critical"],
+            "high": review_counts["high"],
+            "medium": review_counts["medium"],
+        },
         "sources_with_findings": len(findings),
-        "suppressed_low_risk": suppressed_low_risk_count,
+        "suppressed_low_priority": suppressed_low_priority_count,
     }
 
     payload = {
+        "report_kind": REVIEW_REPORT_KIND,
+        "interpretation": _build_report_interpretation(),
         "repo_id": retrieval_result.get("repo_id") or process_result.get("repo_id"),
         "repo_url": process_result.get("canonical_repo_url"),
         "analyzed_source_count": retrieval_result.get("source_chunk_count") or len(raw_chunk_results),

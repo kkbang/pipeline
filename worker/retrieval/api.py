@@ -22,9 +22,13 @@ logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
-    title="Hybrid Code Chunk Retrieval API",
+    title="License Review Candidate Retrieval API",
     version="1.0.0",
-    description="Process a direct GitHub repository URL, then run rule-based + kNN hybrid retrieval for its chunks.",
+    description=(
+        "Process a direct GitHub repository URL and return similar external code "
+        "candidates that may require license review. This API does not make a legal "
+        "violation determination."
+    ),
 )
 
 
