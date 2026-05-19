@@ -1,9 +1,11 @@
 import hashlib
 import logging
 import math
+import os
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from urllib.parse import urlparse, urlunparse
 
 import requests
 
@@ -11,6 +13,38 @@ from worker.common.config import settings
 
 
 logger = logging.getLogger(__name__)
+
+
+def _is_running_in_docker() -> bool:
+    return os.path.exists("/.dockerenv")
+
+
+def _resolve_embedding_endpoint_for_runtime(endpoint: str) -> str:
+    normalized = str(endpoint or "").strip()
+    if not normalized or not _is_running_in_docker():
+        return normalized
+
+    parsed = urlparse(normalized)
+    if parsed.hostname not in {"127.0.0.1", "localhost"}:
+        return normalized
+
+    host_gateway_name = (
+        os.getenv("DOCKER_HOST_GATEWAY_NAME", "host.docker.internal").strip()
+        or "host.docker.internal"
+    )
+    if not parsed.scheme:
+        return normalized
+
+    auth_part = ""
+    if parsed.username:
+        auth_part = parsed.username
+        if parsed.password:
+            auth_part = f"{auth_part}:{parsed.password}"
+        auth_part = f"{auth_part}@"
+
+    port_part = f":{parsed.port}" if parsed.port else ""
+    rewritten = parsed._replace(netloc=f"{auth_part}{host_gateway_name}{port_part}")
+    return urlunparse(rewritten)
 
 
 @dataclass(slots=True)
@@ -27,7 +61,8 @@ class CodeChunkEmbeddingClient:
     _cache: dict[tuple[str, str, str], list[float]] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
-        self.endpoint = settings.code_chunk_embedding_endpoint
+        raw_endpoint = settings.code_chunk_embedding_endpoint
+        self.endpoint = _resolve_embedding_endpoint_for_runtime(raw_endpoint)
         self.api_key = settings.code_chunk_embedding_api_key
         self.model = settings.code_chunk_embedding_model
         self.batch_size = max(1, int(settings.code_chunk_embedding_batch_size))
@@ -40,6 +75,12 @@ class CodeChunkEmbeddingClient:
             and self.endpoint
             and self.model
         )
+        if self.endpoint != raw_endpoint:
+            logger.info(
+                "Rewrote code chunk embedding endpoint for container runtime: raw=%s resolved=%s",
+                raw_endpoint,
+                self.endpoint,
+            )
 
     def enrich_documents(self, documents: list[tuple[str, dict]]) -> None:
         if not self.enabled or not documents:
