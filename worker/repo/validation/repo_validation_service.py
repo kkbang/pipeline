@@ -253,15 +253,9 @@ def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) ->
             ],
         ),
     )
+    # Code pipeline no longer writes inline embeddings into code_chunk_index.
+    # Embeddings are populated later by the dedicated backfill DAG into a separate index.
     chunk_docs_missing_anonymized_embedding_count = 0
-    if settings.code_chunk_embedding_enabled:
-        chunk_docs_missing_anonymized_embedding_count = store.count_documents(
-            collection_name=CODE_CHUNK_INDEX,
-            query=_repo_chunk_query(
-                repo_id,
-                extra_must_not=[{"exists": {"field": "anonymized_embedding"}}],
-            ),
-        )
 
     extract_status = str(source.get("file_extract_status") or "")
     chunk_status = str(source.get("chunk_status") or "")
@@ -316,10 +310,6 @@ def _validate_single_repo(store: OpenSearchStore, repo_id: str, source: dict) ->
         warning_rules.append("class_chunk_count_mismatch")
     if repo_chunk_strategy and repo_chunk_strategy != "tree_sitter_symbol_only":
         warning_rules.append("unexpected_repo_chunk_strategy")
-    if settings.code_chunk_embedding_enabled and chunk_docs_count > 0:
-        if chunk_docs_missing_anonymized_embedding_count > 0:
-            warning_rules.append("chunk_docs_missing_anonymized_embedding")
-
     status = "validated" if not failed_rules else "validation_failed"
     metrics = {
         "embedding_enabled": settings.code_chunk_embedding_enabled,

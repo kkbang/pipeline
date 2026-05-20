@@ -14,7 +14,6 @@ from worker.repo.chunking.code_chunk_document import (
     build_code_chunk_candidates,
     build_code_chunk_id as build_code_chunk_stable_id,
 )
-from worker.repo.chunking.code_chunk_embedding_service import get_code_chunk_embedding_client
 from worker.repo.chunking.repo_chunk_phase import (
     CHUNK_PHASE_LIGHT,
     is_whale_repo,
@@ -952,7 +951,6 @@ def _apply_file_chunk_outcome(
     stale_doc_ids: set[str],
     pending_docs: list[tuple[str, dict]],
     bulk_flush_docs: int,
-    embedding_client,
 ) -> None:
     if outcome.skipped_test_file:
         stats.skipped_test_files += 1
@@ -995,7 +993,6 @@ def _apply_file_chunk_outcome(
         store=store,
         pending_docs=pending_docs,
         bulk_flush_docs=bulk_flush_docs,
-        embedding_client=embedding_client,
     )
 
 
@@ -1004,12 +1001,10 @@ def _flush_pending_chunk_docs(
     store: OpenSearchStore,
     pending_docs: list[tuple[str, dict]],
     bulk_flush_docs: int,
-    embedding_client,
 ) -> None:
     if not pending_docs:
         return
 
-    embedding_client.enrich_documents(pending_docs)
     store.bulk_index_documents(
         collection_name=CODE_CHUNK_INDEX,
         documents=pending_docs,
@@ -1081,7 +1076,6 @@ def _chunk_single_repo(
         repo_total_code_bytes,
         file_parallelism,
     )
-    embedding_client = get_code_chunk_embedding_client()
     pending_docs: list[tuple[str, dict]] = []
     completed_files = 0
     if execution_mode == "file_parallel_whale":
@@ -1120,7 +1114,6 @@ def _chunk_single_repo(
                         stale_doc_ids=stale_doc_ids,
                         pending_docs=pending_docs,
                         bulk_flush_docs=bulk_flush_docs,
-                        embedding_client=embedding_client,
                     )
                     completed_files += 1
                     if completed_files % 100 == 0 or completed_files == len(code_file_docs):
@@ -1152,7 +1145,6 @@ def _chunk_single_repo(
                 stale_doc_ids=stale_doc_ids,
                 pending_docs=pending_docs,
                 bulk_flush_docs=bulk_flush_docs,
-                embedding_client=embedding_client,
             )
             completed_files += 1
             if completed_files % 100 == 0 or completed_files == len(code_file_docs):
@@ -1169,7 +1161,6 @@ def _chunk_single_repo(
             store=store,
             pending_docs=pending_docs,
             bulk_flush_docs=bulk_flush_docs,
-            embedding_client=embedding_client,
         )
 
     if stale_doc_ids:
