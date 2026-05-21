@@ -103,6 +103,40 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+  retrieval-api:
+    build:
+      context: .
+      dockerfile: airflow/Dockerfile
+    container_name: code-pipeline-retrieval-api
+    restart: unless-stopped
+    mem_limit: ${RETRIEVAL_API_MEM_LIMIT:-6g}
+    mem_reservation: ${RETRIEVAL_API_MEM_RESERVATION:-1g}
+    cpus: ${RETRIEVAL_API_CPUS:-4}
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/airflow
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "18000:8000"
+    volumes:
+      - ./worker:/opt/airflow/worker
+      - ./scripts:/opt/airflow/scripts
+      - ./infra:/opt/airflow/infra
+      - ./local_data:/opt/airflow/local_data
+      - ./benchmark_data:/opt/airflow/benchmark_data
+    command: >
+      bash -c "
+      uvicorn worker.retrieval.api:app
+      --host 0.0.0.0
+      --port 8000
+      "
+    depends_on:
+      opensearch:
+        condition: service_started
+      tor-proxy:
+        condition: service_started
   tor-proxy:
     image: dockurr/tor
     container_name: tor-proxy
