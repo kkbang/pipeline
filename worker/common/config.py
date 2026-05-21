@@ -33,10 +33,27 @@ def _parse_github_tokens_from_env() -> tuple[str, ...]:
     return tuple(deduped)
 
 
+def _parse_csv_env(name: str, default: str = "") -> tuple[str, ...]:
+    raw_value = os.getenv(name, default)
+    if not isinstance(raw_value, str):
+        return ()
+
+    values = []
+    for chunk in raw_value.replace("\r", "\n").replace(",", "\n").split("\n"):
+        normalized = chunk.strip()
+        if normalized:
+            values.append(normalized)
+    return tuple(values)
+
+
 @dataclass
 class Settings:
     app_env: str = os.getenv("APP_ENV", "local")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    retrieval_api_cors_allow_origins: tuple[str, ...] = _parse_csv_env(
+        "RETRIEVAL_API_CORS_ALLOW_ORIGINS",
+        "*",
+    )
 
     opensearch_host: str = os.getenv("OPENSEARCH_HOST", "")
     opensearch_port: int = int(os.getenv("OPENSEARCH_PORT", "9200"))

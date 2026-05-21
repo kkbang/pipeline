@@ -3,6 +3,7 @@ from typing import Any
 
 try:
     from fastapi import FastAPI, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel, Field
 except ModuleNotFoundError as exc:  # pragma: no cover - runtime dependency guard
     missing_name = getattr(exc, "name", "") or "dependency"
@@ -15,6 +16,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - runtime dependency guar
 from worker.repo.chunking.local_query_repo_service import prepare_local_query_repo
 from worker.retrieval.hybrid_chunk_retrieval_service import retrieve_hybrid_candidates_for_source_chunks
 from worker.retrieval.user_report_payload import build_user_facing_repo_hybrid_payload
+from worker.common.config import settings
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -29,6 +31,15 @@ app = FastAPI(
         "candidates that may require license review. This API does not make a legal "
         "violation determination."
     ),
+)
+
+cors_allow_origins = list(settings.retrieval_api_cors_allow_origins) or ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_allow_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
