@@ -60,6 +60,12 @@ class Settings:
     retrieval_api_max_request_body_bytes: int = int(
         os.getenv("RETRIEVAL_API_MAX_REQUEST_BODY_BYTES", "65536")
     )
+    retrieval_api_rate_limit_requests: int = int(
+        os.getenv("RETRIEVAL_API_RATE_LIMIT_REQUESTS", "10")
+    )
+    retrieval_api_rate_limit_window_seconds: int = int(
+        os.getenv("RETRIEVAL_API_RATE_LIMIT_WINDOW_SECONDS", "60")
+    )
 
     opensearch_host: str = os.getenv("OPENSEARCH_HOST", "")
     opensearch_port: int = int(os.getenv("OPENSEARCH_PORT", "9200"))

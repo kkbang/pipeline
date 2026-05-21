@@ -17,6 +17,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - runtime dependency guar
     ) from exc
 
 from worker.repo.chunking.local_query_repo_service import prepare_local_query_repo
+from worker.retrieval.concurrency_limit import NonBlockingConcurrencyLimiter
+from worker.retrieval.rate_limit import FixedWindowRateLimiter
 from worker.retrieval.hybrid_chunk_retrieval_service import retrieve_hybrid_candidates_for_source_chunks
 from worker.retrieval.user_report_payload import build_user_facing_repo_hybrid_payload
 from worker.common.config import settings
@@ -44,8 +46,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-_retrieve_request_semaphore = asyncio.Semaphore(
-    max(1, int(settings.retrieval_api_max_concurrent_requests))
+_retrieve_request_concurrency_limiter = NonBlockingConcurrencyLimiter(
+    limit=settings.retrieval_api_max_concurrent_requests
+)
+_retrieve_rate_limiter = FixedWindowRateLimiter(
+    limit=settings.retrieval_api_rate_limit_requests,
+    window_seconds=settings.retrieval_api_rate_limit_window_seconds,
 )
 _RETRIEVE_BY_REPO_URL_PATH = "/retrieve/hybrid/by-repo-url"
 _SECURITY_HEADERS = {
@@ -95,6 +101,27 @@ def _apply_security_headers(response) -> None:
         response.headers.setdefault(header_name, header_value)
 
 
+def _request_client_key(request: Request) -> str:
+    forwarded_for = str(request.headers.get("x-forwarded-for") or "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip() or "unknown"
+    if request.client and request.client.host:
+        return str(request.client.host).strip() or "unknown"
+    return "unknown"
+
+
+def _apply_rate_limit_headers(response, *, limit: int, remaining: int, reset_after_seconds: int) -> None:
+    response.headers["X-RateLimit-Limit"] = str(limit)
+    response.headers["X-RateLimit-Remaining"] = str(max(0, remaining))
+    response.headers["X-RateLimit-Reset"] = str(max(0, reset_after_seconds))
+
+
+def _apply_concurrency_headers(response, *, limit: int, in_flight: int, remaining: int) -> None:
+    response.headers["X-Concurrency-Limit"] = str(max(0, limit))
+    response.headers["X-Concurrency-In-Flight"] = str(max(0, in_flight))
+    response.headers["X-Concurrency-Remaining"] = str(max(0, remaining))
+
+
 @app.middleware("http")
 async def retrieval_api_middleware(request: Request, call_next):
     if request.url.path != _RETRIEVE_BY_REPO_URL_PATH:
@@ -125,9 +152,60 @@ async def retrieval_api_middleware(request: Request, call_next):
         _apply_security_headers(response)
         return response
 
-    async with _retrieve_request_semaphore:
+    concurrency_decision, reservation = await _retrieve_request_concurrency_limiter.try_acquire()
+    if reservation is None:
+        response = JSONResponse(
+            status_code=503,
+            content={"detail": "Too many in-flight retrieval requests"},
+        )
+        response.headers["Retry-After"] = "5"
+        _apply_concurrency_headers(
+            response,
+            limit=concurrency_decision.limit,
+            in_flight=concurrency_decision.in_flight,
+            remaining=concurrency_decision.remaining,
+        )
+        _apply_security_headers(response)
+        return response
+
+    rate_limit_decision = _retrieve_rate_limiter.check(_request_client_key(request))
+    if not rate_limit_decision.allowed:
+        response = JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded"},
+        )
+        response.headers["Retry-After"] = str(rate_limit_decision.retry_after_seconds)
+        _apply_rate_limit_headers(
+            response,
+            limit=rate_limit_decision.limit,
+            remaining=rate_limit_decision.remaining,
+            reset_after_seconds=rate_limit_decision.reset_after_seconds,
+        )
+        _apply_concurrency_headers(
+            response,
+            limit=concurrency_decision.limit,
+            in_flight=concurrency_decision.in_flight,
+            remaining=concurrency_decision.remaining,
+        )
+        _apply_security_headers(response)
+        await reservation.release()
+        return response
+
+    async with reservation:
         response = await call_next(request)
 
+    _apply_rate_limit_headers(
+        response,
+        limit=rate_limit_decision.limit,
+        remaining=rate_limit_decision.remaining,
+        reset_after_seconds=rate_limit_decision.reset_after_seconds,
+    )
+    _apply_concurrency_headers(
+        response,
+        limit=concurrency_decision.limit,
+        in_flight=concurrency_decision.in_flight,
+        remaining=concurrency_decision.remaining,
+    )
     _apply_security_headers(response)
     return response
 
