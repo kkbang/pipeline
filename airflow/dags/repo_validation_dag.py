@@ -6,6 +6,7 @@ from airflow.models.dagrun import DagRun
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 from worker.common.config import settings
+from worker.repo.pipeline.repo_retry_service import has_pending_repo_processing_retry_work
 from worker.repo.snapshot.repo_crawl_service import (
     get_pending_repo_crawl_stats,
     should_pause_repo_crawl_due_to_backlog,
@@ -47,6 +48,12 @@ with DAG(
 
     validation_results = validate_shard.expand(shard_index=list(range(shard_count)))
 
+    @task.short_circuit(task_id="has_pending_repo_retry_work")
+    def has_pending_repo_retry_work() -> bool:
+        if not settings.repo_pipeline_self_loop_enabled:
+            return False
+        return has_pending_repo_processing_retry_work()
+
     @task.short_circuit(task_id="has_pending_repo_crawl_work")
     def has_pending_repo_crawl_work() -> bool:
         if not settings.repo_pipeline_self_loop_enabled:
@@ -57,11 +64,18 @@ with DAG(
         pending_stats = get_pending_repo_crawl_stats()
         return int(pending_stats.get("pending_count") or 0) > 0
 
+    pending_retry_work = has_pending_repo_retry_work()
     pending_crawl_work = has_pending_repo_crawl_work()
+
+    trigger_repo_retry = TriggerDagRunOperator(
+        task_id="trigger_repo_retry_dag",
+        trigger_dag_id="repo_retry_dag",
+    )
 
     trigger_next_code_pipeline = TriggerDagRunOperator(
         task_id="trigger_next_code_pipeline_dag",
         trigger_dag_id="code_pipeline_dag",
     )
 
+    validation_results >> pending_retry_work >> trigger_repo_retry
     validation_results >> pending_crawl_work >> trigger_next_code_pipeline

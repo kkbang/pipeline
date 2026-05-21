@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 
 from worker.common.config import settings
+from worker.repo.chunking.repo_chunk_service import run_repo_code_chunking_for_repo
 from worker.repo.extraction.repo_file_extract_service import run_repo_file_extraction_for_repo
 from worker.repo.pipeline.repo_pipeline_manifest_service import repo_id_shard_index
 from worker.repo.pipeline.repo_retry_state import (
     REPO_PROCESSING_RETRY_STAGE_CRAWL,
+    REPO_PROCESSING_RETRY_STAGE_CHUNK,
     REPO_PROCESSING_RETRY_STAGE_EXTRACT,
     clear_repo_processing_retry_state,
     iter_retry_candidate_docs,
@@ -13,6 +15,7 @@ from worker.repo.pipeline.repo_retry_state import (
     refresh_repo_processing_retry_candidates,
 )
 from worker.repo.snapshot.repo_crawl_service import run_repo_snapshot_download_for_repo
+from worker.repo.validation.repo_validation_service import run_repo_processing_validation_for_repo
 from worker.storage.opensearch_store import OpenSearchStore
 
 
@@ -59,6 +62,17 @@ def list_repo_ids_for_processing_retry(
     )
 
 
+def has_pending_repo_processing_retry_work(
+    *,
+    store: OpenSearchStore | None = None,
+) -> bool:
+    local_store = store or OpenSearchStore()
+    refresh_repo_processing_retry_candidates(store=local_store, refresh_writes=False)
+    for _hit in iter_retry_candidate_docs(local_store):
+        return True
+    return False
+
+
 def run_repo_processing_retry_for_repo(
     repo_id: str,
     *,
@@ -77,7 +91,11 @@ def run_repo_processing_retry_for_repo(
 
     source = dict(repo_doc.get("_source", {}))
     retry_stage = str(source.get("processing_retry_stage") or "").strip()
-    if retry_stage not in {REPO_PROCESSING_RETRY_STAGE_CRAWL, REPO_PROCESSING_RETRY_STAGE_EXTRACT}:
+    if retry_stage not in {
+        REPO_PROCESSING_RETRY_STAGE_CRAWL,
+        REPO_PROCESSING_RETRY_STAGE_EXTRACT,
+        REPO_PROCESSING_RETRY_STAGE_CHUNK,
+    }:
         return {
             "repo_id": repo_id,
             "stage": "retry",
@@ -97,6 +115,9 @@ def run_repo_processing_retry_for_repo(
         refresh=refresh_writes,
     )
 
+    validation_result = None
+    result_status = ""
+
     if retry_stage == REPO_PROCESSING_RETRY_STAGE_CRAWL:
         crawl_result = run_repo_snapshot_download_for_repo(
             repo_id,
@@ -112,21 +133,40 @@ def run_repo_processing_retry_for_repo(
             )
         else:
             result = crawl_result
-    else:
+        result_status = str(result.get("stage_status") or "")
+    elif retry_stage == REPO_PROCESSING_RETRY_STAGE_EXTRACT:
         result = run_repo_file_extraction_for_repo(
             repo_id,
             store=local_store,
             refresh_writes=refresh_writes,
         )
+        result_status = str(result.get("stage_status") or "")
+    else:
+        result = run_repo_code_chunking_for_repo(
+            repo_id,
+            store=local_store,
+            refresh_writes=refresh_writes,
+            force_safe_mode=True,
+        )
+        result_status = str(result.get("stage_status") or "")
+        if result_status in {"chunked", "chunk_failed"}:
+            validation_result = run_repo_processing_validation_for_repo(
+                repo_id,
+                store=local_store,
+                refresh_writes=refresh_writes,
+            )
 
     latest_doc = local_store.get_document(collection_name=REPO_REGISTRY_INDEX, doc_id=repo_id)
     latest_source = dict(latest_doc.get("_source", {})) if latest_doc else {}
     latest_retry_state = str(latest_source.get("processing_retry_state") or "").strip()
     latest_retry_stage = str(latest_source.get("processing_retry_stage") or "").strip()
-    result_status = str(result.get("stage_status") or "")
 
     if latest_retry_state == "retrying" and latest_retry_stage == retry_stage:
-        if result_status in {"downloaded", "extracted"}:
+        if (
+            (retry_stage in {REPO_PROCESSING_RETRY_STAGE_CRAWL, REPO_PROCESSING_RETRY_STAGE_EXTRACT}
+             and result_status in {"downloaded", "extracted"})
+            or (retry_stage == REPO_PROCESSING_RETRY_STAGE_CHUNK and result_status in {"chunked", "chunk_failed"})
+        ):
             local_store.replace_document(
                 collection_name=REPO_REGISTRY_INDEX,
                 doc_id=repo_id,
@@ -156,6 +196,7 @@ def run_repo_processing_retry_for_repo(
         "repo_id": repo_id,
         "stage": "retry",
         "retry_stage": retry_stage,
+        "validation_result": validation_result,
         **result,
     }
 
@@ -186,6 +227,7 @@ def run_repo_processing_retry_for_shard(
     completed_count = 0
     failed_count = 0
     skipped_count = 0
+    retry_pending_count = 0
     for repo_id in repo_ids:
         processed_count += 1
         result = run_repo_processing_retry_for_repo(
@@ -194,8 +236,10 @@ def run_repo_processing_retry_for_shard(
             refresh_writes=False,
         )
         stage_status = str(result.get("stage_status") or "")
-        if stage_status in {"downloaded", "extracted"}:
+        if stage_status in {"downloaded", "extracted", "chunked", "chunk_failed"}:
             completed_count += 1
+        elif stage_status == "retry_pending":
+            retry_pending_count += 1
         elif stage_status == "skipped":
             skipped_count += 1
         else:
@@ -209,4 +253,5 @@ def run_repo_processing_retry_for_shard(
         "completed_count": completed_count,
         "failed_count": failed_count,
         "skipped_count": skipped_count,
+        "retry_pending_count": retry_pending_count,
     }

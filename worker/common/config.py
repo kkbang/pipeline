@@ -178,6 +178,18 @@ class Settings:
     repo_chunk_whale_file_parallelism: int = int(
         os.getenv("REPO_CHUNK_WHALE_FILE_PARALLELISM", "8")
     )
+    repo_chunk_soft_fail_max_code_files: int = int(
+        os.getenv("REPO_CHUNK_SOFT_FAIL_MAX_CODE_FILES", "0")
+    )
+    repo_chunk_soft_fail_max_elapsed_seconds: int = int(
+        os.getenv("REPO_CHUNK_SOFT_FAIL_MAX_ELAPSED_SECONDS", "900")
+    )
+    repo_chunk_retry_safe_file_parallelism: int = int(
+        os.getenv("REPO_CHUNK_RETRY_SAFE_FILE_PARALLELISM", "1")
+    )
+    repo_chunk_retry_safe_bulk_flush_docs: int = int(
+        os.getenv("REPO_CHUNK_RETRY_SAFE_BULK_FLUSH_DOCS", "50")
+    )
     code_chunk_index_alias: str = (
         os.getenv("CODE_CHUNK_INDEX_ALIAS", "code_chunk_index").strip() or "code_chunk_index"
     )

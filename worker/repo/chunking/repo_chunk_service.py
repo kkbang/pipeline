@@ -1,6 +1,9 @@
 import hashlib
 import logging
 import os
+import signal
+import threading
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -27,6 +30,10 @@ from worker.repo.pipeline.repo_pipeline_manifest_service import (
 from worker.repo.pipeline.repo_processing_recovery import (
     build_crawl_retry_source,
     is_missing_snapshot_root_error,
+)
+from worker.repo.pipeline.repo_retry_state import (
+    REPO_PROCESSING_RETRY_STAGE_CHUNK,
+    mark_repo_processing_retry_pending,
 )
 from worker.repo.pipeline.repo_stage_service import list_repo_ids_for_chunking
 from worker.repo.snapshot.repo_snapshot_cleanup import (
@@ -55,6 +62,40 @@ logger = logging.getLogger(__name__)
 REPO_REGISTRY_INDEX = "repo_registry_index"
 REPO_FILE_INDEX = "repo_file_index"
 CODE_CHUNK_INDEX = CODE_CHUNK_INDEX_ALIAS
+
+
+class RepoChunkRetryableError(RuntimeError):
+    """Raised when we want to fail the current repo early and retry later."""
+
+
+@contextmanager
+def _repo_chunk_soft_fail_timeout(*, timeout_seconds: int, force_safe_mode: bool = False):
+    if force_safe_mode:
+        yield
+        return
+    if timeout_seconds <= 0:
+        yield
+        return
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    if not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def _handle_timeout(_signum, _frame):
+        raise RepoChunkRetryableError(
+            f"chunk_elapsed_timeout_seconds_exceeded:{timeout_seconds}"
+        )
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, _handle_timeout)
+    signal.setitimer(signal.ITIMER_REAL, float(timeout_seconds))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous_handler)
 
 LANGUAGE_TO_PARSER_KEY = {
     "python": "python",
@@ -354,7 +395,9 @@ def _chunk_parameters() -> tuple[int, int]:
     return max_lines, overlap_lines
 
 
-def _whale_file_parallelism() -> int:
+def _whale_file_parallelism(*, force_safe_mode: bool = False) -> int:
+    if force_safe_mode:
+        return max(1, int(settings.repo_chunk_retry_safe_file_parallelism))
     return max(1, int(settings.repo_chunk_whale_file_parallelism))
 
 
@@ -1018,12 +1061,13 @@ def _resolve_chunk_execution(
     *,
     source: dict,
     code_file_count: int,
+    force_safe_mode: bool = False,
 ) -> tuple[str, int, int]:
     repo_total_code_bytes = _parse_non_negative_int(source.get("file_extract_total_code_bytes"))
     if code_file_count <= 1:
         return "repo_sequential", 1, repo_total_code_bytes
 
-    whale_parallelism = min(_whale_file_parallelism(), code_file_count)
+    whale_parallelism = min(_whale_file_parallelism(force_safe_mode=force_safe_mode), code_file_count)
     if (
         is_whale_repo(total_code_bytes=repo_total_code_bytes, code_file_count=code_file_count)
         and whale_parallelism > 1
@@ -1033,6 +1077,32 @@ def _resolve_chunk_execution(
     return "repo_sequential", 1, repo_total_code_bytes
 
 
+def _chunk_retry_guard_reason(
+    *,
+    source: dict,
+    execution_mode: str,
+    code_file_count: int,
+    force_safe_mode: bool = False,
+) -> str | None:
+    if force_safe_mode:
+        return None
+    if execution_mode != "file_parallel_whale":
+        return None
+
+    threshold = max(0, int(settings.repo_chunk_soft_fail_max_code_files))
+    if threshold <= 0:
+        return None
+    if code_file_count < threshold:
+        return None
+
+    retry_stage = str(source.get("processing_retry_stage") or "").strip()
+    retry_attempt_count = int(source.get("processing_retry_attempt_count") or 0)
+    if retry_stage == REPO_PROCESSING_RETRY_STAGE_CHUNK or retry_attempt_count > 0:
+        return None
+
+    return f"chunk_memory_guard_code_file_count_exceeded:{code_file_count}>={threshold}"
+
+
 def _chunk_single_repo(
     store: OpenSearchStore,
     *,
@@ -1040,6 +1110,7 @@ def _chunk_single_repo(
     source: dict,
     chunked_at: str,
     refresh_writes: bool = False,
+    force_safe_mode: bool = False,
 ) -> RepoChunkStats:
     snapshot_root = resolve_snapshot_root_path(store.base_dir, source).resolve()
     if not snapshot_root.exists() or not snapshot_root.is_dir():
@@ -1058,23 +1129,41 @@ def _chunk_single_repo(
     repo_name = str(source.get("repo_name") or "").strip().lower()
     repo_url = source.get("canonical_repo_url")
     snapshot_ref = source.get("snapshot_ref")
-    bulk_flush_docs = max(1, int(settings.opensearch_bulk_flush_docs))
+    bulk_flush_docs = max(
+        1,
+        int(
+            settings.repo_chunk_retry_safe_bulk_flush_docs
+            if force_safe_mode
+            else settings.opensearch_bulk_flush_docs
+        ),
+    )
 
     stats = RepoChunkStats()
     execution_mode, file_parallelism, repo_total_code_bytes = _resolve_chunk_execution(
         source=source,
         code_file_count=len(code_file_docs),
+        force_safe_mode=force_safe_mode,
     )
+    retry_guard_reason = _chunk_retry_guard_reason(
+        source=source,
+        execution_mode=execution_mode,
+        code_file_count=len(code_file_docs),
+        force_safe_mode=force_safe_mode,
+    )
+    if retry_guard_reason:
+        raise RepoChunkRetryableError(retry_guard_reason)
     stats.execution_mode = execution_mode
     stats.file_parallelism = file_parallelism
     stats.repo_total_code_bytes = repo_total_code_bytes
     logger.info(
-        "Chunking repo_id=%s mode=%s code_files=%s total_code_bytes=%s file_parallelism=%s",
+        "Chunking repo_id=%s mode=%s code_files=%s total_code_bytes=%s file_parallelism=%s safe_mode=%s bulk_flush_docs=%s",
         repo_id,
         execution_mode,
         len(code_file_docs),
         repo_total_code_bytes,
         file_parallelism,
+        force_safe_mode,
+        bulk_flush_docs,
     )
     pending_docs: list[tuple[str, dict]] = []
     completed_files = 0
@@ -1197,6 +1286,7 @@ def run_repo_code_chunking_for_repo(
     *,
     store: OpenSearchStore | None = None,
     refresh_writes: bool = False,
+    force_safe_mode: bool = False,
 ) -> dict:
     if store is None:
         store = OpenSearchStore()
@@ -1268,13 +1358,18 @@ def run_repo_code_chunking_for_repo(
         claimed_source = dict(claimed_docs[repo_id]["_source"])
         current_source = dict(claimed_source)
         chunk_finished_at = datetime.now(timezone.utc).isoformat()
-        stats = _chunk_single_repo(
-            store,
-            repo_id=repo_id,
-            source=claimed_source,
-            chunked_at=chunk_finished_at,
-            refresh_writes=refresh_writes,
-        )
+        with _repo_chunk_soft_fail_timeout(
+            timeout_seconds=max(0, int(settings.repo_chunk_soft_fail_max_elapsed_seconds)),
+            force_safe_mode=force_safe_mode,
+        ):
+            stats = _chunk_single_repo(
+                store,
+                repo_id=repo_id,
+                source=claimed_source,
+                chunked_at=chunk_finished_at,
+                refresh_writes=refresh_writes,
+                force_safe_mode=force_safe_mode,
+            )
 
         chunk_error_message = None
         chunk_status = "chunked"
@@ -1349,6 +1444,55 @@ def run_repo_code_chunking_for_repo(
             "error_message": chunk_error_message,
             "snapshot_cleanup_status": cleanup_status,
             "snapshot_cleanup_error": cleanup_error,
+        }
+    except RepoChunkRetryableError as exc:
+        logger.warning("Code chunking soft-failed for repo_id=%s reason=%s", repo_id, str(exc))
+        failure_finished_at = datetime.now(timezone.utc).isoformat()
+        failed_source = {
+            **strip_local_snapshot_fields(dict(current_source)),
+            "chunk_status": "chunk_failed",
+            "chunk_finished_at": failure_finished_at,
+            "chunk_error_message": str(exc),
+            "chunk_max_lines": max_lines,
+            "chunk_overlap_lines": overlap_lines,
+            "chunk_strategy": "tree_sitter_symbol_only",
+            "chunk_execution_mode": "repo_soft_failed_for_retry",
+            "code_chunk_index_name": CODE_CHUNK_INDEX,
+            "code_chunk_chunker_version": settings.code_chunk_chunker_version,
+            "code_chunk_normalization_version": settings.code_chunk_normalization_version,
+            "code_chunk_anonymization_version": settings.code_chunk_anonymization_version,
+            "code_chunk_feature_version": settings.code_chunk_feature_version,
+        }
+        if force_safe_mode:
+            _best_effort_replace_repo_chunk_doc(
+                store=store,
+                doc_id=repo_id,
+                source=failed_source,
+                refresh=refresh_writes,
+            )
+            return {
+                "repo_id": repo_id,
+                "stage": "chunk",
+                "stage_status": "chunk_failed",
+                "error_message": str(exc),
+            }
+        retry_source = mark_repo_processing_retry_pending(
+            failed_source,
+            stage=REPO_PROCESSING_RETRY_STAGE_CHUNK,
+            reason=str(exc),
+            marked_at=failure_finished_at,
+        )
+        _best_effort_replace_repo_chunk_doc(
+            store=store,
+            doc_id=repo_id,
+            source=retry_source,
+            refresh=refresh_writes,
+        )
+        return {
+            "repo_id": repo_id,
+            "stage": "chunk",
+            "stage_status": "retry_pending",
+            "reason": str(exc),
         }
     except Exception as exc:  # noqa: BLE001 - repo 단위 파이프라인 실패를 상위로 전달하기 위함
         logger.warning("Code chunking failed for repo_id=%s error=%s", repo_id, str(exc))
@@ -1429,6 +1573,7 @@ def run_repo_code_chunking_for_shard(
     chunked_count = 0
     failed_count = 0
     skipped_count = 0
+    retry_pending_count = 0
     manifest_entries: list[dict] = []
     for repo_id in repo_ids:
         processed_count += 1
@@ -1462,6 +1607,8 @@ def run_repo_code_chunking_for_shard(
                     "chunk_phase": normalized_phase,
                 }
             )
+        elif stage_status == "retry_pending":
+            retry_pending_count += 1
         else:
             skipped_count += 1
 
@@ -1482,6 +1629,7 @@ def run_repo_code_chunking_for_shard(
         "chunked_count": chunked_count,
         "failed_count": failed_count,
         "skipped_count": skipped_count,
+        "retry_pending_count": retry_pending_count,
         "manifest_count": len(manifest_entries),
     }
 
