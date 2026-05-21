@@ -65,7 +65,6 @@ def _chunk_snapshot_into_source_chunks(
     repo_name: str,
     canonical_repo_url: str,
     snapshot_ref: str,
-    source_chunk_limit: int | None,
 ) -> list[dict[str, Any]]:
     max_lines, overlap_lines = _chunk_parameters()
     chunked_at = datetime.now(timezone.utc).isoformat()
@@ -99,13 +98,50 @@ def _chunk_snapshot_into_source_chunks(
         for chunk_doc_id, source in outcome.chunk_docs:
             source_chunks.append({"chunk_id": chunk_doc_id, **dict(source)})
 
-    return select_source_chunks(source_chunks, limit=source_chunk_limit)
+    return _select_query_source_chunks(source_chunks, limit=None)
+
+
+def _select_query_source_chunks(
+    source_chunks: list[dict[str, Any]],
+    *,
+    limit: int | None,
+) -> list[dict[str, Any]]:
+    if isinstance(limit, int) and limit > 0:
+        return select_source_chunks(source_chunks, limit=limit)
+
+    # Full-repo analysis mode: keep every chunk with at least 10 lines,
+    # but make ordering deterministic.
+    return sorted(
+        [
+            dict(source_chunk)
+            for source_chunk in source_chunks
+            if _query_chunk_line_span(source_chunk) >= 10
+        ],
+        key=lambda source_chunk: (
+            str(source_chunk.get("file_path") or ""),
+            str(source_chunk.get("chunk_type") or ""),
+            int(source_chunk.get("start_line") or 0),
+            int(source_chunk.get("end_line") or 0),
+            str(source_chunk.get("symbol_name") or ""),
+            str(source_chunk.get("chunk_id") or ""),
+        ),
+    )
+
+
+def _query_chunk_line_span(source_chunk: dict[str, Any]) -> int:
+    try:
+        start_line = int(source_chunk.get("start_line") or 0)
+        end_line = int(source_chunk.get("end_line") or 0)
+    except (TypeError, ValueError):
+        return 0
+    if start_line <= 0 or end_line <= 0 or end_line < start_line:
+        return 0
+    return end_line - start_line + 1
 
 
 def prepare_local_query_repo(
     repo_url: str,
     *,
-    source_chunk_limit: int | None = None,
     precompute_embeddings: bool = True,
 ) -> dict[str, Any]:
     canonicalized = canonicalize_github_repo_url(repo_url)
@@ -136,7 +172,6 @@ def prepare_local_query_repo(
             repo_name=repo_name.lower(),
             canonical_repo_url=canonical_repo_url,
             snapshot_ref=str(snapshot_metadata["snapshot_ref"]),
-            source_chunk_limit=source_chunk_limit,
         )
         if precompute_embeddings and source_chunks:
             embedding_client = get_code_chunk_embedding_client()

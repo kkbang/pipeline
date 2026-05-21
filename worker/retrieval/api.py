@@ -34,12 +34,6 @@ app = FastAPI(
 
 class HybridRepoRetrieveRequest(BaseModel):
     repo_url: str = Field(..., min_length=1, description="GitHub repository URL.")
-    source_chunk_limit: int = Field(
-        default=20,
-        ge=1,
-        le=500,
-        description="Maximum number of source chunks from the query repo to run retrieval for.",
-    )
     rule_based_top_k: int = Field(default=50, ge=1, le=200)
     per_variant_k: int = Field(default=20, ge=1, le=100)
     knn_top_k: int = Field(default=50, ge=1, le=200)
@@ -64,7 +58,6 @@ def retrieve_hybrid_by_repo_url(request: HybridRepoRetrieveRequest) -> dict[str,
     try:
         process_result = prepare_local_query_repo(
             request.repo_url,
-            source_chunk_limit=request.source_chunk_limit,
             precompute_embeddings=True,
         )
         store = OpenSearchStore()
@@ -84,8 +77,7 @@ def retrieve_hybrid_by_repo_url(request: HybridRepoRetrieveRequest) -> dict[str,
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - runtime integration path
         logger.exception(
-            "Hybrid retrieval API failed for repo_url=%s source_chunk_limit=%s",
+            "Hybrid retrieval API failed for repo_url=%s",
             request.repo_url,
-            request.source_chunk_limit,
         )
         raise HTTPException(status_code=500, detail=_exception_detail(exc)) from exc
