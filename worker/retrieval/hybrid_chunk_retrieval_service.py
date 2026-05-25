@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 from worker.repo.chunking.code_chunk_document import CODE_CHUNK_INDEX_ALIAS, VALID_CHUNK_VALIDATION_STATUSES
 from worker.repo.chunking.code_chunk_embedding_service import get_code_chunk_embedding_client
+from worker.common.config import settings
 from worker.retrieval.chunk_retrieval_service import (
     MAX_EVIDENCE_PER_CANDIDATE,
     REPO_REGISTRY_INDEX,
@@ -21,6 +22,7 @@ from worker.retrieval.chunk_retrieval_service import (
     _strongest_evidence_type,
     _variant_name_from_id,
 )
+from worker.retrieval.repo_doc_cache import RepoDocumentCache
 from worker.retrieval.query_expansion_service import build_query_bundle
 from worker.retrieval.source_chunk_selection import select_source_chunks
 
@@ -314,6 +316,7 @@ def retrieve_rule_based_candidates(
     top_k: int = DEFAULT_RULE_BASED_TOP_K,
     per_variant_k: int = DEFAULT_RULE_BASED_PER_VARIANT_K,
     include_same_repo: bool = False,
+    repo_doc_cache: RepoDocumentCache | None = None,
 ) -> dict[str, Any]:
     resolved_store = store or OpenSearchStore()
     bundle = build_query_bundle(source_doc)
@@ -371,11 +374,19 @@ def retrieve_rule_based_candidates(
         merged_candidates.items(),
         key=lambda item: (-float(item[1]["aggregate_score"]), -len(item[1]["evidences"]), item[0]),
     )[: max(1, int(top_k))]
-    repo_docs = _multi_get_documents(
-        store=resolved_store,
-        collection_name=REPO_REGISTRY_INDEX,
-        doc_ids=[_clean_text(payload["source"].get("repo_id")) for _chunk_id, payload in ranked_items],
-    )
+    repo_doc_ids = [_clean_text(payload["source"].get("repo_id")) for _chunk_id, payload in ranked_items]
+    if repo_doc_cache is not None:
+        repo_docs = repo_doc_cache.get_many(
+            store=resolved_store,
+            collection_name=REPO_REGISTRY_INDEX,
+            doc_ids=repo_doc_ids,
+        )
+    else:
+        repo_docs = _multi_get_documents(
+            store=resolved_store,
+            collection_name=REPO_REGISTRY_INDEX,
+            doc_ids=repo_doc_ids,
+        )
 
     candidates: list[dict[str, Any]] = []
     for rank, (chunk_id, payload) in enumerate(ranked_items, start=1):
@@ -426,6 +437,7 @@ def retrieve_knn_candidates(
     store: OpenSearchStore | None = None,
     top_k: int = DEFAULT_KNN_TOP_K,
     include_same_repo: bool = False,
+    repo_doc_cache: RepoDocumentCache | None = None,
 ) -> dict[str, Any]:
     resolved_store = store or OpenSearchStore()
     source_with_embedding, query_vector = _ensure_query_embedding(source_doc)
@@ -448,11 +460,19 @@ def retrieve_knn_candidates(
         ),
     )
     hits = response.get("hits", {}).get("hits", [])
-    repo_docs = _multi_get_documents(
-        store=resolved_store,
-        collection_name=REPO_REGISTRY_INDEX,
-        doc_ids=[_clean_text((hit.get("_source") or {}).get("repo_id")) for hit in hits],
-    )
+    repo_doc_ids = [_clean_text((hit.get("_source") or {}).get("repo_id")) for hit in hits]
+    if repo_doc_cache is not None:
+        repo_docs = repo_doc_cache.get_many(
+            store=resolved_store,
+            collection_name=REPO_REGISTRY_INDEX,
+            doc_ids=repo_doc_ids,
+        )
+    else:
+        repo_docs = _multi_get_documents(
+            store=resolved_store,
+            collection_name=REPO_REGISTRY_INDEX,
+            doc_ids=repo_doc_ids,
+        )
 
     candidates: list[dict[str, Any]] = []
     for rank, hit in enumerate(hits, start=1):
@@ -622,6 +642,7 @@ def retrieve_hybrid_candidates(
     knn_top_k: int = DEFAULT_KNN_TOP_K,
     merged_top_k: int = DEFAULT_MERGED_TOP_K,
     include_same_repo: bool = False,
+    repo_doc_cache: RepoDocumentCache | None = None,
 ) -> HybridRetrievalResult:
     resolved_store = store or OpenSearchStore()
     total_started_at = perf_counter()
@@ -634,6 +655,7 @@ def retrieve_hybrid_candidates(
             top_k=rule_based_top_k,
             per_variant_k=per_variant_k,
             include_same_repo=include_same_repo,
+            repo_doc_cache=repo_doc_cache,
         )
         return result, round(perf_counter() - started_at, 4)
 
@@ -644,6 +666,7 @@ def retrieve_hybrid_candidates(
             store=resolved_store,
             top_k=knn_top_k,
             include_same_repo=include_same_repo,
+            repo_doc_cache=repo_doc_cache,
         )
         return result, round(perf_counter() - started_at, 4)
 
@@ -815,9 +838,9 @@ def retrieve_hybrid_candidates_for_source_chunks(
     total_started_at = perf_counter()
     normalized_source_chunks = [dict(source_chunk) for source_chunk in source_chunks]
     repo_id = _clean_text(normalized_source_chunks[0].get("repo_id")) if normalized_source_chunks else ""
-    chunk_results: list[dict[str, Any]] = []
-    chunk_timings: list[dict[str, Any]] = []
-    for source_chunk in normalized_source_chunks:
+    shared_repo_doc_cache = RepoDocumentCache()
+
+    def _retrieve_one_source_chunk(source_chunk: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         hybrid_result = retrieve_hybrid_candidates(
             source_chunk,
             store=resolved_store,
@@ -826,23 +849,33 @@ def retrieve_hybrid_candidates_for_source_chunks(
             knn_top_k=knn_top_k,
             merged_top_k=merged_top_k,
             include_same_repo=include_same_repo,
+            repo_doc_cache=shared_repo_doc_cache,
         )
-        chunk_results.append(
+        return (
             {
                 "source_chunk_id": _clean_text(source_chunk.get("chunk_id")),
                 "file_path": _clean_text(source_chunk.get("file_path")),
                 "symbol_name": _clean_text(source_chunk.get("symbol_name")),
                 "result": hybrid_result,
-            }
-        )
-        chunk_timings.append(
+            },
             {
                 "source_chunk_id": _clean_text(source_chunk.get("chunk_id")),
                 "file_path": _clean_text(source_chunk.get("file_path")),
                 "symbol_name": _clean_text(source_chunk.get("symbol_name")),
                 **dict(hybrid_result.timings),
-            }
+            },
         )
+
+    chunk_results: list[dict[str, Any]] = []
+    chunk_timings: list[dict[str, Any]] = []
+    chunk_parallelism = min(
+        len(normalized_source_chunks) or 1,
+        max(1, int(settings.retrieval_source_chunk_parallelism)),
+    )
+    with ThreadPoolExecutor(max_workers=chunk_parallelism) as executor:
+        for chunk_result, chunk_timing in executor.map(_retrieve_one_source_chunk, normalized_source_chunks):
+            chunk_results.append(chunk_result)
+            chunk_timings.append(chunk_timing)
 
     total_elapsed_seconds = round(perf_counter() - total_started_at, 4)
     total_chunk_seconds = round(
@@ -864,6 +897,8 @@ def retrieve_hybrid_candidates_for_source_chunks(
         "timings": {
             "total_seconds": total_elapsed_seconds,
             "source_chunk_count": len(normalized_source_chunks),
+            "chunk_parallelism": chunk_parallelism,
+            "cumulative_chunk_seconds": total_chunk_seconds,
             "aggregate_chunk_seconds": total_chunk_seconds,
             "average_chunk_seconds": average_chunk_seconds,
             "slowest_chunk": slowest_chunk,

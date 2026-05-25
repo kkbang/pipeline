@@ -60,6 +60,9 @@ class Settings:
     retrieval_api_max_request_body_bytes: int = int(
         os.getenv("RETRIEVAL_API_MAX_REQUEST_BODY_BYTES", "65536")
     )
+    retrieval_source_chunk_parallelism: int = int(
+        os.getenv("RETRIEVAL_SOURCE_CHUNK_PARALLELISM", "3")
+    )
     retrieval_api_rate_limit_requests: int = int(
         os.getenv("RETRIEVAL_API_RATE_LIMIT_REQUESTS", "10")
     )
