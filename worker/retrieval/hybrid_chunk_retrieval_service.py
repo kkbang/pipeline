@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Mapping
 
 from worker.repo.chunking.code_chunk_document import CODE_CHUNK_INDEX_ALIAS, VALID_CHUNK_VALIDATION_STATUSES
@@ -70,6 +71,7 @@ class HybridRetrievalResult:
     source_repo_id: str
     rule_based_status: dict[str, Any]
     knn_status: dict[str, Any]
+    timings: dict[str, Any]
     rule_based_candidates: tuple[dict[str, Any], ...]
     knn_candidates: tuple[dict[str, Any], ...]
     merged_candidates: tuple[dict[str, Any], ...]
@@ -81,6 +83,7 @@ class HybridRetrievalResult:
             "source_repo_id": self.source_repo_id,
             "rule_based_status": dict(self.rule_based_status),
             "knn_status": dict(self.knn_status),
+            "timings": dict(self.timings),
             "rule_based_candidate_count": len(self.rule_based_candidates),
             "knn_candidate_count": len(self.knn_candidates),
             "merged_candidate_count": len(self.merged_candidates),
@@ -621,32 +624,44 @@ def retrieve_hybrid_candidates(
     include_same_repo: bool = False,
 ) -> HybridRetrievalResult:
     resolved_store = store or OpenSearchStore()
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        rule_future = executor.submit(
-            retrieve_rule_based_candidates,
+    total_started_at = perf_counter()
+
+    def _timed_rule_based() -> tuple[dict[str, Any], float]:
+        started_at = perf_counter()
+        result = retrieve_rule_based_candidates(
             source_doc,
             store=resolved_store,
             top_k=rule_based_top_k,
             per_variant_k=per_variant_k,
             include_same_repo=include_same_repo,
         )
-        knn_future = executor.submit(
-            retrieve_knn_candidates,
+        return result, round(perf_counter() - started_at, 4)
+
+    def _timed_knn() -> tuple[dict[str, Any], float]:
+        started_at = perf_counter()
+        result = retrieve_knn_candidates(
             source_doc,
             store=resolved_store,
             top_k=knn_top_k,
             include_same_repo=include_same_repo,
         )
-        rule_based_result = rule_future.result()
-        knn_result = knn_future.result()
+        return result, round(perf_counter() - started_at, 4)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        rule_future = executor.submit(_timed_rule_based)
+        knn_future = executor.submit(_timed_knn)
+        rule_based_result, rule_based_seconds = rule_future.result()
+        knn_result, knn_seconds = knn_future.result()
 
     rule_based_candidates = list(rule_based_result.get("candidates") or [])
     knn_candidates = list(knn_result.get("candidates") or [])
+    merge_started_at = perf_counter()
     merged_candidates = _merge_hybrid_candidates(
         rule_based_candidates=rule_based_candidates,
         knn_candidates=knn_candidates,
         top_k=merged_top_k,
     )
+    merge_seconds = round(perf_counter() - merge_started_at, 4)
     return HybridRetrievalResult(
         retrieval_version=DEFAULT_HYBRID_RETRIEVAL_VERSION,
         source_chunk_id=_clean_text(source_doc.get("chunk_id")),
@@ -658,6 +673,12 @@ def retrieve_hybrid_candidates(
         knn_status={
             "status": knn_result.get("status"),
             "reason": knn_result.get("reason"),
+        },
+        timings={
+            "total_seconds": round(perf_counter() - total_started_at, 4),
+            "rule_based_seconds": rule_based_seconds,
+            "knn_seconds": knn_seconds,
+            "merge_seconds": merge_seconds,
         },
         rule_based_candidates=tuple(rule_based_candidates),
         knn_candidates=tuple(knn_candidates),
@@ -791,9 +812,11 @@ def retrieve_hybrid_candidates_for_source_chunks(
     include_same_repo: bool = False,
 ) -> dict[str, Any]:
     resolved_store = store or OpenSearchStore()
+    total_started_at = perf_counter()
     normalized_source_chunks = [dict(source_chunk) for source_chunk in source_chunks]
     repo_id = _clean_text(normalized_source_chunks[0].get("repo_id")) if normalized_source_chunks else ""
     chunk_results: list[dict[str, Any]] = []
+    chunk_timings: list[dict[str, Any]] = []
     for source_chunk in normalized_source_chunks:
         hybrid_result = retrieve_hybrid_candidates(
             source_chunk,
@@ -812,12 +835,39 @@ def retrieve_hybrid_candidates_for_source_chunks(
                 "result": hybrid_result,
             }
         )
+        chunk_timings.append(
+            {
+                "source_chunk_id": _clean_text(source_chunk.get("chunk_id")),
+                "file_path": _clean_text(source_chunk.get("file_path")),
+                "symbol_name": _clean_text(source_chunk.get("symbol_name")),
+                **dict(hybrid_result.timings),
+            }
+        )
+
+    total_elapsed_seconds = round(perf_counter() - total_started_at, 4)
+    total_chunk_seconds = round(
+        sum(float(chunk_timing.get("total_seconds") or 0.0) for chunk_timing in chunk_timings),
+        4,
+    )
+    average_chunk_seconds = round(total_chunk_seconds / len(chunk_timings), 4) if chunk_timings else 0.0
+    slowest_chunk = max(
+        chunk_timings,
+        key=lambda chunk_timing: float(chunk_timing.get("total_seconds") or 0.0),
+        default={},
+    )
 
     return {
         "retrieval_version": DEFAULT_HYBRID_RETRIEVAL_VERSION,
         "repo_id": repo_id,
         "source_chunk_count": len(normalized_source_chunks),
         "chunk_results": chunk_results,
+        "timings": {
+            "total_seconds": total_elapsed_seconds,
+            "source_chunk_count": len(normalized_source_chunks),
+            "aggregate_chunk_seconds": total_chunk_seconds,
+            "average_chunk_seconds": average_chunk_seconds,
+            "slowest_chunk": slowest_chunk,
+        },
     }
 
 

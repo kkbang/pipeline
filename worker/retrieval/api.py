@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from time import perf_counter
 from typing import Any
 
 try:
@@ -79,10 +80,15 @@ def _exception_detail(exc: Exception) -> str:
     return type(exc).__name__
 
 def _retrieve_hybrid_by_repo_url_sync(request: HybridRepoRetrieveRequest) -> dict[str, Any]:
+    total_started_at = perf_counter()
+    prepare_started_at = perf_counter()
     process_result = prepare_local_query_repo(
         request.repo_url,
         precompute_embeddings=True,
     )
+    prepare_elapsed_seconds = round(perf_counter() - prepare_started_at, 4)
+
+    retrieval_started_at = perf_counter()
     store = OpenSearchStore()
     retrieval_result = retrieve_hybrid_candidates_for_source_chunks(
         list(process_result["source_chunks"]),
@@ -93,7 +99,32 @@ def _retrieve_hybrid_by_repo_url_sync(request: HybridRepoRetrieveRequest) -> dic
         merged_top_k=request.merged_top_k,
         include_same_repo=request.include_same_repo,
     )
-    return build_user_facing_repo_hybrid_payload(process_result, retrieval_result)
+    retrieval_elapsed_seconds = round(perf_counter() - retrieval_started_at, 4)
+
+    payload_started_at = perf_counter()
+    payload = build_user_facing_repo_hybrid_payload(process_result, retrieval_result)
+    payload_elapsed_seconds = round(perf_counter() - payload_started_at, 4)
+
+    payload["timings"] = {
+        "total_seconds": round(perf_counter() - total_started_at, 4),
+        "prepare_local_query_repo": {
+            "total_seconds": prepare_elapsed_seconds,
+            **dict(process_result.get("timings") or {}),
+        },
+        "retrieve_hybrid_candidates": {
+            "total_seconds": retrieval_elapsed_seconds,
+            **dict(retrieval_result.get("timings") or {}),
+        },
+        "build_user_facing_payload": {
+            "total_seconds": payload_elapsed_seconds,
+        },
+    }
+    logger.info(
+        "Hybrid retrieval request timings repo_url=%s timings=%s",
+        request.repo_url,
+        payload["timings"],
+    )
+    return payload
 
 
 def _apply_security_headers(response) -> None:

@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -144,6 +145,7 @@ def prepare_local_query_repo(
     *,
     precompute_embeddings: bool = True,
 ) -> dict[str, Any]:
+    total_started_at = perf_counter()
     canonicalized = canonicalize_github_repo_url(repo_url)
     if canonicalized is None:
         raise ValueError(f"unsupported GitHub repository URL: {repo_url}")
@@ -156,6 +158,7 @@ def prepare_local_query_repo(
         temp_root = Path(temp_dir)
         download_path = temp_root / "snapshot.tar.gz"
         extract_dir = temp_root / "snapshot"
+        download_started_at = perf_counter()
         snapshot_metadata = asyncio.run(
             _download_repo_snapshot_to_paths(
                 owner=owner.lower(),
@@ -164,7 +167,9 @@ def prepare_local_query_repo(
                 extract_dir=extract_dir,
             )
         )
+        download_elapsed_seconds = round(perf_counter() - download_started_at, 4)
         snapshot_root = Path(snapshot_metadata["snapshot_root"]).resolve()
+        chunk_started_at = perf_counter()
         source_chunks = _chunk_snapshot_into_source_chunks(
             snapshot_root=snapshot_root,
             repo_id=repo_id,
@@ -173,11 +178,15 @@ def prepare_local_query_repo(
             canonical_repo_url=canonical_repo_url,
             snapshot_ref=str(snapshot_metadata["snapshot_ref"]),
         )
+        chunk_elapsed_seconds = round(perf_counter() - chunk_started_at, 4)
+        embedding_elapsed_seconds = 0.0
         if precompute_embeddings and source_chunks:
+            embedding_started_at = perf_counter()
             embedding_client = get_code_chunk_embedding_client()
             embedding_client.enrich_documents(
                 [(str(source_chunk["chunk_id"]), source_chunk) for source_chunk in source_chunks]
             )
+            embedding_elapsed_seconds = round(perf_counter() - embedding_started_at, 4)
 
     return {
         "repo_id": repo_id,
@@ -190,5 +199,11 @@ def prepare_local_query_repo(
             "status": "pruned",
             "error": None,
             "snapshot_root_exists": bool(snapshot_root and snapshot_root.exists()),
+        },
+        "timings": {
+            "total_seconds": round(perf_counter() - total_started_at, 4),
+            "download_snapshot_seconds": download_elapsed_seconds,
+            "chunk_source_chunks_seconds": chunk_elapsed_seconds,
+            "precompute_embeddings_seconds": embedding_elapsed_seconds,
         },
     }

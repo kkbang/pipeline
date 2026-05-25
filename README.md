@@ -173,6 +173,8 @@ FastAPI 모듈은 아래에 있습니다.
 
 이 API의 의미는 `violation detector`가 아니라 `license review candidate retrieval`입니다. 즉 결과는 법적 위반 판정이 아니라, 검토가 필요한 유사 코드 후보 목록입니다.
 
+jump / proxy 서버에서 프론트와 API를 함께 붙일 때는 nginx reverse proxy를 두고 브라우저에서는 same-origin `/api/...`만 호출하는 구성이 가장 단순합니다. 예시 설정은 [jump_frontend_proxy.conf](/Users/xxuchan/Desktop/kkbang/infra/nginx/jump_frontend_proxy.conf)에 있습니다. 이 설정은 jump 서버의 `127.0.0.1:5173` 프론트를 프록시하고, `/api/`는 `ngseo-ubuntu:18000`으로 넘기면서 nginx 앞단 rate limit도 같이 적용합니다.
+
 ## 참고 문서
 
 - `docs/repo-manifest-pipeline-architecture.md`
