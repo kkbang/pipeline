@@ -416,6 +416,7 @@ def retrieve_rule_based_candidates(
 ) -> dict[str, Any]:
     resolved_store = store or OpenSearchStore()
     bundle = build_query_bundle(source_doc)
+    source_repo_id = _clean_text(bundle.source_repo_id)
     variant_bodies = [
         _build_variant_search_body(
             variant=variant,
@@ -439,6 +440,9 @@ def retrieve_rule_based_candidates(
             candidate_source = dict(hit.get("_source", {}))
             candidate_chunk_id = _clean_text(hit.get("_id")) or _clean_text(candidate_source.get("chunk_id"))
             if not candidate_chunk_id or candidate_chunk_id == bundle.source_chunk_id:
+                continue
+            candidate_repo_id = _clean_text(candidate_source.get("repo_id"))
+            if not include_same_repo and source_repo_id and candidate_repo_id == source_repo_id:
                 continue
 
             raw_score = float(hit.get("_score") or 0.0)
@@ -537,6 +541,7 @@ def retrieve_knn_candidates(
 ) -> dict[str, Any]:
     resolved_store = store or OpenSearchStore()
     source_with_embedding, query_vector = _ensure_query_embedding(source_doc)
+    source_repo_id = _clean_text(source_with_embedding.get("repo_id"))
     if not query_vector:
         return {
             "status": "skipped",
@@ -589,6 +594,9 @@ def retrieve_knn_candidates(
         candidate_source = dict((chunk_doc or {}).get("_source", {})) if isinstance(chunk_doc, dict) else {}
         if not candidate_source:
             continue
+        candidate_repo_id = _clean_text(candidate_source.get("repo_id"))
+        if not include_same_repo and source_repo_id and candidate_repo_id == source_repo_id:
+            continue
         raw_score = float(hit.get("_score") or 0.0)
         repo_doc = repo_docs.get(_clean_text(candidate_source.get("repo_id")))
         candidates.append(
@@ -627,6 +635,8 @@ def _merge_hybrid_candidates(
     rule_based_candidates: list[dict[str, Any]],
     knn_candidates: list[dict[str, Any]],
     top_k: int,
+    source_repo_id: str = "",
+    include_same_repo: bool = False,
 ) -> list[dict[str, Any]]:
     def _build_scaled_score_map(
         candidates: list[dict[str, Any]],
@@ -672,6 +682,9 @@ def _merge_hybrid_candidates(
     def _upsert(candidate: dict[str, Any], source_name: str) -> None:
         chunk_id = _clean_text(candidate.get("chunk_id"))
         if not chunk_id:
+            return
+        candidate_repo_id = _clean_text(candidate.get("repo_id"))
+        if not include_same_repo and source_repo_id and candidate_repo_id == source_repo_id:
             return
         payload = merged.get(chunk_id)
         if payload is None:
@@ -792,6 +805,8 @@ def retrieve_hybrid_candidates(
         rule_based_candidates=rule_based_candidates,
         knn_candidates=knn_candidates,
         top_k=merged_top_k,
+        source_repo_id=_clean_text(source_doc.get("repo_id")),
+        include_same_repo=include_same_repo,
     )
     merge_seconds = round(perf_counter() - merge_started_at, 4)
     return HybridRetrievalResult(
