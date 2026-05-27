@@ -292,9 +292,18 @@ class OpenSearchHttpStore:
         if not normalized_ids:
             return {}
 
-        body: dict[str, Any] = {"ids": normalized_ids}
-        if source_includes is not None:
-            body["_source"] = source_includes
+        if source_includes is None:
+            body: dict[str, Any] = {"ids": normalized_ids}
+        else:
+            body = {
+                "docs": [
+                    {
+                        "_id": doc_id,
+                        "_source": source_includes,
+                    }
+                    for doc_id in normalized_ids
+                ]
+            }
 
         result = self._request(
             method="POST",
