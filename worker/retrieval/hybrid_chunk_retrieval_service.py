@@ -9,7 +9,6 @@ from worker.common.config import settings
 from worker.retrieval.chunk_retrieval_service import (
     MAX_EVIDENCE_PER_CANDIDATE,
     REPO_REGISTRY_INDEX,
-    RETRIEVAL_SEARCH_SOURCE_FIELDS,
     RetrievalEvidence,
     _build_license_review,
     _build_match_analysis,
@@ -37,6 +36,9 @@ DEFAULT_RULE_BASED_TOP_K = 50
 DEFAULT_RULE_BASED_PER_VARIANT_K = 20
 DEFAULT_KNN_TOP_K = 50
 DEFAULT_MERGED_TOP_K = 100
+CODE_CHUNK_EMBEDDING_INDEX = (
+    f"{settings.code_chunk_embedding_index_alias}_{settings.code_chunk_embedding_index_version}"
+)
 STRONG_COPYLEFT_LICENSE_MARKERS = ("AGPL", "GPL", "SSPL", "BUSL", "CPAL")
 WEAK_COPYLEFT_LICENSE_MARKERS = ("LGPL", "MPL", "EPL", "CDDL")
 NOTICE_LICENSE_MARKERS = ("APACHE", "MIT", "BSD", "ISC", "ARTISTIC", "ZLIB")
@@ -63,6 +65,14 @@ HYBRID_SOURCE_FIELDS = [
     "ast_node_sequence",
     "validation_status",
     "anonymized_embedding",
+]
+KNN_EMBEDDING_SOURCE_FIELDS = [
+    "chunk_id",
+    "repo_id",
+    "language",
+    "file_path",
+    "chunk_type",
+    "symbol_name",
 ]
 
 
@@ -175,6 +185,7 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     call_overlap_count = int(match_analysis.get("call_token_overlap_count") or 0)
     identifier_overlap_count = int(match_analysis.get("identifier_term_overlap_count") or 0)
     operator_overlap_count = int(match_analysis.get("operator_token_overlap_count") or 0)
+    domain_alignment_terms = list(match_analysis.get("domain_alignment_terms") or [])
     domain_family_overlap = list(match_analysis.get("domain_family_overlap") or [])
     shared_functional_traits = list(match_analysis.get("shared_functional_traits") or [])
     domain_family_conflict = bool(match_analysis.get("domain_family_conflict"))
@@ -195,6 +206,22 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     if not license_spdx:
         risk_score = min(1.0, risk_score + 0.03)
 
+    if retrieval_sources == ["knn"] and strongest_evidence_type == "unknown":
+        strongest_evidence_type = "embedding_knn_match"
+        knn_support_bonus = min(support_category_count, 3) * 0.05
+        knn_support_bonus += min(call_overlap_count, 2) * 0.04
+        knn_support_bonus += min(identifier_overlap_count, 6) * 0.01
+        knn_support_bonus += min(operator_overlap_count, 6) * 0.01
+        knn_support_bonus += min(len(domain_alignment_terms), 3) * 0.03
+        knn_support_bonus += min(len(domain_family_overlap), 2) * 0.05
+        knn_support_bonus += min(len(shared_functional_traits), 2) * 0.02
+        knn_floor = 0.28 + (normalized_similarity * 0.48) + knn_support_bonus
+        if domain_family_conflict:
+            knn_floor = min(knn_floor, 0.58 if len(shared_functional_traits) < 2 else 0.72)
+        else:
+            knn_floor = min(knn_floor, 0.82)
+        risk_score = max(risk_score, knn_floor)
+
     if len(retrieval_sources) == 1:
         if strongest_evidence_type == "normalized_hash_match":
             risk_score = min(risk_score, 0.9)
@@ -206,6 +233,14 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
             risk_score = min(risk_score, 0.45 + (normalized_similarity * 0.45))
         elif strongest_evidence_type == "structural_similarity":
             risk_score = min(risk_score, 0.35 + (normalized_similarity * 0.35))
+        elif strongest_evidence_type == "embedding_knn_match":
+            risk_score = min(risk_score, 0.85)
+
+    if retrieval_sources == ["rule_based"] and strongest_evidence_type == "anonymized_code_match":
+        if support_category_count < 2:
+            risk_score = min(risk_score, 0.52)
+        elif not domain_alignment_terms and not domain_family_overlap and call_overlap_count == 0:
+            risk_score = min(risk_score, 0.58)
 
     if strongest_evidence_type != "raw_hash_match" and domain_family_conflict:
         if candidate_primary_domain == "config_setter" and source_primary_domain != "config_setter":
@@ -228,6 +263,8 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     reasons.append(f"Hybrid similarity score after scaling: {round(normalized_similarity, 4)}.")
     if len(retrieval_sources) >= 2:
         reasons.append("Candidate matched in both rule-based retrieval and embedding kNN.")
+    elif retrieval_sources == ["knn"] and strongest_evidence_type == "embedding_knn_match":
+        reasons.append("Embedding-space kNN surfaced this candidate without a lexical rule-based hit.")
     if license_spdx:
         reasons.append(f"Candidate repository license family: {license_family.lower()} ({license_spdx}).")
     else:
@@ -250,9 +287,7 @@ def _build_knn_search_body(
     top_k: int,
     include_same_repo: bool,
 ) -> dict[str, Any]:
-    filter_clauses: list[dict[str, Any]] = [
-        {"terms": {"validation_status": list(VALID_CHUNK_VALIDATION_STATUSES)}},
-    ]
+    filter_clauses: list[dict[str, Any]] = []
     language = _clean_text(source_doc.get("language"))
     if language:
         filter_clauses.append({"term": {"language": language}})
@@ -286,7 +321,7 @@ def _build_knn_search_body(
     return {
         "size": max(1, int(top_k)),
         "track_total_hits": False,
-        "_source": RETRIEVAL_SEARCH_SOURCE_FIELDS,
+        "_source": KNN_EMBEDDING_SOURCE_FIELDS,
         "query": query,
     }
 
@@ -451,7 +486,7 @@ def retrieve_knn_candidates(
         }
 
     response = resolved_store.search_documents(
-        CODE_CHUNK_INDEX_ALIAS,
+        CODE_CHUNK_EMBEDDING_INDEX,
         _build_knn_search_body(
             source_doc=source_with_embedding,
             query_vector=query_vector,
@@ -460,7 +495,16 @@ def retrieve_knn_candidates(
         ),
     )
     hits = response.get("hits", {}).get("hits", [])
-    repo_doc_ids = [_clean_text((hit.get("_source") or {}).get("repo_id")) for hit in hits]
+    chunk_doc_ids = [
+        _clean_text(hit.get("_id")) or _clean_text((hit.get("_source") or {}).get("chunk_id"))
+        for hit in hits
+    ]
+    chunk_docs = resolved_store.multi_get_documents(CODE_CHUNK_INDEX_ALIAS, chunk_doc_ids)
+    repo_doc_ids = [
+        _clean_text((doc.get("_source") or {}).get("repo_id"))
+        for doc in chunk_docs.values()
+        if isinstance(doc, dict)
+    ]
     if repo_doc_cache is not None:
         repo_docs = repo_doc_cache.get_many(
             store=resolved_store,
@@ -476,9 +520,13 @@ def retrieve_knn_candidates(
 
     candidates: list[dict[str, Any]] = []
     for rank, hit in enumerate(hits, start=1):
-        candidate_source = dict(hit.get("_source", {}))
-        chunk_id = _clean_text(hit.get("_id")) or _clean_text(candidate_source.get("chunk_id"))
+        embedding_source = dict(hit.get("_source", {}))
+        chunk_id = _clean_text(hit.get("_id")) or _clean_text(embedding_source.get("chunk_id"))
         if not chunk_id:
+            continue
+        chunk_doc = chunk_docs.get(chunk_id)
+        candidate_source = dict((chunk_doc or {}).get("_source", {})) if isinstance(chunk_doc, dict) else {}
+        if not candidate_source:
             continue
         raw_score = float(hit.get("_score") or 0.0)
         repo_doc = repo_docs.get(_clean_text(candidate_source.get("repo_id")))
@@ -622,11 +670,11 @@ def _merge_hybrid_candidates(
     ranked_candidates = sorted(
         merged.values(),
         key=lambda item: (
-            -float((item.get("license_review") or {}).get("risk_score") or 0.0),
             -float((item.get("hybrid") or {}).get("score") or 0.0),
             -int((item.get("hybrid") or {}).get("source_count") or 0),
             -float((item.get("hybrid") or {}).get("knn_scaled_score") or 0.0),
             -float((item.get("hybrid") or {}).get("rule_based_scaled_score") or 0.0),
+            -float((item.get("license_review") or {}).get("risk_score") or 0.0),
             str(item.get("chunk_id") or ""),
         ),
     )
