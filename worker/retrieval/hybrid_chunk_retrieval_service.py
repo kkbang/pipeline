@@ -176,9 +176,11 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     risk_score = float(review.get("risk_score") or 0.0)
     retrieval_sources = list(candidate.get("retrieval_sources") or [])
     strongest_evidence_type = _clean_text(review.get("strongest_evidence_type"))
+    is_knn_only = retrieval_sources == ["knn"]
+    is_rule_and_knn = set(retrieval_sources) == {"rule_based", "knn"}
     if len(retrieval_sources) >= 2:
         risk_score = min(1.0, risk_score + 0.1)
-    elif retrieval_sources == ["knn"]:
+    elif is_knn_only:
         risk_score = min(risk_score, 0.72)
 
     support_category_count = int(match_analysis.get("support_category_count") or 0)
@@ -206,7 +208,7 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     if not license_spdx:
         risk_score = min(1.0, risk_score + 0.03)
 
-    if retrieval_sources == ["knn"] and strongest_evidence_type == "unknown":
+    if is_knn_only and strongest_evidence_type == "unknown":
         strongest_evidence_type = "embedding_knn_match"
         knn_support_bonus = min(support_category_count, 3) * 0.05
         knn_support_bonus += min(call_overlap_count, 2) * 0.04
@@ -242,6 +244,26 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
         elif not domain_alignment_terms and not domain_family_overlap and call_overlap_count == 0:
             risk_score = min(risk_score, 0.58)
 
+    is_structural_twin = (
+        call_overlap_count == 0
+        and support_category_count < 2
+        and not domain_alignment_terms
+        and (
+            strongest_evidence_type in {"structural_similarity", "embedding_knn_match"}
+            or bool(domain_family_overlap)
+            or domain_family_conflict
+        )
+    )
+
+    if is_knn_only and strongest_evidence_type == "embedding_knn_match":
+        risk_score = min(risk_score, 0.59)
+
+    if is_rule_and_knn and strongest_evidence_type == "anonymized_code_match":
+        risk_score = min(risk_score, 0.79)
+
+    if is_structural_twin:
+        risk_score = min(risk_score, 0.59)
+
     if strongest_evidence_type != "raw_hash_match" and domain_family_conflict:
         if candidate_primary_domain == "config_setter" and source_primary_domain != "config_setter":
             risk_score = min(risk_score, 0.38)
@@ -265,6 +287,12 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
         reasons.append("Candidate matched in both rule-based retrieval and embedding kNN.")
     elif retrieval_sources == ["knn"] and strongest_evidence_type == "embedding_knn_match":
         reasons.append("Embedding-space kNN surfaced this candidate without a lexical rule-based hit.")
+    if is_knn_only and strongest_evidence_type == "embedding_knn_match":
+        reasons.append("kNN-only embedding match is capped below medium until stronger lexical evidence is present.")
+    if is_rule_and_knn and strongest_evidence_type == "anonymized_code_match":
+        reasons.append("Rule-based and kNN agreement on anonymized-code-only evidence is capped at medium.")
+    if is_structural_twin:
+        reasons.append("Structural-twin pattern without direct call/domain evidence is capped below medium.")
     if license_spdx:
         reasons.append(f"Candidate repository license family: {license_family.lower()} ({license_spdx}).")
     else:
