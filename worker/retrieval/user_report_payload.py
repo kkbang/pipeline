@@ -60,7 +60,7 @@ def _user_candidate_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
     source_repo = dict(candidate.get("source_repo") or {})
     review = dict(candidate.get("license_review") or {})
     candidate_source = dict(candidate.get("source") or {})
-    return {
+    payload = {
         "repository": _compact_dict(
             {
                 "repo_url": _clean_text(source_repo.get("repo_url")),
@@ -89,6 +89,25 @@ def _user_candidate_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "primary_match_signal": _clean_text(review.get("strongest_evidence_type")),
         "review_reasons": _user_visible_reasons(list(review.get("reasons") or [])),
     }
+    debug = review.get("debug")
+    if isinstance(debug, Mapping):
+        payload["debug"] = _compact_dict(
+            {
+                "retrieval_sources": [str(source_name) for source_name in list(debug.get("retrieval_sources") or [])],
+                "support_category_count": debug.get("support_category_count"),
+                "call_token_overlap_count": debug.get("call_token_overlap_count"),
+                "identifier_term_overlap_count": debug.get("identifier_term_overlap_count"),
+                "operator_token_overlap_count": debug.get("operator_token_overlap_count"),
+                "domain_alignment_term_count": debug.get("domain_alignment_term_count"),
+                "domain_family_overlap": list(debug.get("domain_family_overlap") or []),
+                "domain_family_conflict": debug.get("domain_family_conflict"),
+                "shared_functional_traits": list(debug.get("shared_functional_traits") or []),
+                "pre_cap_risk_score": debug.get("pre_cap_risk_score"),
+                "post_cap_risk_score": debug.get("post_cap_risk_score"),
+                "applied_caps": list(debug.get("applied_caps") or []),
+            }
+        )
+    return payload
 
 
 def _user_visible_candidates(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -97,6 +116,52 @@ def _user_visible_candidates(candidates: Sequence[Mapping[str, Any]]) -> list[di
         for candidate in candidates
         if _clean_text((candidate.get("license_review") or {}).get("risk_level")) in USER_VISIBLE_REVIEW_LEVELS
     ]
+
+
+def _candidate_dedupe_key(candidate: Mapping[str, Any]) -> str:
+    chunk_id = _clean_text(candidate.get("chunk_id"))
+    if chunk_id:
+        return f"chunk:{chunk_id}"
+    repo_id = _clean_text(candidate.get("repo_id"))
+    file_path = _clean_text(candidate.get("file_path"))
+    symbol_name = _clean_text(candidate.get("symbol_name"))
+    return f"fallback:{repo_id}:{file_path}:{symbol_name}"
+
+
+def _dedupe_candidates_keep_best(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    deduped: dict[str, dict[str, Any]] = {}
+    for candidate in candidates:
+        normalized_candidate = dict(candidate)
+        key = _candidate_dedupe_key(normalized_candidate)
+        current = deduped.get(key)
+        if current is None:
+            deduped[key] = normalized_candidate
+            continue
+        current_review = dict(current.get("license_review") or {})
+        next_review = dict(normalized_candidate.get("license_review") or {})
+        current_level_rank = _REVIEW_LEVEL_RANK.get(_clean_text(current_review.get("risk_level")), 99)
+        next_level_rank = _REVIEW_LEVEL_RANK.get(_clean_text(next_review.get("risk_level")), 99)
+        current_score = float(current_review.get("risk_score") or 0.0)
+        next_score = float(next_review.get("risk_score") or 0.0)
+        current_source_count = len(list(current.get("retrieval_sources") or []))
+        next_source_count = len(list(normalized_candidate.get("retrieval_sources") or []))
+        if (
+            next_level_rank < current_level_rank
+            or (next_level_rank == current_level_rank and next_score > current_score)
+            or (
+                next_level_rank == current_level_rank
+                and next_score == current_score
+                and next_source_count > current_source_count
+            )
+        ):
+            deduped[key] = normalized_candidate
+    return list(deduped.values())
+
+
+def _finding_source_key(source_payload: Mapping[str, Any]) -> str:
+    file_path = _clean_text(source_payload.get("file_path"))
+    symbol_name = _clean_text(source_payload.get("symbol_name"))
+    return f"{file_path}::{symbol_name}"
 
 
 def _build_report_interpretation() -> dict[str, str]:
@@ -198,7 +263,7 @@ def build_user_facing_repo_hybrid_payload(
         for chunk in list(process_result.get("source_chunks") or [])
         if _clean_text(chunk.get("chunk_id"))
     }
-    findings: list[dict[str, Any]] = []
+    grouped_findings: dict[str, dict[str, Any]] = {}
     review_counts = {"critical": 0, "high": 0, "medium": 0}
     suppressed_low_priority_count = 0
 
@@ -209,33 +274,58 @@ def build_user_facing_repo_hybrid_payload(
         suppressed_low_priority_count += max(0, len(merged_candidates) - len(review_candidates))
         if not review_candidates:
             continue
+        source_payload = _compact_dict(
+            {
+                "file_path": _clean_text(chunk_result.get("file_path")),
+                "symbol_name": _clean_text(chunk_result.get("symbol_name")),
+                "raw_code": _clean_text(
+                    source_chunk_lookup.get(_clean_text(chunk_result.get("source_chunk_id")), {}).get("raw_code")
+                ),
+            }
+        )
+        source_key = _finding_source_key(source_payload)
+        entry = grouped_findings.setdefault(
+            source_key,
+            {
+                "source": source_payload,
+                "candidates": [],
+            },
+        )
+        entry["candidates"].extend(dict(candidate) for candidate in review_candidates)
 
-        for candidate in review_candidates:
+    findings: list[dict[str, Any]] = []
+    for entry in grouped_findings.values():
+        deduped_review_candidates = _dedupe_candidates_keep_best(entry["candidates"])
+        deduped_review_candidates.sort(
+            key=lambda candidate: (
+                _REVIEW_LEVEL_RANK.get(
+                    _clean_text((candidate.get("license_review") or {}).get("risk_level")),
+                    99,
+                ),
+                -float((candidate.get("license_review") or {}).get("risk_score") or 0.0),
+                -len(list(candidate.get("retrieval_sources") or [])),
+                _clean_text(candidate.get("file_path")),
+                _clean_text(candidate.get("symbol_name")),
+            )
+        )
+        for candidate in deduped_review_candidates:
             risk_level = _clean_text((candidate.get("license_review") or {}).get("risk_level"))
             if risk_level in review_counts:
                 review_counts[risk_level] += 1
 
-        displayed_candidates = review_candidates[: max(1, int(max_candidates_per_source))]
+        displayed_candidates = deduped_review_candidates[: max(1, int(max_candidates_per_source))]
         top_review = dict((displayed_candidates[0].get("license_review") or {}))
         findings.append(
             {
-                "source": _compact_dict(
-                    {
-                        "file_path": _clean_text(chunk_result.get("file_path")),
-                        "symbol_name": _clean_text(chunk_result.get("symbol_name")),
-                        "raw_code": _clean_text(
-                            source_chunk_lookup.get(_clean_text(chunk_result.get("source_chunk_id")), {}).get("raw_code")
-                        ),
-                    }
-                ),
+                "source": dict(entry["source"]),
                 "top_review_priority": _compact_dict(
                     {
                         "level": _clean_text(top_review.get("risk_level")),
                         "score": top_review.get("risk_score"),
                     }
                 ),
-                "review_candidate_count": len(review_candidates),
-                "additional_review_candidates": max(0, len(review_candidates) - len(displayed_candidates)),
+                "review_candidate_count": len(deduped_review_candidates),
+                "additional_review_candidates": max(0, len(deduped_review_candidates) - len(displayed_candidates)),
                 "candidates": [_user_candidate_payload(candidate) for candidate in displayed_candidates],
             }
         )

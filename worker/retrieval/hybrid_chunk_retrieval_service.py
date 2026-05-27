@@ -176,6 +176,7 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     risk_score = float(review.get("risk_score") or 0.0)
     retrieval_sources = list(candidate.get("retrieval_sources") or [])
     strongest_evidence_type = _clean_text(review.get("strongest_evidence_type"))
+    applied_caps: list[str] = []
     is_knn_only = retrieval_sources == ["knn"]
     is_rule_and_knn = set(retrieval_sources) == {"rule_based", "knn"}
     if len(retrieval_sources) >= 2:
@@ -264,17 +265,23 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     should_cap_rule_and_knn_anonymized = (
         is_rule_and_knn
         and strongest_evidence_type == "anonymized_code_match"
-        and (call_overlap_count < 3 or domain_family_conflict)
+        and call_overlap_count < 3
+        and not domain_family_overlap
     )
+
+    pre_cap_risk_score = risk_score
 
     if should_cap_knn_only_embedding_match:
         risk_score = min(risk_score, 0.59)
+        applied_caps.append("knn_only_embedding_match_low_cap")
 
     if should_cap_rule_and_knn_anonymized:
-        risk_score = min(risk_score, 0.79)
+        risk_score = min(risk_score, 0.59)
+        applied_caps.append("rule_and_knn_anonymized_low_cap")
 
     if is_structural_twin:
         risk_score = min(risk_score, 0.59)
+        applied_caps.append("structural_twin_low_cap")
 
     if strongest_evidence_type != "raw_hash_match" and domain_family_conflict:
         if candidate_primary_domain == "config_setter" and source_primary_domain != "config_setter":
@@ -302,7 +309,7 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
     if should_cap_knn_only_embedding_match:
         reasons.append("kNN-only embedding match is capped below medium until stronger lexical evidence is present.")
     if should_cap_rule_and_knn_anonymized:
-        reasons.append("Rule-based and kNN agreement on anonymized-code-only evidence is capped at medium.")
+        reasons.append("Rule-based and kNN agreement on anonymized-code-only evidence is capped below medium when call and domain support stay weak.")
     if is_structural_twin:
         reasons.append("Structural-twin pattern without direct call/domain evidence is capped below medium.")
     if license_spdx:
@@ -317,6 +324,20 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
         "license_spdx": license_spdx,
         "license_name": _clean_text(source_repo.get("license_name")),
         "reasons": reasons,
+        "debug": {
+            "retrieval_sources": retrieval_sources,
+            "support_category_count": support_category_count,
+            "call_token_overlap_count": call_overlap_count,
+            "identifier_term_overlap_count": identifier_overlap_count,
+            "operator_token_overlap_count": operator_overlap_count,
+            "domain_alignment_term_count": len(domain_alignment_terms),
+            "domain_family_overlap": domain_family_overlap,
+            "domain_family_conflict": domain_family_conflict,
+            "shared_functional_traits": shared_functional_traits,
+            "pre_cap_risk_score": round(pre_cap_risk_score, 4),
+            "post_cap_risk_score": round(risk_score, 4),
+            "applied_caps": applied_caps,
+        },
     }
 
 
