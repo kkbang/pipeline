@@ -255,10 +255,22 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
         )
     )
 
-    if is_knn_only and strongest_evidence_type == "embedding_knn_match":
+    should_cap_knn_only_embedding_match = (
+        is_knn_only
+        and strongest_evidence_type == "embedding_knn_match"
+        and call_overlap_count == 0
+        and identifier_overlap_count < 3
+    )
+    should_cap_rule_and_knn_anonymized = (
+        is_rule_and_knn
+        and strongest_evidence_type == "anonymized_code_match"
+        and (call_overlap_count < 3 or domain_family_conflict)
+    )
+
+    if should_cap_knn_only_embedding_match:
         risk_score = min(risk_score, 0.59)
 
-    if is_rule_and_knn and strongest_evidence_type == "anonymized_code_match":
+    if should_cap_rule_and_knn_anonymized:
         risk_score = min(risk_score, 0.79)
 
     if is_structural_twin:
@@ -287,9 +299,9 @@ def _build_hybrid_license_review(candidate: Mapping[str, Any]) -> dict[str, Any]
         reasons.append("Candidate matched in both rule-based retrieval and embedding kNN.")
     elif retrieval_sources == ["knn"] and strongest_evidence_type == "embedding_knn_match":
         reasons.append("Embedding-space kNN surfaced this candidate without a lexical rule-based hit.")
-    if is_knn_only and strongest_evidence_type == "embedding_knn_match":
+    if should_cap_knn_only_embedding_match:
         reasons.append("kNN-only embedding match is capped below medium until stronger lexical evidence is present.")
-    if is_rule_and_knn and strongest_evidence_type == "anonymized_code_match":
+    if should_cap_rule_and_knn_anonymized:
         reasons.append("Rule-based and kNN agreement on anonymized-code-only evidence is capped at medium.")
     if is_structural_twin:
         reasons.append("Structural-twin pattern without direct call/domain evidence is capped below medium.")
