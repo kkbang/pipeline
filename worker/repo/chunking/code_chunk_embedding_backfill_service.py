@@ -196,6 +196,71 @@ def has_pending_code_chunk_embedding_backfill_work(
     return False
 
 
+def count_pending_code_chunk_embedding_backfill_work(
+    *,
+    repo_id: str | None = None,
+    store: Any | None = None,
+) -> dict[str, Any]:
+    normalized_repo_id = _normalize_optional_text(repo_id)
+    resolved_store = store or OpenSearchHttpStore()
+    scan_size = _resolve_scan_size(None)
+
+    pending_by_language: dict[str, dict[str, int]] = {}
+    total_eligible_source_chunk_count = 0
+    total_pending_embedding_count = 0
+
+    for language in EMBEDDING_BACKFILL_ALLOWED_LANGUAGES:
+        query = _build_embedding_backfill_query(
+            repo_id=normalized_repo_id,
+            force_reembed=False,
+            language=language,
+        )
+        candidate_batch: list[tuple[str, dict[str, Any]]] = []
+        eligible_source_chunk_count = 0
+        pending_embedding_count = 0
+
+        for hit in resolved_store.iterate_documents_by_query(
+            collection_name=CODE_CHUNK_INDEX,
+            query=query,
+            size=scan_size,
+            source_includes=EMBEDDING_BACKFILL_SOURCE_FIELDS,
+        ):
+            doc_id = str(hit.get("_id") or "").strip()
+            if not doc_id:
+                continue
+            source = dict(hit.get("_source", {}))
+            if not _is_eligible_source_chunk(source):
+                continue
+            eligible_source_chunk_count += 1
+            candidate_batch.append((doc_id, source))
+            if len(candidate_batch) < scan_size:
+                continue
+            pending_embedding_count += len(_filter_missing_embedding_docs(resolved_store, candidate_batch))
+            candidate_batch.clear()
+
+        if candidate_batch:
+            pending_embedding_count += len(_filter_missing_embedding_docs(resolved_store, candidate_batch))
+
+        total_eligible_source_chunk_count += eligible_source_chunk_count
+        total_pending_embedding_count += pending_embedding_count
+        pending_by_language[language] = {
+            "eligible_source_chunk_count": eligible_source_chunk_count,
+            "pending_embedding_count": pending_embedding_count,
+        }
+
+    return {
+        "repo_id": normalized_repo_id,
+        "source_index": CODE_CHUNK_INDEX,
+        "embedding_index": CODE_CHUNK_EMBEDDING_INDEX,
+        "languages": list(EMBEDDING_BACKFILL_ALLOWED_LANGUAGES),
+        "scan_size": scan_size,
+        "total_eligible_source_chunk_count": total_eligible_source_chunk_count,
+        "total_pending_embedding_count": total_pending_embedding_count,
+        "has_pending": total_pending_embedding_count > 0,
+        "pending_by_language": pending_by_language,
+    }
+
+
 def should_continue_code_chunk_embedding_backfill_loop(
     *,
     backfill_result: dict[str, Any] | None,

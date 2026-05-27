@@ -9,6 +9,16 @@
 - 공개 repo를 provenance와 함께 안정적으로 수집
 - 수집한 repo를 file/chunk/feature 단위로 가공해서 OpenSearch에 적재
 
+## 한눈에 보기
+
+- 배치 파이프라인
+  - 공개 저장소를 수집하고, snapshot -> file -> chunk -> feature / embedding 순으로 가공합니다.
+- 온라인 retrieval API
+  - GitHub repo URL을 입력받아, 그 repo의 코드 청크와 유사한 외부 후보 코드를 검색합니다.
+- 결과의 의미
+  - 법적 위반 판정이 아니라 `license review candidate report`입니다.
+  - 즉 "검토가 필요한 유사 코드 후보"를 우선순위와 함께 보여주는 시스템입니다.
+
 장기적으로 의도하는 흐름은 아래와 같습니다.
 
 ```text
@@ -32,6 +42,23 @@ Seed Source
 - validation
 - 별도 embedding index backfill
 
+## 현재 포함 범위
+
+- seed source 수집과 GitHub repo 등록
+- repo snapshot 다운로드와 로컬 임시 보관
+- 텍스트 / 코드 파일 추출
+- tree-sitter 기반 청크 생성
+- 코드 normalization / anonymization / feature 생성
+- OpenSearch 인덱싱
+- 별도 embedding index backfill
+- repo URL 기반 hybrid retrieval API
+
+현재 포함되지 않는 것은 아래입니다.
+
+- 법적 의미의 infringement / derivation 자동 판정
+- 사용자 facing 최종 리뷰 UI 자체
+- 비동기 job queue 기반 대규모 온라인 분석 orchestration
+
 현재 결과물은 크게 세 층으로 나뉩니다.
 
 - repo registry
@@ -47,6 +74,26 @@ Seed Source
 - 유사 코드 후보를 어떤 기준으로 검토 우선순위화할지
 - 법적 의미의 위반 판정을 어떻게 분리할지
 
+## 요청 흐름
+
+현재 `POST /retrieve/hybrid/by-repo-url` 요청은 대략 아래 순서로 처리됩니다.
+
+```text
+GitHub repo URL 입력
+-> URL canonicalization / validation
+-> 임시 snapshot 다운로드
+-> 로컬 query repo chunking
+-> 10줄 이상 source chunk 전체 선택
+-> query chunk embedding precompute
+-> source chunk별 hybrid retrieval
+   -> rule-based search
+   -> kNN search
+   -> merge / license review candidate scoring
+-> 사용자용 report payload 조립
+```
+
+현재 timing 출력도 이 단계에 맞춰 노출됩니다.
+
 ## 현재 스택
 
 - Airflow
@@ -54,6 +101,7 @@ Seed Source
 - OpenSearch
 - OpenSearch Dashboards
 - Tor proxy
+- FastAPI retrieval API
 
 ## 시작 전 확인
 
@@ -87,6 +135,7 @@ docker compose ps
 - Airflow: `http://127.0.0.1:8080`
 - OpenSearch: `http://127.0.0.1:9200`
 - OpenSearch Dashboards: `http://127.0.0.1:5601`
+- Retrieval API: `http://127.0.0.1:18000`
 
 Airflow 기본 계정:
 
@@ -110,6 +159,12 @@ OpenSearch / Dashboards 설정을 바꿨을 때:
 
 ```bash
 docker compose up -d --force-recreate opensearch opensearch-dashboards
+```
+
+Retrieval API만 다시 올릴 때:
+
+```bash
+docker compose up -d --build --no-deps retrieval-api
 ```
 
 ## 핵심 DAG
@@ -159,7 +214,7 @@ docker compose exec airflow airflow dags trigger code_chunk_embedding_backfill_d
 
 - main chunk pipeline은 `code_chunk_index`에 chunk 문서를 저장합니다.
 - embedding backfill DAG는 별도 index인 `code_chunk_embedding_index_v1`에 저장합니다.
-- 현재 retrieval 경로는 별도 embedding index를 자동으로 읽지 않습니다. 필요하면 retrieval 쪽을 별도로 연결해야 합니다.
+- 현재 retrieval 경로는 query chunk 임베딩을 사용해 kNN을 시도하지만, corpus 쪽 separate embedding index를 직접 읽는 구조는 아닙니다. 필요하면 retrieval 쪽을 별도로 연결해야 합니다.
 
 ## 현재 retrieval API
 
@@ -173,7 +228,45 @@ FastAPI 모듈은 아래에 있습니다.
 
 이 API의 의미는 `violation detector`가 아니라 `license review candidate retrieval`입니다. 즉 결과는 법적 위반 판정이 아니라, 검토가 필요한 유사 코드 후보 목록입니다.
 
+응답의 핵심 구조는 아래와 같습니다.
+
+- `report_kind`
+- `interpretation`
+- `repo_id`, `repo_url`
+- `analyzed_source_count`
+- `summary`
+- `findings`
+- `timings`
+
+여기서:
+
+- `findings[].source`
+  - 요청한 repo의 source chunk
+- `findings[].candidates`
+  - 외부에서 검색된 유사 후보 chunk
+- `timings`
+  - download / chunk / retrieval / payload 단계 시간
+
+즉 source 코드가 응답에 포함되는 것은 정상이며, 그것은 "비교 기준"입니다.
+
 jump / proxy 서버에서 프론트와 API를 함께 붙일 때는 nginx reverse proxy를 두고 브라우저에서는 same-origin `/api/...`만 호출하는 구성이 가장 단순합니다. 예시 설정은 [jump_frontend_proxy.conf](/Users/xxuchan/Desktop/kkbang/infra/nginx/jump_frontend_proxy.conf)에 있습니다. 이 설정은 jump 서버의 `127.0.0.1:5173` 프론트를 프록시하고, `/api/`는 `ngseo-ubuntu:18000`으로 넘기면서 nginx 앞단 rate limit도 같이 적용합니다.
+
+## 현재 운영 가드레일
+
+- API middleware 동시 처리 제한
+- API middleware rate limit
+- request body size 제한
+- 기본 보안 헤더 부여
+- GitHub canonical URL 검증
+- jump nginx 앞단 rate limit 예시 제공
+
+다만 아래는 아직 더 보강할 여지가 있습니다.
+
+- 인증 / API key
+- restrictive CORS 운영값
+- async job queue 기반 대용량 요청 처리
+- retrieval 결과 캐시
+- separate embedding index를 직접 읽는 retrieval 경로
 
 ## 참고 문서
 

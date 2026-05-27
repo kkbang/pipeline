@@ -281,6 +281,37 @@ class OpenSearchHttpStore:
                     existing_ids.add(doc_id)
         return existing_ids
 
+    def get_documents_by_ids(
+        self,
+        collection_name: str,
+        doc_ids: list[str],
+        *,
+        source_includes: list[str] | None = None,
+    ) -> dict[str, dict[str, Any] | None]:
+        normalized_ids = [str(doc_id).strip() for doc_id in doc_ids if str(doc_id).strip()]
+        if not normalized_ids:
+            return {}
+
+        body: dict[str, Any] = {"ids": normalized_ids}
+        if source_includes is not None:
+            body["_source"] = source_includes
+
+        result = self._request(
+            method="POST",
+            path=f"/{collection_name}/_mget",
+            json_body=body,
+        )
+        resolved_docs: dict[str, dict[str, Any] | None] = {}
+        for doc in result.get("docs") or []:
+            doc_id = str(doc.get("_id") or "").strip()
+            if not doc_id:
+                continue
+            if doc.get("found"):
+                resolved_docs[doc_id] = dict(doc)
+            else:
+                resolved_docs[doc_id] = None
+        return resolved_docs
+
     def bulk_upsert_documents(
         self,
         collection_name: str,
